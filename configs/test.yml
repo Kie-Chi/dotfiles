@@ -1,0 +1,119 @@
+meta:
+  name: "Chi Setup"
+  ver: "1.0.0"
+
+vars:
+  email: "137579437@qq.com"
+  username: "Kie-Chi"
+  home: "/home/chi" 
+  conda_path: "{{.vars.home}}/miniconda3"
+  omz_path: "{{.vars.home}}/.oh-my-zsh"
+
+# My Package List
+pkgs:
+  - git
+  - curl
+  - wget
+  - zsh
+  - tmux
+  - vim
+  - htop
+  - unzip
+  - name: build-essential
+    manager: apt
+    ignore: true  # 非 Debian/Ubuntu 系统可忽略
+
+  # Docker
+  - name: docker
+    check: "docker --version"
+    exec: |
+      curl -fsSL https://get.docker.com | sh
+    post: |
+      # 允许当前用户不加 sudo 使用 docker
+      sudo usermod -aG docker $USER || true
+      sudo systemctl enable docker || true
+      sudo systemctl start docker || true
+
+  # Miniconda
+  - name: miniconda
+    check: "{{.vars.conda_path}}/bin/conda --version"
+    pre: "mkdir -p /tmp/conda_install"
+    exec: |
+      wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/mc.sh
+      bash /tmp/mc.sh -b -u -p {{.vars.conda_path}}
+    post: |
+      # 初始化 Shell
+      {{.vars.conda_path}}/bin/conda init zsh
+      {{.vars.conda_path}}/bin/conda config --set auto_activate_base false
+
+  # Oh-My-Zsh
+  - name: oh-my-zsh
+    deps: [git, zsh]
+    check: "[ -d {{.vars.omz_path}} ]"
+    exec: "git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git {{.vars.omz_path}}"
+
+  # Zsh Autosuggestions
+  - name: zsh-autosuggestions
+    deps: [oh-my-zsh]
+    check: "[ -d {{.vars.omz_path}}/custom/plugins/zsh-autosuggestions ]"
+    exec: "git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions {{.vars.omz_path}}/custom/plugins/zsh-autosuggestions"
+
+  # Zsh Syntax Highlighting
+  - name: zsh-syntax-highlighting
+    deps: [oh-my-zsh]
+    check: "[ -d {{.vars.omz_path}}/custom/plugins/zsh-syntax-highlighting ]"
+    exec: "git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git {{.vars.omz_path}}/custom/plugins/zsh-syntax-highlighting"
+
+  # Powerlevel10k
+  - name: p10k
+    deps: [oh-my-zsh]
+    check: "[ -d {{.vars.omz_path}}/custom/themes/powerlevel10k ]"
+    exec: "git clone --depth=1 https://github.com/romkatv/powerlevel10k.git {{.vars.omz_path}}/custom/themes/powerlevel10k"
+
+  # Vim Vundle & Plugins
+  - name: vundle
+    deps: [git, vim]
+    check: "[ -d {{.vars.home}}/.vim/bundle/Vundle.vim ]"
+    exec: "git clone https://github.com/VundleVim/Vundle.vim.git {{.vars.home}}/.vim/bundle/Vundle.vim"
+
+  # Vim Plugins
+  - name: vim-plugins
+    deps: [vundle]
+    # 检查 bundle 目录下是否有除了 Vundle 以外的文件夹，简单判断是否安装过插件
+    check: "[ $(ls -A {{.vars.home}}/.vim/bundle | grep -v Vundle.vim | wc -l) -gt 0 ]"
+    exec: "vim +PluginInstall +qall"
+
+
+files:
+  - src: "conf/gitconfig.tpl"
+    dest: "{{.vars.home}}/.gitconfig"
+    tpl: true
+    force: true
+
+  - src: "conf/zshrc"
+    dest: "{{.vars.home}}/.zshrc"
+    force: true
+
+  - src: "conf/p10k.zsh"
+    dest: "{{.vars.home}}/.p10k.zsh"
+    force: true
+
+  - src: "conf/vimrc"
+    dest: "{{.vars.home}}/.vimrc"
+    force: true
+
+tasks:
+  - id: change_shell
+    deps: [zsh, oh-my-zsh]
+    # 检查当前用户的 shell 是否已经是 zsh
+    check: '[ "$SHELL" = "$(which zsh)" ]'
+    on: 
+      fail: run
+    run: "sudo chsh -s $(which zsh) $USER"
+  - id: ghost_test
+    deps: [ghost_deps]
+    check: "[ -d {{.vars.home}}/.ghost ]"
+    exec: "git clone --depth=1 https://github.com/ghost-cli/ghost-cli.git {{.vars.home}}/.ghost"
+  - id: welcome_msg
+    deps: [p10k, vim-plugins]
+    run: "echo '🎉 Environment Setup for Kie-Chi Complete! Please relogin.'"
