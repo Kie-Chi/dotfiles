@@ -8,6 +8,8 @@ vars:
   home: "/home/chi" 
   conda_path: "{{.vars.home}}/miniconda3"
   omz_path: "{{.vars.home}}/.oh-my-zsh"
+  maple_ver: "v7.8"
+  font_size_gnome: "13"
 
 # My Package List
 pkgs:
@@ -22,6 +24,7 @@ pkgs:
   - openssh-server
   - ssh
   - tilix
+  - fontconfig
   - name: build-essential
     manager: apt
     ignore: true  # 非 Debian/Ubuntu 系统可忽略
@@ -118,7 +121,7 @@ tasks:
     deps: [p10k, vim-plugins]
     run: "echo '🎉 Environment Setup for Kie-Chi Complete! Please relogin.'"
 
-  - id: shortcut_tilix_quake
+  - id: tilix_quake
     deps: [tilix]
     check: |
       gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/ command | grep -Fq "'tilix --quake'" && \
@@ -142,7 +145,7 @@ tasks:
         gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
       fi
 
-  - id: shortcut_tilix_normal
+  - id: tilix_normal
     deps: [tilix]
     check: |
       gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/ command | grep -Fq "'tilix'" && \
@@ -165,7 +168,7 @@ tasks:
         fi
         gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
       fi
-  - id: generate_ssh_key
+  - id: ssh_key
     deps: [git]
     check: "[ -f {{.vars.home}}/.ssh/id_ed25519 ]"
     run: |
@@ -235,3 +238,29 @@ tasks:
       EOF
       sudo apt-get update
       sudo apt-get install -y firefox
+
+  - id: maple_mono
+    deps: [wget, unzip, fontconfig]
+    check: "fc-list | grep -i 'Maple Mono NF CN'"
+    run: |
+      echo "Installing Maple Mono NF CN {{.vars.maple_ver}}..."
+      mkdir -p ~/.local/share/fonts/maple
+      wget "https://github.com/subframe7536/Maple-font/releases/download/{{.vars.maple_ver}}/MapleMono-NF-CN.zip" -O /tmp/maple.zip
+      unzip -o /tmp/maple.zip -d /tmp/maple_ext
+      find /tmp/maple_ext -name "*MapleMono-NF-CN*.ttf" -exec cp {} ~/.local/share/fonts/maple/ \;
+
+      rm -rf /tmp/maple.zip /tmp/maple_ext
+      fc-cache -fv
+      echo "Font installed."
+
+  - id: gnome_maple
+    deps: [maple_mono]
+    check: |
+      CURRENT=$(gsettings get org.gnome.desktop.interface monospace-font-name)
+      [ "$CURRENT" = "'Maple Mono NF CN {{.vars.font_size_gnome}}'" ]
+    run: |
+      SIZE="{{.vars.font_size_gnome}}"
+      echo "Setting GNOME Monospace to size $SIZE..."
+      gsettings set org.gnome.desktop.interface monospace-font-name "Maple Mono NF CN $SIZE" 
+  # - id: pinyin
+  #
