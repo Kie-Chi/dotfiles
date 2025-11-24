@@ -165,3 +165,73 @@ tasks:
         fi
         gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
       fi
+  - id: generate_ssh_key
+    deps: [git]
+    check: "[ -f {{.vars.home}}/.ssh/id_ed25519 ]"
+    run: |
+      echo "Generating SSH Key for {{.vars.email}}..."
+      mkdir -p {{.vars.home}}/.ssh
+      chmod 700 {{.vars.home}}/.ssh
+      ssh-keygen -t ed25519 -C "{{.vars.email}}" -f {{.vars.home}}/.ssh/id_ed25519 -N ""
+
+      eval "$(ssh-agent -s)"
+      ssh-add {{.vars.home}}/.ssh/id_ed25519
+
+      echo "--------------------------------------------------------"
+      echo "PUBLIC KEY GENERATED:"
+      echo "--------------------------------------------------------"
+      cat {{.vars.home}}/.ssh/id_ed25519.pub
+      echo "--------------------------------------------------------"
+
+  - id: remove_snap
+    check: "! command -v snap"
+    run: |
+      echo "Starting Snap Removal..."
+      if command -v snap &> /dev/null; then
+          echo "Removing installed snaps (This may take a while)..."
+          
+          for i in {1..3}; do
+              LANG=C snap list | awk 'NR>1 {print $1}' | while read -r snapname; do
+                  sudo snap remove --purge "$snapname" 2>/dev/null || true
+              done
+          done
+      fi
+
+      echo "All user snaps removed. Stopping services..."
+
+      sudo systemctl stop snapd.socket || true
+      sudo systemctl stop snapd.service || true
+      sudo systemctl disable snapd.socket || true
+      sudo systemctl disable snapd.service || true
+      
+      echo "Purging snapd via APT..."
+      sudo apt-get autoremove --purge -y snapd gnome-software-plugin-snap
+      
+      rm -rf ~/snap
+      sudo rm -rf /var/cache/snapd
+      sudo rm -rf /var/lib/snapd
+      
+      echo "Snap Removed Successfully." 
+  - id: block_snap
+    deps: [remove_snap]
+    check: "[ -f /etc/apt/preferences.d/nosnap.pref ]"
+    run: |
+      echo "Blocking Snap re-installation..."
+      cat <<EOF | sudo tee /etc/apt/preferences.d/nosnap.pref
+      Package: snapd
+      Pin: release a=*
+      Pin-Priority: -1
+      EOF
+      echo "Snap is now blocked via APT pinning."
+  - id: firefox
+    deps: [block_snap]
+    check: "dpkg -l | grep firefox | grep -v snap"
+    run: |
+      sudo add-apt-repository -y ppa:mozillateam/ppa
+      cat <<EOF | sudo tee /etc/apt/preferences.d/mozilla-firefox
+      Package: *
+      Pin: release o=LP-PPA-mozillateam
+      Pin-Priority: 1001
+      EOF
+      sudo apt-get update
+      sudo apt-get install -y firefox
