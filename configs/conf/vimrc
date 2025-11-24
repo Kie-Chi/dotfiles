@@ -279,7 +279,7 @@ syntax on
 call vundle#begin()
 Plugin 'VundleVim/Vundle.vim'
 Plugin 'scrooloose/nerdtree'               " 文件树
-Plugin 'Valloric/YouCompleteMe'                        " 代码提示补全插件
+"Plugin 'Valloric/YouCompleteMe'                        " 代码提示补全插件
 Plugin 'sickill/vim-monokai'               " monokai主题
 Plugin 'vim-airline/vim-airline'           " 美化状态栏
 Plugin 'vim-airline/vim-airline-themes'    " 设置ailine

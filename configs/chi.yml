@@ -19,6 +19,9 @@ pkgs:
   - vim
   - htop
   - unzip
+  - openssh-server
+  - ssh
+  - tilix
   - name: build-essential
     manager: apt
     ignore: true  # 非 Debian/Ubuntu 系统可忽略
@@ -33,6 +36,7 @@ pkgs:
       sudo usermod -aG docker $USER || true
       sudo systemctl enable docker || true
       sudo systemctl start docker || true
+    deps: [curl]
 
   # Miniconda
   - name: miniconda
@@ -45,7 +49,7 @@ pkgs:
       # 初始化 Shell
       {{.vars.conda_path}}/bin/conda init zsh
       {{.vars.conda_path}}/bin/conda config --set auto_activate_base false
-
+    deps: [wget, curl]
   # Oh-My-Zsh
   - name: oh-my-zsh
     deps: [git, zsh]
@@ -105,7 +109,6 @@ files:
 tasks:
   - id: change_shell
     deps: [zsh, oh-my-zsh]
-    # 检查当前用户的 shell 是否已经是 zsh
     check: '[ "$SHELL" = "$(which zsh)" ]'
     on: 
       fail: run
@@ -114,3 +117,51 @@ tasks:
   - id: welcome_msg
     deps: [p10k, vim-plugins]
     run: "echo '🎉 Environment Setup for Kie-Chi Complete! Please relogin.'"
+
+  - id: shortcut_tilix_quake
+    deps: [tilix]
+    check: |
+      gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/ command | grep -Fq "'tilix --quake'" && \
+      gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-quake"
+    run: |
+      SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/"
+
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Tilix Quake"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "tilix --quake"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "F12"
+
+      CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
+
+      if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
+        if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
+           NEW_LIST="['$KEY_PATH']"
+        else
+           NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
+        fi
+        gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
+      fi
+
+  - id: shortcut_tilix_normal
+    deps: [tilix]
+    check: |
+      gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/ command | grep -Fq "'tilix'" && \
+      gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-normal"
+    run: |
+      SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/"
+
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Tilix"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "tilix"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "<Control><Alt>t"
+
+      CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
+
+      if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
+        if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
+           NEW_LIST="['$KEY_PATH']"
+        else
+           NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
+        fi
+        gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
+      fi
