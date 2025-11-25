@@ -5,11 +5,12 @@ meta:
 vars:
   email: "137579437@qq.com"
   username: "Kie-Chi"
-  home: "/home/chi" 
   conda_path: "{{.vars.home}}/miniconda3"
   omz_path: "{{.vars.home}}/.oh-my-zsh"
   maple_ver: "v7.8"
-  font_size_gnome: "13"
+  font_size_gnome: "11"
+  tilix_theme_name: "Dracula"
+  tilix_theme_url: "https://raw.githubusercontent.com/dracula/tilix/master/Dracula.json"
 
 # My Package List
 pkgs:
@@ -25,10 +26,17 @@ pkgs:
   - ssh
   - tilix
   - fontconfig
+  - jq
+  - name: xclip
+    ignore: true
+  - name: xsel
+    ignore: true
   - name: build-essential
     manager: apt
     ignore: true  # 非 Debian/Ubuntu 系统可忽略
-
+  - name: dconf-cli
+    manager: apt
+    ignore: true  # 非 Debian/Ubuntu 系统可忽略
   # Docker
   - name: docker
     check: "docker --version"
@@ -90,39 +98,72 @@ pkgs:
     check: "[ $(ls -A {{.vars.home}}/.vim/bundle | grep -v Vundle.vim | wc -l) -gt 0 ]"
     exec: "vim +PluginInstall +qall"
 
+  - name: fcitx
+    map:
+      pacman: fcitx5-im fcitx5-rime fcitx5-configtool fcitx5-chinese-addons
+      dnf: fcitx5 fcitx5-rime fcitx5-configtool fcitx5-autostart
+      apt: fcitx5 fcitx5-rime fcitx5-config-qt fcitx5-frontend-gtk2 fcitx5-frontend-gtk3 fcitx5-frontend-qt5
+      def: fcitx5 fcitx5-rime fcitx5-config-qt
 
 files:
-  - src: "conf/gitconfig.tpl"
+  - id: gitconfig
+    src: "conf/gitconfig.tpl"
     dest: "{{.vars.home}}/.gitconfig"
     tpl: true
-    force: true
+    override: true
 
-  - src: "conf/zshrc"
+  - id: zshrc
+    src: "conf/zshrc"
     dest: "{{.vars.home}}/.zshrc"
-    force: true
+    override: true
+    deps: [zsh]
+  
+  - id: zshrc-fcitx5
+    src: "conf/fcitx5.zsh"
+    dest: "{{.vars.home}}/.zshrc"
+    append: true
+    deps: [zshrc]
+  
+  - id: fcitx-profile
+    src: "conf/fcitx5_profile"
+    dest: "{{.vars.home}}/.config/fcitx5/profile"
+    deps: [fcitx]
+    override: true
+    check: "test ! -f {{.vars.home}}/.config/fcitx5/profile || ! grep -q 'Name=rime' {{.vars.home}}/.config/fcitx5/profile"
+
+  - id: fcitx-ui
+    src: "conf/fcitx5_ui.conf"
+    dest: "{{.vars.home}}/.config/fcitx5/conf/classicui.conf"
+    deps: [fcitx]
+    override: true
+  
+  - src: "conf/rime.yaml"
+    dest: "~/.local/share/fcitx5/rime/default.custom.yaml"
+    deps: [fcitx]
+    override: true
 
   - src: "conf/p10k.zsh"
     dest: "{{.vars.home}}/.p10k.zsh"
-    force: true
+    override: true
 
   - src: "conf/vimrc"
     dest: "{{.vars.home}}/.vimrc"
-    force: true
+    override: true
 
 tasks:
-  - id: change_shell
+  - id: zsh-shell
     deps: [zsh, oh-my-zsh]
     check: '[ "$SHELL" = "$(which zsh)" ]'
     on: 
       fail: run
-    run: "sudo chsh -s $(which zsh) $USER"
+    run: "sudo chsh -s $(which zsh) {{.vars.user}}"
 
-  - id: welcome_msg
+  - id: welcome-msg
     deps: [p10k, vim-plugins]
     run: "echo '🎉 Environment Setup for Kie-Chi Complete! Please relogin.'"
 
-  - id: tilix_quake
-    deps: [tilix]
+  - id: tilix-quake
+    deps: [init-tilix]
     check: |
       gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/ command | grep -Fq "'tilix --quake'" && \
       gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-quake"
@@ -145,8 +186,8 @@ tasks:
         gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
       fi
 
-  - id: tilix_normal
-    deps: [tilix]
+  - id: tilix-norm
+    deps: [init-tilix]
     check: |
       gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/ command | grep -Fq "'tilix'" && \
       gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-normal"
@@ -168,7 +209,7 @@ tasks:
         fi
         gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
       fi
-  - id: ssh_key
+  - id: ssh-key
     deps: [git]
     check: "[ -f {{.vars.home}}/.ssh/id_ed25519 ]"
     run: |
@@ -186,7 +227,7 @@ tasks:
       cat {{.vars.home}}/.ssh/id_ed25519.pub
       echo "--------------------------------------------------------"
 
-  - id: remove_snap
+  - id: remove-snap
     check: "! command -v snap"
     run: |
       echo "Starting Snap Removal..."
@@ -210,13 +251,13 @@ tasks:
       echo "Purging snapd via APT..."
       sudo apt-get autoremove --purge -y snapd gnome-software-plugin-snap
       
-      rm -rf ~/snap
+      rm -rf {{.vars.home}}/snap
       sudo rm -rf /var/cache/snapd
       sudo rm -rf /var/lib/snapd
       
       echo "Snap Removed Successfully." 
-  - id: block_snap
-    deps: [remove_snap]
+  - id: block-snap
+    deps: [remove-snap]
     check: "[ -f /etc/apt/preferences.d/nosnap.pref ]"
     run: |
       echo "Blocking Snap re-installation..."
@@ -227,7 +268,7 @@ tasks:
       EOF
       echo "Snap is now blocked via APT pinning."
   - id: firefox
-    deps: [block_snap]
+    deps: [block-snap]
     check: "dpkg -l | grep firefox | grep -v snap"
     run: |
       sudo add-apt-repository -y ppa:mozillateam/ppa
@@ -239,22 +280,22 @@ tasks:
       sudo apt-get update
       sudo apt-get install -y firefox
 
-  - id: maple_mono
+  - id: maple-mono
     deps: [wget, unzip, fontconfig]
     check: "fc-list | grep -i 'Maple Mono NF CN'"
     run: |
       echo "Installing Maple Mono NF CN {{.vars.maple_ver}}..."
-      mkdir -p ~/.local/share/fonts/maple
+      mkdir -p {{.vars.home}}/.local/share/fonts/maple
       wget "https://github.com/subframe7536/Maple-font/releases/download/{{.vars.maple_ver}}/MapleMono-NF-CN.zip" -O /tmp/maple.zip
       unzip -o /tmp/maple.zip -d /tmp/maple_ext
-      find /tmp/maple_ext -name "*MapleMono-NF-CN*.ttf" -exec cp {} ~/.local/share/fonts/maple/ \;
+      find /tmp/maple_ext -name "*MapleMono-NF-CN*.ttf" -exec cp {} {{.vars.home}}/.local/share/fonts/maple/ \;
 
       rm -rf /tmp/maple.zip /tmp/maple_ext
       fc-cache -fv
       echo "Font installed."
 
-  - id: gnome_maple
-    deps: [maple_mono]
+  - id: gnome-maple
+    deps: [maple-mono]
     check: |
       CURRENT=$(gsettings get org.gnome.desktop.interface monospace-font-name)
       [ "$CURRENT" = "'Maple Mono NF CN {{.vars.font_size_gnome}}'" ]
@@ -262,5 +303,160 @@ tasks:
       SIZE="{{.vars.font_size_gnome}}"
       echo "Setting GNOME Monospace to size $SIZE..."
       gsettings set org.gnome.desktop.interface monospace-font-name "Maple Mono NF CN $SIZE" 
-  # - id: pinyin
-  #
+  
+  - id: sunshine
+    deps: [curl, wget] 
+    check: "command -v sunshine"
+    run: |
+      echo "Installing Sunshine..."
+
+      if command -v apt-get >/dev/null; then
+        echo "Detected Debian/Ubuntu..."
+        
+        if [ -f /etc/apt/sources.list.d/sunshine.list ]; then
+           echo "Removing broken Sunshine apt source..."
+           sudo rm -f /etc/apt/sources.list.d/sunshine.list
+           sudo apt-get update -qq 
+        fi
+
+        OS_NAME=$(lsb_release -is | tr '[:upper:]' '[:lower:]') # 例如: ubuntu
+        OS_VERSION=$(lsb_release -rs)
+        ARCH=$(dpkg --print-architecture)
+        echo "Install for $OS_NAME:$OS_VERSION@$ARCH" 
+        echo "Looking for Sunshine release for: $OS_NAME-$OS_VERSION ($ARCH)"
+
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/LizardByte/Sunshine/releases/latest \
+            | grep "browser_download_url" \
+            | grep ".deb" \
+            | grep -i "${OS_NAME}-${OS_VERSION}-${ARCH}" \
+            | cut -d '"' -f 4)
+
+        if [ -z "$DOWNLOAD_URL" ]; then
+            echo "Error: Could not auto-detect a compatible .deb package for your system."
+            echo "Please install manually from https://github.com/LizardByte/Sunshine/releases"
+            exit 1
+        fi
+
+        echo "Downloading: $DOWNLOAD_URL"
+        wget -O /tmp/sunshine_install.deb "$DOWNLOAD_URL"
+        echo "Installing .deb package..."
+        sudo apt-get install -y /tmp/sunshine_install.deb
+        rm -f /tmp/sunshine_install.deb
+
+      elif command -v pacman >/dev/null; then
+        echo "Detected Arch Linux..."
+        if command -v yay >/dev/null; then
+           yay -S --noconfirm sunshine
+        else
+           sudo pacman -S --noconfirm sunshine
+        fi
+      fi
+
+      echo "Enabling Sunshine service..."
+      systemctl --user daemon-reload
+      systemctl --user enable sunshine
+      systemctl --user start sunshine
+
+      echo "Sunshine installed. Access it via https://localhost:47990"
+
+  - id: zsh-copydir
+    deps: [oh-my-zsh]
+    check: "[ -f {{.vars.omz_path}}/custom/plugins/copydir/copydir.plugin.zsh ]"
+    run: |
+      echo "Installing copydir plugin to custom directory..."
+      mkdir -p {{.vars.omz_path}}/custom/plugins/copydir
+
+      wget https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/plugins/copypath/copypath.plugin.zsh \
+        -O {{.vars.omz_path}}/custom/plugins/copydir/copydir.plugin.zsh
+
+      echo "Done. Please ensure 'copypath' is in your .zshrc plugins list."
+
+  - id: init-fcitx
+    deps: [fcitx, fix-rime, fcitx-profile, fcitx-ui]
+    check: "pgrep fcitx5 > /dev/null"
+    on:
+      fail: run
+    run: |
+      if command -v im-config >/dev/null; then
+        sudo im-config -n fcitx5
+      fi
+      
+      killall ibus-daemon || true
+      killall fcitx5 || true
+      nohup fcitx5 -d --replace > /dev/null 2>&1 &
+      sleep 2
+      echo "Fcitx5 started."
+  
+  - id: init-tilix
+    deps: [dconf-cli]
+    check: "[ -n \"$(dconf read /com/gexperts/Tilix/default-profile)\" ]"
+    run: |
+      echo "Initializing Tilix configuration manually..."
+      EXISTING_ID=$(dconf list /com/gexperts/Tilix/profiles/ | head -n1 | tr -d "/")
+
+      if [ -n "$EXISTING_ID" ]; then
+        echo "Found existing profile: $EXISTING_ID"
+        FINAL_UUID="$EXISTING_ID"
+      else
+        echo "No existing profile found. Generating new UUID..."
+        FINAL_UUID="2b7c4080-0ddd-46c5-8f23-563fd3ba789d"
+        dconf write "/com/gexperts/Tilix/profiles/$FINAL_UUID/visible-name" "'Default'"
+        dconf write "/com/gexperts/Tilix/profiles/$FINAL_UUID/automatic-switch-profile" "false"
+      fi
+      echo "Setting default profile to: $FINAL_UUID"
+      dconf write /com/gexperts/Tilix/default-profile "'$FINAL_UUID'"
+  
+  - id: tilix-theme-dracula
+    deps: [wget, dconf-cli, jq]
+    check: |
+      PROFILE=$(dconf read /com/gexperts/Tilix/default-profile | tr -d "'")
+      NAME=$(dconf read /com/gexperts/Tilix/profiles/$PROFILE/visible-name | tr -d "'")
+      BG=$(dconf read "/com/gexperts/Tilix/profiles/$PROFILE/background-color" | tr -d "'")
+      echo "[tilix-theme-dracula]@Check for $PROFILE $NAME" > /dev/tty
+      [ "$BG" = "#282936" ]
+    run: |
+      echo "Manually injecting Dracula theme colors..."
+
+      mkdir -p /tmp/tilix_theme
+      wget -qO /tmp/tilix_theme/Dracula.json "https://raw.githubusercontent.com/dracula/tilix/master/Dracula.json"
+      JSON_FILE="/tmp/tilix_theme/Dracula.json"
+
+      PROFILE_ID=$(dconf read /com/gexperts/Tilix/default-profile | tr -d "'")
+      if [ -z "$PROFILE_ID" ]; then echo "Error: No Profile ID found."; exit 1; fi
+
+      BASE_PATH="/com/gexperts/Tilix/profiles/$PROFILE_ID"
+      echo "Target Profile: $PROFILE_ID"
+
+      BG_COLOR="'$(jq -r '.["background-color"]' $JSON_FILE)'"
+      FG_COLOR="'$(jq -r '.["foreground-color"]' $JSON_FILE)'"
+      CURSOR_COLOR="'$(jq -r '.["cursor-background-color"]' $JSON_FILE)'"
+
+      echo "Setting Background: $BG_COLOR"
+      dconf write "$BASE_PATH/background-color" "$BG_COLOR"
+      dconf write "$BASE_PATH/foreground-color" "$FG_COLOR"
+      dconf write "$BASE_PATH/cursor-background-color" "$CURSOR_COLOR"
+
+      PALETTE_STR=$(jq -c '.palette' $JSON_FILE | sed "s/\"/'/g")
+
+      echo "Setting Palette..."
+      dconf write "$BASE_PATH/palette" "$PALETTE_STR"
+
+      dconf write "$BASE_PATH/use-theme-colors" "false"
+      rm -rf /tmp/tilix_theme
+      echo "Dracula theme injection complete!"
+ 
+
+  - id: fix-rime
+    deps: [fcitx]
+    check: "[ -f {{.vars.home}}/.local/share/fcitx5/rime/luna_pinyin.schema.yaml ]"
+    run: |
+      echo "Copying system Rime data..."
+      if [ -d /usr/share/rime-data ]; then
+        cp -r /usr/share/rime-data/* {{.vars.home}}/.local/share/fcitx5/rime/
+      elif [ -d /usr/share/rime-data ]; then
+         cp -r /usr/share/rime-data/* {{.vars.home}}/.local/share/fcitx5/rime/
+      fi
+  - id: use-fcitx
+    deps: [fcitx]
+    check: "[ -f {{.vars.home}}/.config/autostart/org.fcitx.Fcitx5.desktop ]"
+    run: "mkdir -p {{.vars.home}}/.config/autostart && cp /usr/share/applications/org.fcitx.Fcitx5.desktop {{.vars.home}}/.config/autostart/"
