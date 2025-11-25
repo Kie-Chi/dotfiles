@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Snipaste
+Comment=Snipaste Screenshot Tool
+Exec={{.vars.home}}/.local/bin/snipaste
+Icon=snipaste
+StartupNotify=false
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true

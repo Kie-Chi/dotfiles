@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=WeChat
+Comment=WeChat Desktop
+Exec=/usr/bin/wechat
+Icon=wechat
+StartupNotify=false
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true

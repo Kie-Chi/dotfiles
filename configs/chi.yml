@@ -11,6 +11,8 @@ vars:
   font_size_gnome: "11"
   tilix_theme_name: "Dracula"
   tilix_theme_url: "https://raw.githubusercontent.com/dracula/tilix/master/Dracula.json"
+  wechat_url: "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb"
+  snipaste_url: "https://dl.snipaste.com/linux"
 
 # My Package List
 pkgs:
@@ -27,6 +29,9 @@ pkgs:
   - tilix
   - fontconfig
   - jq
+  - name: libfuse2
+    manager: apt
+    ignore: true
   - name: apt-transport-https
     manager: apt
     ignore: true
@@ -152,6 +157,16 @@ files:
   - src: "conf/vimrc"
     dest: "{{.vars.home}}/.vimrc"
     override: true
+
+  - src: "conf/wechat.desktop"
+    dest: "{{.vars.home}}/.config/autostart/wechat.desktop"
+    tpl: true
+    deps: [wechat]
+  
+  - src: "conf/snipaste.desktop"
+    dest: "{{.vars.home}}/.config/autostart/snipaste.desktop"
+    tpl: true
+    deps: [snipaste]
 
 tasks:
   - id: zsh-shell
@@ -496,3 +511,22 @@ tasks:
         fi
       fi
       echo "VS Code installation complete."
+
+  - id: wechat
+    check: "dpkg -s wechat || dpkg -s com.tencent.wechat"
+    run: |
+      echo "Downloading WeChat..."
+      curl -L -o /tmp/wechat.deb {{.vars.wechat_url}}
+      echo "Installing WeChat..."
+      sudo apt-get install -y /tmp/wechat.deb
+      rm /tmp/wechat.deb 
+
+  - id: snipaste
+    deps: [libfuse2]
+    check: "test -f {{.vars.home}}/.local/bin/snipaste"
+    run: |
+      mkdir -p {{.vars.home}}/.local/bin
+      echo "Downloading Snipaste..."
+      curl -L -o {{.vars.home}}/.local/bin/snipaste {{.vars.snipaste_url}}
+      chmod +x {{.vars.home}}/.local/bin/snipaste
+      echo "Snipaste installed to ~/.local/bin/snipaste"
