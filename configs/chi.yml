@@ -216,6 +216,12 @@ files:
     deps: [snipaste]
     check: '[ "{{.vars.profile}}" != "desktop" ] || [ -f "{{.vars.home}}/.config/autostart/snipaste.desktop" ]'
 
+  - id: ssh-config
+    src: "conf/ssh_config"
+    dest: "{{.vars.home}}/.ssh/config"
+    deps: [ssh-key]
+    override: true
+
 tasks:
   - id: zsh-shell
     deps: [zsh, oh-my-zsh]
