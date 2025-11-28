@@ -3,6 +3,7 @@ meta:
   ver: "1.0.0"
 
 vars:
+  profile: "desktop"
   email: "137579437@qq.com"
   username: "Kie-Chi"
   conda_path: "{{.vars.home}}/miniconda3"
@@ -26,13 +27,19 @@ pkgs:
   - unzip
   - openssh-server
   - ssh
-  - tilix
-  - fontconfig
+  - name: tilix
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+  - name: fontconfig
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
   - jq
+  - name: pavucontrol
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
   - name: libfuse2
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
     manager: apt
     ignore: true
   - name: apt-transport-https
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
     manager: apt
     ignore: true
   - name: xclip
@@ -43,6 +50,7 @@ pkgs:
     manager: apt
     ignore: true  # 非 Debian/Ubuntu 系统可忽略
   - name: dconf-cli
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
     manager: apt
     ignore: true  # 非 Debian/Ubuntu 系统可忽略
   # Docker
@@ -106,12 +114,46 @@ pkgs:
     check: "[ $(ls -A {{.vars.home}}/.vim/bundle | grep -v Vundle.vim | wc -l) -gt 0 ]"
     exec: "vim +PluginInstall +qall"
 
+  # Fcitx5, replace IBus
   - name: fcitx
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
     map:
       pacman: fcitx5-im fcitx5-rime fcitx5-configtool fcitx5-chinese-addons
       dnf: fcitx5 fcitx5-rime fcitx5-configtool fcitx5-autostart
       apt: fcitx5 fcitx5-rime fcitx5-config-qt fcitx5-frontend-gtk2 fcitx5-frontend-gtk3 fcitx5-frontend-qt5
       def: fcitx5 fcitx5-rime fcitx5-config-qt
+  
+  # Google Chrome Browser
+  - name: chrome
+    check: '[ "{{.vars.profile}}" != "desktop" ] || command -v google-chrome-stable'
+    exec: |
+      # For Debian/Ubuntu based systems
+      if command -v apt-get &> /dev/null; then
+        echo "Detected apt package manager. Installing Google Chrome..."
+        wget -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+        sudo apt-get install -y /tmp/google-chrome.deb
+        rm /tmp/google-chrome.deb
+
+      # For Fedora/RHEL based systems
+      elif command -v dnf &> /dev/null; then
+        echo "Detected dnf package manager. Installing Google Chrome..."
+        sudo dnf install -y fedora-workstation-repositories
+        sudo dnf config-manager --set-enabled google-chrome
+        sudo dnf install -y google-chrome-stable
+
+      # For Arch Linux based systems
+      elif command -v pacman &> /dev/null; then
+        echo "Detected pacman package manager. Installing Google Chrome from AUR..."
+        if ! command -v yay &> /dev/null; then
+          echo "Error: 'yay' is not installed. Please install an AUR helper." >&2
+          exit 1
+        fi
+        yay -S --noconfirm google-chrome
+      
+      else
+        echo "Unsupported package manager. Cannot install Google Chrome." >&2
+        exit 1
+      fi 
 
 files:
   - id: gitconfig
@@ -131,24 +173,28 @@ files:
     dest: "{{.vars.home}}/.zshrc"
     append: true
     deps: [zshrc]
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
   
   - id: fcitx-profile
     src: "conf/fcitx5_profile"
     dest: "{{.vars.home}}/.config/fcitx5/profile"
     deps: [fcitx]
     override: true
-    check: "test ! -f {{.vars.home}}/.config/fcitx5/profile || ! grep -q 'Name=rime' {{.vars.home}}/.config/fcitx5/profile"
+    override_if: "test ! -f {{.vars.home}}/.config/fcitx5/profile || ! grep -q 'Name=rime' {{.vars.home}}/.config/fcitx5/profile"
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
 
   - id: fcitx-ui
     src: "conf/fcitx5_ui.conf"
     dest: "{{.vars.home}}/.config/fcitx5/conf/classicui.conf"
     deps: [fcitx]
     override: true
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
   
   - src: "conf/rime.yaml"
     dest: "~/.local/share/fcitx5/rime/default.custom.yaml"
     deps: [fcitx]
     override: true
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
 
   - src: "conf/p10k.zsh"
     dest: "{{.vars.home}}/.p10k.zsh"
@@ -162,18 +208,18 @@ files:
     dest: "{{.vars.home}}/.config/autostart/wechat.desktop"
     tpl: true
     deps: [wechat]
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
   
   - src: "conf/snipaste.desktop"
     dest: "{{.vars.home}}/.config/autostart/snipaste.desktop"
     tpl: true
     deps: [snipaste]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -f "{{.vars.home}}/.config/autostart/snipaste.desktop" ]'
 
 tasks:
   - id: zsh-shell
     deps: [zsh, oh-my-zsh]
     check: '[ "$SHELL" = "$(which zsh)" ]'
-    on: 
-      fail: run
     run: "sudo chsh -s $(which zsh) {{.vars.user}}"
 
   - id: welcome-msg
@@ -183,8 +229,10 @@ tasks:
   - id: tilix-quake
     deps: [init-tilix]
     check: |
-      gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/ command | grep -Fq "'tilix --quake'" && \
-      gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-quake"
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/ command | grep -Fq "'tilix --quake'" && \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-quake" \
+      )
     run: |
       SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
       KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/"
@@ -207,8 +255,10 @@ tasks:
   - id: tilix-norm
     deps: [init-tilix]
     check: |
-      gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/ command | grep -Fq "'tilix'" && \
-      gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-normal"
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/ command | grep -Fq "'tilix'" && \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-normal" \
+      )
     run: |
       SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
       KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/"
@@ -247,7 +297,7 @@ tasks:
       echo "--------------------------------------------------------"
 
   - id: remove-snap
-    check: "! command -v snap"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v snap'
     run: |
       echo "Starting Snap Removal..."
       if command -v snap &> /dev/null; then
@@ -278,7 +328,7 @@ tasks:
   
   - id: block-snap
     deps: [remove-snap]
-    check: "[ -f /etc/apt/preferences.d/nosnap.pref ]"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ( [ -f /etc/apt/preferences.d/nosnap.pref ] && ! command -v apt-get ) '
     run: |
       echo "Blocking Snap re-installation..."
       cat <<EOF | sudo tee /etc/apt/preferences.d/nosnap.pref
@@ -288,22 +338,9 @@ tasks:
       EOF
       echo "Snap is now blocked via APT pinning."
  
-  - id: firefox
-    deps: [block-snap]
-    check: "dpkg -l | grep firefox | grep -v snap"
-    run: |
-      sudo add-apt-repository -y ppa:mozillateam/ppa
-      cat <<EOF | sudo tee /etc/apt/preferences.d/mozilla-firefox
-      Package: *
-      Pin: release o=LP-PPA-mozillateam
-      Pin-Priority: 1001
-      EOF
-      sudo apt-get update
-      sudo apt-get install -y firefox
-
   - id: maple-mono
     deps: [wget, unzip, fontconfig]
-    check: "fc-list | grep -i 'Maple Mono NF CN'"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || fc-list | grep -i "Maple Mono NF CN"'
     run: |
       echo "Installing Maple Mono NF CN {{.vars.maple_ver}}..."
       mkdir -p {{.vars.home}}/.local/share/fonts/maple
@@ -318,8 +355,10 @@ tasks:
   - id: gnome-maple
     deps: [maple-mono]
     check: |
-      CURRENT=$(gsettings get org.gnome.desktop.interface monospace-font-name)
-      [ "$CURRENT" = "'Maple Mono NF CN {{.vars.font_size_gnome}}'" ]
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        CURRENT=$(gsettings get org.gnome.desktop.interface monospace-font-name) && \
+        [ "$CURRENT" = "'Maple Mono NF CN {{.vars.font_size_gnome}}'" ] \
+      )
     run: |
       SIZE="{{.vars.font_size_gnome}}"
       echo "Setting GNOME Monospace to size $SIZE..."
@@ -394,7 +433,7 @@ tasks:
 
   - id: init-fcitx
     deps: [fcitx, fix-rime, fcitx-profile, fcitx-ui]
-    check: "pgrep fcitx5 > /dev/null"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || pgrep fcitx5 > /dev/null'
     on:
       fail: run
     run: |
@@ -410,7 +449,7 @@ tasks:
   
   - id: init-tilix
     deps: [dconf-cli]
-    check: "[ -n \"$(dconf read /com/gexperts/Tilix/default-profile)\" ]"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -n "$(dconf read /com/gexperts/Tilix/default-profile)" ]'
     run: |
       echo "Initializing Tilix configuration manually..."
       EXISTING_ID=$(dconf list /com/gexperts/Tilix/profiles/ | head -n1 | tr -d "/")
@@ -430,11 +469,12 @@ tasks:
   - id: tilix-theme-dracula
     deps: [wget, dconf-cli, jq]
     check: |
-      PROFILE=$(dconf read /com/gexperts/Tilix/default-profile | tr -d "'")
-      NAME=$(dconf read /com/gexperts/Tilix/profiles/$PROFILE/visible-name | tr -d "'")
-      BG=$(dconf read "/com/gexperts/Tilix/profiles/$PROFILE/background-color" | tr -d "'")
-      echo "[tilix-theme-dracula]@Check for $PROFILE $NAME" > /dev/tty
-      [ "$BG" = "#282936" ]
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        PROFILE=$(dconf read /com/gexperts/Tilix/default-profile | tr -d "'") && \
+        [ -n "$PROFILE" ] && \
+        BG=$(dconf read "/com/gexperts/Tilix/profiles/$PROFILE/background-color" | tr -d "'") && \
+        [ "$BG" = "#282936" ] \
+      )
     run: |
       echo "Manually injecting Dracula theme colors..."
 
@@ -468,7 +508,7 @@ tasks:
  
   - id: fix-rime
     deps: [fcitx]
-    check: "[ -f {{.vars.home}}/.local/share/fcitx5/rime/luna_pinyin.schema.yaml ]"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -f {{.vars.home}}/.local/share/fcitx5/rime/luna_pinyin.schema.yaml ]'
     run: |
       echo "Copying system Rime data..."
       if [ -d /usr/share/rime-data ]; then
@@ -479,7 +519,7 @@ tasks:
   
   - id: use-fcitx
     deps: [fcitx]
-    check: "[ -f {{.vars.home}}/.config/autostart/org.fcitx.Fcitx5.desktop ]"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -f {{.vars.home}}/.config/autostart/org.fcitx.Fcitx5.desktop ]'
     run: "mkdir -p {{.vars.home}}/.config/autostart && cp /usr/share/applications/org.fcitx.Fcitx5.desktop {{.vars.home}}/.config/autostart/"
 
   - id: vscode
@@ -513,7 +553,7 @@ tasks:
       echo "VS Code installation complete."
 
   - id: wechat
-    check: "dpkg -s wechat || dpkg -s com.tencent.wechat"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || dpkg -s wechat || dpkg -s com.tencent.wechat'
     run: |
       echo "Downloading WeChat..."
       curl -L -o /tmp/wechat.deb {{.vars.wechat_url}}
@@ -523,10 +563,37 @@ tasks:
 
   - id: snipaste
     deps: [libfuse2]
-    check: "test -f {{.vars.home}}/.local/bin/snipaste"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || test -f {{.vars.home}}/.local/bin/snipaste'
     run: |
       mkdir -p {{.vars.home}}/.local/bin
       echo "Downloading Snipaste..."
       curl -L -o {{.vars.home}}/.local/bin/snipaste {{.vars.snipaste_url}}
       chmod +x {{.vars.home}}/.local/bin/snipaste
       echo "Snipaste installed to ~/.local/bin/snipaste"
+
+  - id: chrome-shortcut
+    deps: [chrome]
+    check: |
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/google-chrome/ command | grep -Fq "'google-chrome-stable'" && \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "google-chrome" \
+      )
+    run: |
+      SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/google-chrome/"
+
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Chrome"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "google-chrome-stable"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "F11"
+
+      CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
+
+      if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
+        if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
+           NEW_LIST="['$KEY_PATH']"
+        else
+           NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
+        fi
+        gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
+      fi
+ 
