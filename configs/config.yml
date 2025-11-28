@@ -9,6 +9,7 @@ vars:
   conda_path: "{{.vars.home}}/miniconda3"
   omz_path: "{{.vars.home}}/.oh-my-zsh"
   maple_ver: "v7.8"
+  yesplaymusic_ver: "v0.4.10"
   font_size_gnome: "11"
   tilix_theme_name: "Dracula"
   tilix_theme_url: "https://raw.githubusercontent.com/dracula/tilix/master/Dracula.json"
@@ -35,24 +36,22 @@ pkgs:
   - name: pavucontrol
     check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
   - name: libfuse2
-    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || dpkg -s libfuse2 || dpkg -s libfuse2t64'
     manager: apt
-    ignore: true
   - name: apt-transport-https
-    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || ({{.super.check}})'
     manager: apt
-    ignore: true
   - name: xclip
     ignore: true
   - name: xsel
     ignore: true
   - name: build-essential
     manager: apt
-    ignore: true  # 非 Debian/Ubuntu 系统可忽略
+    check: '! command -v apt-get || ({{.super.check}})'
   - name: dconf-cli
-    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || ({{.super.check}})'
     manager: apt
-    ignore: true  # 非 Debian/Ubuntu 系统可忽略
+
   # Docker
   - name: docker
     check: "docker --version"
@@ -154,6 +153,22 @@ pkgs:
         echo "Unsupported package manager. Cannot install Google Chrome." >&2
         exit 1
       fi 
+
+  - name: yesplaymusic
+    deps: [wget]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || dpkg -s yesplaymusic'
+    exec: |
+      VER="{{.vars.yesplaymusic_ver}}"
+      CLEAN_VER="${VER#v}"
+      URL="https://github.com/qier222/YesPlayMusic/releases/download/${VER}/yesplaymusic_${CLEAN_VER}_amd64.deb"
+      TMP_FILE="/tmp/yesplaymusic.deb"
+
+      echo "Downloading YesPlayMusic [${VER}]..."
+      wget -q --show-progress -O "$TMP_FILE" "$URL"
+
+      echo "Installing local .deb package..."
+      sudo apt-get install -y "$TMP_FILE"
+      rm -f "$TMP_FILE"
 
 files:
   - id: gitconfig
@@ -334,7 +349,7 @@ tasks:
   
   - id: block-snap
     deps: [remove-snap]
-    check: '[ "{{.vars.profile}}" != "desktop" ] || ( [ -f /etc/apt/preferences.d/nosnap.pref ] && ! command -v apt-get ) '
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -f /etc/apt/preferences.d/nosnap.pref ] || ! command -v apt-get'
     run: |
       echo "Blocking Snap re-installation..."
       cat <<EOF | sudo tee /etc/apt/preferences.d/nosnap.pref
@@ -602,4 +617,3 @@ tasks:
         fi
         gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
       fi
- 

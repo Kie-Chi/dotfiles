@@ -20,7 +20,7 @@
 ### 🖥 Desktop (GNOME Optimized)
 *仅在 `profile: desktop` 模式下启用*
 - **Terminal**: Tilix (配置了 Dracula 主题 & F12 Quake 模式快捷键)
-- **Apps**: Google Chrome, WeChat (微信), Snipaste, Sunshine (串流服务)
+- **Apps**: Google Chrome, WeChat (微信), Snipaste, Sunshine (串流服务), YesPlayMusic (网易云音乐)
 - **Input**: Fcitx5 + Rime (雾凇拼音/小鹤双拼支持)
 - **Fonts**: Maple Mono NF CN (自动下载并配置为系统等宽字体)
 - **Shortcuts**: 一键绑定 Chrome (F11), Tilix (Ctrl+Alt+T) 等快捷键
