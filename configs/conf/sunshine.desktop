@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Sunshine X11 Environment Importer
+Exec=sh -c "systemctl --user import-environment DISPLAY XAUTHORITY && systemctl --user restart sunshine.service"
+Terminal=false
+Hidden=false

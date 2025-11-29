@@ -206,7 +206,7 @@ files:
     check: '[ "{{.vars.profile}}" != "desktop" ]'
   
   - src: "conf/rime.yaml"
-    dest: "~/.local/share/fcitx5/rime/default.custom.yaml"
+    dest: "{{.vars.home}}/.local/share/fcitx5/rime/default.custom.yaml"
     deps: [fcitx]
     override: true
     check: '[ "{{.vars.profile}}" != "desktop" ]'
@@ -235,6 +235,13 @@ files:
     src: "conf/ssh_config"
     dest: "{{.vars.home}}/.ssh/config"
     deps: [ssh-key]
+    override: true
+
+  - id: sunshine-desktop
+    src: "conf/sunshine.desktop"
+    dest: "{{.vars.home}}/.config/autostart/sunshine.desktop"
+    deps: [sunshine]
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
     override: true
 
 tasks:
@@ -432,7 +439,28 @@ tasks:
            sudo pacman -S --noconfirm sunshine
         fi
       fi
+      
+      mkdir -p {{.vars.home}}/.config/systemd/user/sunshine.service.d/
+      cat <<EOF > {{.vars.home}}/.config/systemd/user/sunshine.service.d/override.conf
+      [Unit]
+      After=graphical-session.target
+      
+      [Service]
+      ExecStartPre=
+      Environment=DISPLAY=:0
+      Environment=XAUTHORITY={{.vars.home}}/.Xauthority
+      Restart=always
+      RestartSec=5
+      EOF
 
+      echo 'KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/85-sunshine-input.rules
+      sudo udevadm control --reload-rules
+      sudo udevadm trigger
+
+      if ! groups {{.vars.user}} | grep -q "input"; then
+         sudo usermod -aG input,video,render {{.vars.user}}
+         echo "User added to groups. REBOOT REQUIRED."
+      fi
       echo "Enabling Sunshine service..."
       systemctl --user daemon-reload
       systemctl --user enable sunshine
@@ -607,6 +635,31 @@ tasks:
       gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "google-chrome-stable"
       gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "F11"
 
+      CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
+
+      if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
+        if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
+           NEW_LIST="['$KEY_PATH']"
+        else
+           NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
+        fi
+        gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
+      fi
+
+  - id: htop-shortcut
+    deps: [htop]
+    check: |
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/htop/ command | grep -Fq "'tilix -e htop'" && \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "htop" \
+      )
+    run: |
+      SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/htop/"
+
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Htop"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "tilix -e htop"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "<Control><Alt>Backspace"
       CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
 
       if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
