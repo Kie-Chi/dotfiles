@@ -59,3 +59,15 @@ export GTK_IM_MODULE=fcitx
 export QT_IM_MODULE=fcitx
 export SDL_IM_MODULE=fcitx
 export GLFW_IM_MODULE=ibus
+export PATH=/opt/idea/bin:$PATH
+
+#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
+export SDKMAN_DIR="$HOME/.sdkman"
+[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+if command -v copyfile > /dev/null 2>&1; then
+    alias cpf='copyfile'
+fi
+if command -v copypath > /dev/null 2>&1; then
+    alias cpd='copypath'
+fi
