@@ -24,6 +24,7 @@ pkgs:
   - zsh
   - tmux
   - vim
+  - btop
   - htop
   - unzip
   - openssh-server
@@ -241,6 +242,20 @@ files:
     src: "conf/sunshine.desktop"
     dest: "{{.vars.home}}/.config/autostart/sunshine.desktop"
     deps: [sunshine]
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+    override: true
+  
+  ## some utils for linux
+  # util to control xorg screen
+  - id: scrctl
+    src: "resource/scrctl"
+    dest: "{{.vars.home}}/.local/bin/scrctl"
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+    override: true
+  # util to push ssh key to remote
+  - id: spk
+    src: "resource/spk"
+    dest: "{{.vars.home}}/.local/bin/spk"
     check: '[ "{{.vars.profile}}" != "desktop" ]'
     override: true
 
@@ -646,19 +661,19 @@ tasks:
         gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
       fi
 
-  - id: htop-shortcut
-    deps: [htop]
+  - id: btop-shortcut
+    deps: [btop]
     check: |
       [ "{{.vars.profile}}" != "desktop" ] || ( \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/htop/ command | grep -Fq "'tilix -e htop'" && \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "htop" \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/btop/ command | grep -Fq "'tilix -e btop'" && \
+        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "btop" \
       )
     run: |
       SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
-      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/htop/"
+      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/btop/"
 
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Htop"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "tilix -e htop"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Btop"
+      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "tilix -e btop"
       gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "<Control><Alt>Backspace"
       CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
 
@@ -670,3 +685,19 @@ tasks:
         fi
         gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
       fi
+  - id: util-chmod
+    deps: [scrctl, spk]
+    check: |
+      utils="scrctl spk"
+      for util in $utils; do
+        if [ ! -x "{{.vars.home}}/.local/bin/$util" ]; then
+          exit 1
+        fi
+      done
+    run: |
+      utils="scrctl spk"
+      for util in $utils; do
+        if [ ! -x "{{.vars.home}}/.local/bin/$util" ]; then
+          chmod +x "{{.vars.home}}/.local/bin/$util"
+        fi
+      done

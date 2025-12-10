@@ -68,6 +68,170 @@ if command -v copypath > /dev/null 2>&1; then
     alias cpd='copypath'
 fi
 
+if command -v apt > /dev/null 2>&1; then
+    alias 'apt-i'='sudo apt update && sudo apt install -y'
+    alias 'apti'='sudo apt update && sudo apt install -y'
+    alias 'update'='sudo apt update && sudo apt upgrade -y && sudo apt autoremove -y'
+    alias 'apts'='apt search'
+fi
+
+#if command -v systemctl > /dev/null 2>&1; then
+#    alias 'sctl'='sudo systemctl'
+#    alias 'usctl'='systemctl --user'
+#    alias 'usctls'='systemctl --user status'
+#    alias 'usctlr'='systemctl --user restart'
+#    alias 'usctle'='systemctl --user enable'
+#    alias 'usctld'='systemctl --user disable'
+#    alias 'sctls'='sudo systemctl status'
+#    alias 'sctlr'='sudo systemctl restart'
+#    alias 'sctle'='sudo systemctl enable'
+#    alias 'sctld'='sudo systemctl disable'
+#fi
+
+if command -v systemctl > /dev/null 2>&1; then
+    _sc_build_args() {
+        case "$1" in
+            st)      _SC_ARGS=("status") ;;
+            start)   _SC_ARGS=("start") ;;
+            stop)    _SC_ARGS=("stop") ;;
+            
+            res)     _SC_ARGS=("restart") ;;
+            rel)     _SC_ARGS=("reload") ;;
+            dr)      _SC_ARGS=("daemon-reload") ;;
+
+            en)      _SC_ARGS=("enable") ;;
+            dis)     _SC_ARGS=("disable") ;;
+            
+            enn)     _SC_ARGS=("enable" "--now") ;;
+            disn)    _SC_ARGS=("disable" "--now") ;;
+            
+            fail)  _SC_ARGS=("--failed") ;;
+            act)     _SC_ARGS=("list-units" "--type=service" "--state=active") ;;
+
+            *)       _SC_ARGS=("$1") ;;
+        esac
+    }
+
+    sc() {
+        if [ -z "$1" ]; then
+            sudo systemctl
+            return
+        fi
+        _sc_build_args "$1"
+        shift
+        sudo systemctl "${_SC_ARGS[@]}" "$@"
+    }
+
+    usc() {
+        if [ -z "$1" ]; then
+            systemctl --user
+            return
+        fi
+        _sc_build_args "$1"
+        shift
+        systemctl --user "${_SC_ARGS[@]}" "$@"
+    }
+fi
+
+if command -v journalctl >/dev/null 2>&1; then
+    jlog() {
+        if [ -z "$1" ]; then
+            sudo journalctl -xe
+            return
+        fi
+        if [[ "$1" == -* ]]; then
+            sudo journalctl -xe "$@"
+        else
+            local svc="$1"
+            shift
+            sudo journalctl -xe -u "$svc" "$@"
+        fi
+    }
+
+    ujlog() {
+        if [ -z "$1" ]; then
+            journalctl --user -xe
+            return
+        fi
+
+        if [[ "$1" == -* ]]; then
+            journalctl --user -xe "$@"
+        else
+            local svc="$1"
+            shift
+            journalctl --user -xe -u "$svc" "$@"
+        fi
+    }
+fi
+
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias -- -='cd -'
+
+alias myip='ip -c -br a'
+alias ports='sudo ss -nultp'
+
+mkcd() {
+    mkdir -p "$1" && cd "$1"
+}
+
+extract() {
+    if [ -f $1 ] ; then
+        case $1 in
+            *.tar.bz2)   tar xjf $1     ;;
+            *.tar.gz)    tar xzf $1     ;;
+            *.bz2)       bunzip2 $1     ;;
+            *.rar)       unrar e $1     ;;
+            *.gz)        gunzip $1      ;;
+            *.tar)       tar xf $1      ;;
+            *.tbz2)      tar xjf $1     ;;
+            *.tgz)       tar xzf $1     ;;
+            *.zip)       unzip $1       ;;
+            *.Z)         uncompress $1  ;;
+            *.7z)        7z x $1        ;;
+            *)           echo "'$1' cannot be extracted via extract()" ;;
+        esac
+    else
+        echo "'$1' is not a valid file"
+    fi
+}
+
+alias act='conda activate'
+alias dact='conda deactivate'
+alias cls='conda env list'
+
+# Middleware
+autoload -Uz compinit && compinit
+compdef sc=systemctl
+compdef usc=systemctl
+
+_sc_comp() {
+    case "${words[2]}" in
+        st)   words[2]="status" ;;
+        res)  words[2]="restart" ;;
+        rel)  words[2]="reload" ;;
+        dr)   words[2]="daemon-reload" ;;
+
+        en)  words[2]="enable" ;;
+        dis) words[2]="disable" ;;
+
+        enn)  words[2]="enable" ;;
+        disn) words[2]="disable" ;;
+
+        fail) words[2]="--failed" ;;
+        act) words[2]="list-units" ;;
+    esac
+
+    if [[ "${words[1]}" == "usc" ]]; then
+        words=("systemctl" "--user" "${words[@]:1}")
+        (( CURRENT++ ))
+    fi
+    _systemctl
+}
+
+compdef _sc_comp sc usc
+
 #THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
 export SDKMAN_DIR="$HOME/.sdkman"
 [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
