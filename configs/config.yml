@@ -15,6 +15,217 @@ vars:
   tilix_theme_url: "https://raw.githubusercontent.com/dracula/tilix/master/Dracula.json"
   wechat_url: "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb"
   snipaste_url: "https://dl.snipaste.com/linux"
+  # Tilix Quake
+  key_quake:  "custom-tilix-quake|Tilix Quake|tilix --quake|F12"
+  # Tilix Normal
+  key_norm:   "custom-tilix-normal|Tilix|tilix|<Control><Alt>t"
+  # Chrome
+  key_chrome: "google-chrome|Chrome|google-chrome-stable|F11"
+  # Btop
+  key_btop:   "btop|Btop|tilix -e btop|<Control><Alt>Backspace"
+  local_utils: "scrctl|spk"
+
+# Some Inline Help Function
+scripts:
+  # -----------------------------------------------------------
+  # Func: wrap
+  # Param: $1=FuncName, $2=ParamsKey
+  # Desc: Wrap 
+  # -----------------------------------------------------------
+  wrap: |
+    #!/bin/sh
+    FUNC="$1"
+    RAW="$2"
+    if [ -z "$FUNC" ] || [ -z "$RAW" ]; then
+      echo "Usage: wrap <func> <string_with_pipes>"
+      exit 1
+    fi
+
+    OLD_IFS="$IFS"
+    IFS='|'
+    set -f
+    set -- $RAW
+    set +f
+    IFS="$OLD_IFS"
+    "$FUNC" "$@"
+
+  # -----------------------------------------------------------
+  # Func: map
+  # Param: $1=CommandPrefix, $2=ListString(Pipe separated)
+  # Desc: Split the list and run Command on EACH item.
+  #       If any execution fails, map exits with 1.
+  # -----------------------------------------------------------
+  map: |
+    #!/bin/sh
+    CMD="$1"
+    RAW="$2"
+
+    if [ -z "$CMD" ] || [ -z "$RAW" ]; then
+      echo "Usage: map <cmd> <pipe_separated_list>"
+      exit 1
+    fi
+
+    OLD_IFS="$IFS"
+    IFS='|'
+    set -f
+    set -- $RAW
+    set +f
+    IFS="$OLD_IFS"
+
+    for item in "$@"; do
+      if ! $CMD "$item"; then
+        echo "Map failed on item: $item"
+        exit 1
+      fi
+    done
+    exit 0
+
+  # -----------------------------------------------------------
+  # Func: set-gnome-key
+  # Param: $1=ID, $2=Name, $3=Command, $4=Binding
+  # Desc: Set a keyshort for GNOME Desktop
+  # -----------------------------------------------------------
+  set-gnome-key: |
+    #!/bin/sh
+    set -e # Exit if error
+
+    ID="$1"
+    NAME="$2"
+    CMD="$3"
+    BINDING="$4"
+
+    if [ -z "$ID" ] || [ -z "$CMD" ]; then
+      echo "Usage: set-gnome-key <ID> <NAME> <CMD> <BINDING>"
+      exit 1
+    fi
+
+    # Block Wait
+    LOCK="/tmp/dotb_gnome_keybindings.lock"
+    exec 9>"$LOCK"
+    flock -x 9
+
+    SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+    PATH_PREFIX="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
+    KEY_PATH="$PATH_PREFIX/$ID/"
+    FULL_SCHEMA="${SCHEMA}.custom-keybinding:${KEY_PATH}"
+    echo "Configuring GNOME Key: [$ID] $NAME -> $BINDING"
+    gsettings set "$FULL_SCHEMA" name "$NAME"
+    gsettings set "$FULL_SCHEMA" command "$CMD"
+    gsettings set "$FULL_SCHEMA" binding "$BINDING"
+    CURRENT_LIST=$(gsettings get "$SCHEMA" custom-keybindings)
+    if echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
+      exit 0
+    fi
+    if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
+      NEW_LIST="['$KEY_PATH']"
+    else
+      NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
+    fi
+    gsettings set "$SCHEMA" custom-keybindings "$NEW_LIST"
+
+  # -----------------------------------------------------------
+  # Func: check-gnome-key
+  # Params: $1=ID, $2=Command, $3=Binding
+  # Desc: Check if the keyshort is set correctly
+  # -----------------------------------------------------------
+  check-gnome-key: |
+    #!/bin/sh
+    # 0 -> Success
+    # 1 -> Fail
+    ID="$1"
+    IGNORE_NAME="$2"
+    EXPECTED_CMD="$3"
+    EXPECTED_BINDING="$4"
+    SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+    PATH_PREFIX="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
+    KEY_PATH="$PATH_PREFIX/$ID/"
+    FULL_SCHEMA="${SCHEMA}.custom-keybinding:${KEY_PATH}"
+    LIST=$(gsettings get "$SCHEMA" custom-keybindings)
+    if ! echo "$LIST" | grep -Fq "$KEY_PATH"; then
+      exit 1 # No Keyshort
+    fi
+    ACTUAL_CMD=$(gsettings get "$FULL_SCHEMA" command)
+    if [ "$ACTUAL_CMD" != "'$EXPECTED_CMD'" ]; then
+      exit 1 # Cmd Error
+    fi
+    if [ -n "$EXPECTED_BINDING" ]; then
+      ACTUAL_BINDING=$(gsettings get "$FULL_SCHEMA" binding)
+      if [ "$ACTUAL_BINDING" != "'$EXPECTED_BINDING'" ]; then
+        exit 1 # Bind Error
+      fi
+    fi
+    exit 0 
+
+  # -----------------------------------------------------------
+  # Func: git-ensure
+  # Param: $1=Path, $2=RepoURL
+  # Desc: Clone git repo only if path does not exist
+  # -----------------------------------------------------------
+  git-ensure: |
+    #!/bin/sh
+    PATH_DIR="$1"
+    REPO_URL="$2"
+
+    if [ -d "$PATH_DIR" ]; then
+      echo "Repo exists at $PATH_DIR, skipping..."
+      exit 0
+    fi
+
+    echo "Cloning $REPO_URL -> $PATH_DIR"
+    mkdir -p "$(dirname "$PATH_DIR")"
+    git clone --depth=1 "$REPO_URL" "$PATH_DIR"
+  
+  # -----------------------------------------------------------
+  # Func: apt-ri
+  # Param: $1=URL
+  # Desc: Download and install a .deb file via apt
+  # -----------------------------------------------------------
+  apt-ri: |
+    #!/bin/sh
+    URL="$1"
+    TMP_FILE="/tmp/install_$(date +%s).deb"
+    echo "Downloading $URL..."
+    curl -L -o "$TMP_FILE" "$URL"
+
+    echo "Installing via apt..."
+    sudo apt-get install -y "$TMP_FILE"
+
+    rm -f "$TMP_FILE"
+    echo "Done."
+ 
+  # -----------------------------------------------------------
+  # Func: ex
+  # Param: $@ = Files...
+  # Desc: chmod +x for multiple files
+  # -----------------------------------------------------------
+  ex: |
+    #!/bin/sh
+    for file in "$@"; do
+      if [ -f "$file" ] && [ ! -x "$file" ]; then
+        echo "chmod +x $file"
+        chmod +x "$file"
+      fi
+    done
+
+  # Not Public Func, Not Suitable For Every Task
+  # -----------------------------------------------------------
+  # Func: is-local-x
+  # Param: $1 = File
+  # Desc: check executable for multiple file
+  # -----------------------------------------------------------
+  is-local-x: |
+    #!/bin/sh
+    [ -x "{{.vars.home}}/.local/bin/$1" ]
+
+  # -----------------------------------------------------------
+  # Func: en-local-x
+  # Param: $1 = File
+  # Desc: en executable for multiple file
+  # -----------------------------------------------------------
+  en-local-x: |
+    #!/bin/sh
+    echo "chmod +x -> {{.vars.home}}/.local/bin/$1"
+    chmod +x "{{.vars.home}}/.local/bin/$1"
 
 # My Package List
 pkgs:
@@ -81,31 +292,31 @@ pkgs:
   - name: oh-my-zsh
     deps: [git, zsh]
     check: "[ -d {{.vars.omz_path}} ]"
-    exec: "git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git {{.vars.omz_path}}"
+    exec: git-ensure "{{.vars.omz_path}}" "https://github.com/ohmyzsh/ohmyzsh.git"
 
   # Zsh Autosuggestions
   - name: zsh-autosuggestions
     deps: [oh-my-zsh]
     check: "[ -d {{.vars.omz_path}}/custom/plugins/zsh-autosuggestions ]"
-    exec: "git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions {{.vars.omz_path}}/custom/plugins/zsh-autosuggestions"
+    exec: git-ensure "{{.vars.omz_path}}/custom/plugins/zsh-autosuggestions" "https://github.com/zsh-users/zsh-autosuggestions"
 
   # Zsh Syntax Highlighting
   - name: zsh-syntax-highlighting
     deps: [oh-my-zsh]
     check: "[ -d {{.vars.omz_path}}/custom/plugins/zsh-syntax-highlighting ]"
-    exec: "git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git {{.vars.omz_path}}/custom/plugins/zsh-syntax-highlighting"
+    exec: git-ensure "{{.vars.omz_path}}/custom/plugins/zsh-syntax-highlighting" "https://github.com/zsh-users/zsh-syntax-highlighting.git"
 
   # Powerlevel10k
   - name: p10k
     deps: [oh-my-zsh]
     check: "[ -d {{.vars.omz_path}}/custom/themes/powerlevel10k ]"
-    exec: "git clone --depth=1 https://github.com/romkatv/powerlevel10k.git {{.vars.omz_path}}/custom/themes/powerlevel10k"
+    exec: git-ensure "{{.vars.omz_path}}/custom/themes/powerlevel10k" "https://github.com/romkatv/powerlevel10k.git"
 
   # Vim Vundle & Plugins
   - name: vundle
     deps: [git, vim]
     check: "[ -d {{.vars.home}}/.vim/bundle/Vundle.vim ]"
-    exec: "git clone https://github.com/VundleVim/Vundle.vim.git {{.vars.home}}/.vim/bundle/Vundle.vim"
+    exec: git-ensure "{{.vars.home}}/.vim/bundle/Vundle.vim" "https://github.com/VundleVim/Vundle.vim.git"
 
   # Vim Plugins
   - name: vim-plugins
@@ -162,14 +373,7 @@ pkgs:
       VER="{{.vars.yesplaymusic_ver}}"
       CLEAN_VER="${VER#v}"
       URL="https://github.com/qier222/YesPlayMusic/releases/download/${VER}/yesplaymusic_${CLEAN_VER}_amd64.deb"
-      TMP_FILE="/tmp/yesplaymusic.deb"
-
-      echo "Downloading YesPlayMusic [${VER}]..."
-      wget -q --show-progress -O "$TMP_FILE" "$URL"
-
-      echo "Installing local .deb package..."
-      sudo apt-get install -y "$TMP_FILE"
-      rm -f "$TMP_FILE"
+      apt-ri "$URL"
 
 files:
   - id: gitconfig
@@ -271,56 +475,14 @@ tasks:
 
   - id: tilix-quake
     deps: [init-tilix]
-    check: |
-      [ "{{.vars.profile}}" != "desktop" ] || ( \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/ command | grep -Fq "'tilix --quake'" && \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-quake" \
-      )
-    run: |
-      SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
-      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake/"
-
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Tilix Quake"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "tilix --quake"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "F12"
-
-      CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
-
-      if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
-        if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
-           NEW_LIST="['$KEY_PATH']"
-        else
-           NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
-        fi
-        gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
-      fi
+    check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_quake}}"'
+    run: wrap set-gnome-key "{{.vars.key_quake}}"
 
   - id: tilix-norm
     deps: [init-tilix]
-    check: |
-      [ "{{.vars.profile}}" != "desktop" ] || ( \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/ command | grep -Fq "'tilix'" && \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "custom-tilix-normal" \
-      )
-    run: |
-      SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
-      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal/"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_norm}}"'
+    run: wrap set-gnome-key "{{.vars.key_norm}}"
 
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Tilix"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "tilix"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "<Control><Alt>t"
-
-      CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
-
-      if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
-        if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
-           NEW_LIST="['$KEY_PATH']"
-        else
-           NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
-        fi
-        gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
-      fi
-  
   - id: ssh-key
     deps: [git]
     check: "[ -f {{.vars.home}}/.ssh/id_ed25519 ]"
@@ -618,12 +780,7 @@ tasks:
 
   - id: wechat
     check: '[ "{{.vars.profile}}" != "desktop" ] || dpkg -s wechat || dpkg -s com.tencent.wechat'
-    run: |
-      echo "Downloading WeChat..."
-      curl -L -o /tmp/wechat.deb {{.vars.wechat_url}}
-      echo "Installing WeChat..."
-      sudo apt-get install -y /tmp/wechat.deb
-      rm /tmp/wechat.deb 
+    run: apt-ri "{{.vars.wechat_url}}"
 
   - id: snipaste
     deps: [libfuse2]
@@ -632,72 +789,20 @@ tasks:
       mkdir -p {{.vars.home}}/.local/bin
       echo "Downloading Snipaste..."
       curl -L -o {{.vars.home}}/.local/bin/snipaste {{.vars.snipaste_url}}
-      chmod +x {{.vars.home}}/.local/bin/snipaste
+      ex {{.vars.home}}/.local/bin/snipaste
       echo "Snipaste installed to ~/.local/bin/snipaste"
 
   - id: chrome-shortcut
     deps: [chrome]
-    check: |
-      [ "{{.vars.profile}}" != "desktop" ] || ( \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/google-chrome/ command | grep -Fq "'google-chrome-stable'" && \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "google-chrome" \
-      )
-    run: |
-      SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
-      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/google-chrome/"
-
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Chrome"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "google-chrome-stable"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "F11"
-
-      CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
-
-      if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
-        if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
-           NEW_LIST="['$KEY_PATH']"
-        else
-           NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
-        fi
-        gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
-      fi
+    check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_chrome}}"'
+    run: wrap set-gnome-key "{{.vars.key_chrome}}"
 
   - id: btop-shortcut
     deps: [btop]
-    check: |
-      [ "{{.vars.profile}}" != "desktop" ] || ( \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/btop/ command | grep -Fq "'tilix -e btop'" && \
-        gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | grep -Fq "btop" \
-      )
-    run: |
-      SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
-      KEY_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/btop/"
+    check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_btop}}"'
+    run: wrap set-gnome-key "{{.vars.key_btop}}"
 
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} name "Btop"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} command "tilix -e btop"
-      gsettings set ${SCHEMA}.custom-keybinding:${KEY_PATH} binding "<Control><Alt>Backspace"
-      CURRENT_LIST=$(gsettings get $SCHEMA custom-keybindings)
-
-      if ! echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
-        if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
-           NEW_LIST="['$KEY_PATH']"
-        else
-           NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
-        fi
-        gsettings set $SCHEMA custom-keybindings "$NEW_LIST"
-      fi
   - id: util-chmod
     deps: [scrctl, spk]
-    check: |
-      utils="scrctl spk"
-      for util in $utils; do
-        if [ ! -x "{{.vars.home}}/.local/bin/$util" ]; then
-          exit 1
-        fi
-      done
-    run: |
-      utils="scrctl spk"
-      for util in $utils; do
-        if [ ! -x "{{.vars.home}}/.local/bin/$util" ]; then
-          chmod +x "{{.vars.home}}/.local/bin/$util"
-        fi
-      done
+    check: map is-local-x "{{.vars.local_utils}}"
+    run: map en-local-x "{{.vars.local_utils}}"
