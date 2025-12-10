@@ -125,7 +125,7 @@ scripts:
 
   # -----------------------------------------------------------
   # Func: check-gnome-key
-  # Params: $1=ID, $2=Command, $3=Binding
+  # Params: $1=ID, $2=IgnoredName, $3=Command, $4=Binding
   # Desc: Check if the keyshort is set correctly
   # -----------------------------------------------------------
   check-gnome-key: |
