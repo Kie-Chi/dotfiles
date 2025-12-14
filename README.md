@@ -1,34 +1,34 @@
 # 🚀 Chi's Linux Dotfiles
 
-> 自动化 Linux 开发环境配置方案，由 **[DotBuilder](https://github.com/Kie-Chi/dotbuiler)** 驱动。
+> 自动化 Linux 开发环境配置方案，由 **[DotBuilder](https://github.com/Kie-Chi/dotbuiler)** 驱动
 
-本仓库旨在通过声明式配置（YAML），实现 Linux 环境的一键部署。支持从零配置 Shell、开发工具链、到完整的 GNOME 桌面环境。
+本仓库旨在通过声明式配置（YAML），实现 Linux 环境的一键部署。支持从零配置 Shell、开发工具链、到完整的 GNOME 桌面环境
 
 ## ✨ Features
 
 ### 🛠 Cores
-- **Shell**: Zsh + Oh My Zsh + Powerlevel10k (即时提示符).
-- **Editors**: Vim (集成 Vundle, NERDTree, Airline), VS Code (自动安装并配置源).
-- **Tools**: Git, Tmux, Htop, Curl, Wget, Tree, Jq.
-- **SSH**: 自动生成 Ed25519 密钥并配置 GitHub Alias.
+- **Shell**: Zsh + Oh My Zsh + Powerlevel10k (即时提示符)
+- **Editors**: Vim (集成 Vundle, NERDTree, Airline), VS Code (自动安装并配置源)
+- **Tools**: Git, Tmux, Htop, Curl, Wget, Tree, Jq
+- **SSH**: 自动生成 Ed25519 密钥并配置 GitHub Alias
 
 ### 💻 Development
-- **Docker**: 自动安装，配置用户组（免 sudo），启用服务。
-- **Python**: Miniconda3 自动安装、初始化 Conda 环境。
-- **Java**: 集成 SDKMan 管理多版本 JDK。
-- **Build**: Build-essential / GCC / Make.
+- **Docker**: 自动安装，配置用户组（免 sudo），启用服务
+- **Python**: Miniconda3 自动安装、初始化 Conda 环境
+- **Java**: 集成 SDKMan 管理多版本 JDK
+- **Build**: Build-essential / GCC / Make
 
 ### 🖥 Desktop@GNOME
 *仅在 `profile: desktop` 模式下启用*
-- **Terminal**: Tilix (Dracula 主题 + F12 Quake 模式 + 快捷键绑定).
-- **Input**: Fcitx5 + Rime (雾凇拼音 / 小鹤双拼 / 自动同步配置).
-- **Apps**: Google Chrome, WeChat (微信), Snipaste (截图), YesPlayMusic (网易云音乐).
-- **Remote**: Sunshine (串流服务，自动配置 Systemd/Udev).
-- **Fonts**: Maple Mono NF CN (自动下载并设为系统等宽字体).
-- **Optimization**: 自动移除并阻断 Snap (Ubuntu).
+- **Terminal**: Tilix (Dracula 主题 + F12 Quake 模式 + 快捷键绑定)
+- **Input**: Fcitx5 + Rime (雾凇拼音 / 小鹤双拼 / 自动同步配置)
+- **Apps**: Google Chrome, WeChat (微信), Snipaste (截图), YesPlayMusic (网易云音乐)
+- **Remote**: Sunshine (串流服务，自动配置 Systemd/Udev)
+- **Fonts**: Maple Mono NF CN (自动下载并设为系统等宽字体)
+- **Optimization**: 自动移除并阻断 Snap (Ubuntu)
 
 ### 🌐 Optional
-- **DDNS**: 集成 DDNS-Go，支持通过环境变量配置阿里云/腾讯云解析，支持飞书 Webhook 通知。
+- **DDNS**: 集成 DDNS-Go，支持通过环境变量配置阿里云/腾讯云解析，支持飞书 Webhook 通知
 
 ## 🚀 Usage
 
@@ -66,7 +66,7 @@ cd ~/.dotfiles
 3.  **`config.yml` 文件** (项目默认值)
 
 ### `my.env` (recommended)
-`setup.sh` 运行后会在项目根目录生成 `my.env`。该文件被 `.gitignore` 忽略，适合存放个人配置和密钥。
+`setup.sh` 运行后会在项目根目录生成 `my.env`。该文件被 `.gitignore` 忽略，适合存放个人配置和密钥
 
 如果你启用了 **DDNS**，请在 `setup.sh` 运行后手动编辑 `my.env` 填入密钥：
 
@@ -88,7 +88,7 @@ DDNS_WEBHOOK=https://open.feishu.cn/...
 ```
 
 ### `config.yml`
-位于 `.dotfiles/config.yml`。这是 DotBuilder 的入口文件，定义了任务图的结构。如果你需要修改默认安装的软件列表或依赖关系，可以修改此文件或其引用的子配置文件 (`.dotfiles/configs/**/*.yml`)。
+位于 `.dotfiles/config.yml`。这是 DotBuilder 的入口文件，定义了任务图的结构。如果你需要修改默认安装的软件列表或依赖关系，可以修改此文件或其引用的子配置文件 (`.dotfiles/configs/**/*.yml`)
 
 ## 🛠 File Tree
 
