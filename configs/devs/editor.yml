@@ -1,0 +1,49 @@
+pkgs:
+  - vim
+
+  # Vim Vundle & Plugins
+  - name: vundle
+    deps: [git, vim, vimrc]
+    check: "[ -d {{.vars.home}}/.vim/bundle/Vundle.vim ]"
+    exec: git-ensure "{{.vars.home}}/.vim/bundle/Vundle.vim" "https://github.com/VundleVim/Vundle.vim.git"
+
+  # Vim Plugins
+  - name: vim-plugins
+    deps: [vundle, vimrc]
+    check: "[ $(ls -A {{.vars.home}}/.vim/bundle | grep -v Vundle.vim | wc -l) -gt 0 ]"
+    exec: "vim +PluginInstall +qall"
+
+  - name: vscode
+    manager: apt
+    deps: [wget, curl, apt-transport-https]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || command -v code'
+    exec: |
+      echo "Installing Visual Studio Code..."
+
+      # Debian/Ubuntu
+      if command -v apt-get >/dev/null; then
+        echo "Detected Debian/Ubuntu..."
+        
+        wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
+        sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+        rm -f packages.microsoft.gpg
+
+        echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
+        apt-ri -u code
+      
+      # Arch
+      elif command -v pacman >/dev/null; then
+        echo "Detected Arch Linux..."
+        if command -v yay >/dev/null; then
+           yay -S --noconfirm visual-studio-code-bin
+        else
+           sudo pacman -S --noconfirm code
+        fi
+      fi
+
+files:
+  - id: vimrc
+    src: "conf/vimrc"
+    dest: "{{.vars.home}}/.vimrc"
+    deps: [vim]
+    override: true

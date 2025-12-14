@@ -1,0 +1,85 @@
+pkgs:
+  - name: sunshine
+    manager: apt
+    deps: [curl, wget] 
+    exec: |
+      echo "Installing Sunshine..."
+
+      if command -v apt-get >/dev/null; then
+        echo "Detected Debian/Ubuntu..."
+
+        OS_NAME=$(lsb_release -is | tr '[:upper:]' '[:lower:]') 
+        OS_VERSION=$(lsb_release -rs)
+        ARCH=$(dpkg --print-architecture)
+        
+        echo "Looking for release: ${OS_NAME}-${OS_VERSION} ($ARCH)"
+
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/LizardByte/Sunshine/releases/latest \
+            | grep "browser_download_url" \
+            | grep ".deb" \
+            | grep -i "${OS_NAME}-${OS_VERSION}-${ARCH}" \
+            | cut -d '"' -f 4)
+
+        if [ -z "$DOWNLOAD_URL" ]; then
+            echo "Error: Could not auto-detect .deb package."
+            echo "Please install manually from GitHub releases."
+            exit 1
+        fi
+
+        echo "Found: $DOWNLOAD_URL"
+        apt-ri "$DOWNLOAD_URL"
+
+      elif command -v pacman >/dev/null; then
+        echo "Detected Arch Linux..."
+        if command -v yay >/dev/null; then
+           yay -S --noconfirm sunshine
+        else
+           sudo pacman -S --noconfirm sunshine
+        fi
+      fi
+
+    post: |
+      echo "Configuring Sunshine Environment..."
+
+      # 1. Systemd Override (Environment variables)
+      mkdir -p {{.vars.home}}/.config/systemd/user/sunshine.service.d/
+      cat <<EOF > {{.vars.home}}/.config/systemd/user/sunshine.service.d/override.conf
+      [Unit]
+      After=graphical-session.target
+      
+      [Service]
+      ExecStartPre=
+      Environment=DISPLAY=:0
+      Environment=XAUTHORITY={{.vars.home}}/.Xauthority
+      Restart=always
+      RestartSec=5
+      EOF
+
+      # 2. Udev Rules (Input devices)
+      echo "Setting up udev rules..."
+      echo 'KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/85-sunshine-input.rules
+      sudo udevadm control --reload-rules
+      sudo udevadm trigger
+
+      # 3. User Groups
+      if ! groups {{.vars.user}} | grep -q "input"; then
+         echo "Adding user {{.vars.user}} to input/video/render groups..."
+         sudo usermod -aG input,video,render {{.vars.user}}
+         echo "NOTE: Group changes require a reboot or re-login to take full effect."
+      fi
+
+      # 4. Service Start
+      echo "Enabling Sunshine service..."
+      systemctl --user daemon-reload
+      systemctl --user enable sunshine
+      systemctl --user start sunshine
+
+      echo "Sunshine setup complete. Access at https://localhost:47990"
+
+files:
+  - id: sunshine-desktop
+    src: "conf/sunshine.desktop"
+    dest: "{{.vars.home}}/.config/autostart/sunshine.desktop"
+    deps: [sunshine]
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+    override: true

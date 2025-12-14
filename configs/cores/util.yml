@@ -1,0 +1,54 @@
+vars:
+  local_utils: "scrctl|spk|ppack"
+
+scripts:
+  # Not Public Func, Not Suitable For Every Task
+  # -----------------------------------------------------------
+  # Func: is-local-x
+  # Param: $1 = File
+  # Desc: check executable for multiple file
+  # -----------------------------------------------------------
+  is-local-x: |
+    #!/bin/sh
+    [ -x "{{.vars.home}}/.local/bin/$1" ]
+
+  # -----------------------------------------------------------
+  # Func: en-local-x
+  # Param: $1 = File
+  # Desc: en executable for multiple file
+  # -----------------------------------------------------------
+  en-local-x: |
+    #!/bin/sh
+    echo "chmod +x -> {{.vars.home}}/.local/bin/$1"
+    chmod +x "{{.vars.home}}/.local/bin/$1"
+
+  # -----------------------------------------------------------
+  # Func: is-local-e
+  # Param: $1 = File
+  # Desc: check if file exits
+  # -----------------------------------------------------------
+  is-local-f: |
+    #!/bin/sh
+    [ -f "{{.vars.home}}/.local/bin/$1" ]
+  
+  # -----------------------------------------------------------
+  # Func: lk-local
+  # Param: $1 = File
+  # Desc: symbolink the file from .dotfiles/resource
+  # -----------------------------------------------------------
+  lk-local: |
+    #!/bin/sh
+    if [ ! -f "{{.vars.home}}/.local/bin/$1" ]; then
+      echo "link {{.vars.home}}/.local/bin/$1 -> {{.vars.home}}/.dotfiles/resource/$1"
+      ln -sf "{{.vars.home}}/.dotfiles/resource/$1" "{{.vars.home}}/.local/bin/$1"
+    fi
+
+tasks:
+  - id: util-copy
+    check: map is-local-f "{{.vars.local_utils}}"
+    run: map lk-local "{{.vars.local_utils}}"
+
+  - id: util-chmod
+    deps: [util-copy]
+    check: map is-local-x "{{.vars.local_utils}}"
+    run: map en-local-x "{{.vars.local_utils}}"

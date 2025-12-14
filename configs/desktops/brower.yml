@@ -1,0 +1,31 @@
+pkgs:
+  # Google Chrome Browser
+  - name: chrome
+    manager: apt
+    check: '[ "{{.vars.profile}}" != "desktop" ] || command -v google-chrome-stable'
+    exec: |
+      # For Debian/Ubuntu based systems
+      if command -v apt-get &> /dev/null; then
+        echo "Detected apt package manager. Installing Google Chrome..."
+        apt-ri https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+
+      # For Fedora/RHEL based systems
+      elif command -v dnf &> /dev/null; then
+        echo "Detected dnf package manager. Installing Google Chrome..."
+        sudo dnf install -y fedora-workstation-repositories
+        sudo dnf config-manager --set-enabled google-chrome
+        sudo dnf install -y google-chrome-stable
+
+      # For Arch Linux based systems
+      elif command -v pacman &> /dev/null; then
+        echo "Detected pacman package manager. Installing Google Chrome from AUR..."
+        if ! command -v yay &> /dev/null; then
+          echo "Error: 'yay' is not installed. Please install an AUR helper." >&2
+          exit 1
+        fi
+        yay -S --noconfirm google-chrome
+      
+      else
+        echo "Unsupported package manager. Cannot install Google Chrome." >&2
+        exit 1
+      fi 

@@ -1,0 +1,22 @@
+pkgs:
+  - git
+  - curl
+  - wget
+  - tmux
+  - btop
+  - htop
+  - unzip
+  - jq
+  - tree
+  - xclip
+  - xsel
+  - name: apt-transport-https
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || ({{.super.check}})'
+    manager: apt
+
+files:
+  - id: gitconfig
+    src: "conf/gitconfig.tpl"
+    dest: "{{.vars.home}}/.gitconfig"
+    tpl: true
+    override: true

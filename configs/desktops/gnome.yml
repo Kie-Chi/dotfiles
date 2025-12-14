@@ -1,0 +1,44 @@
+vars:
+  # Tilix Quake
+  key_quake:  "custom-tilix-quake|Tilix Quake|tilix --quake|F12"
+  # Tilix Normal
+  key_norm:   "custom-tilix-normal|Tilix|tilix|<Control><Alt>t"
+  # Chrome
+  key_chrome: "google-chrome|Chrome|google-chrome-stable|F11"
+  # Btop
+  key_btop:   "btop|Btop|tilix -e btop|<Control><Alt>Backspace"
+
+  font_size_gnome: "11"
+
+tasks:
+  - id: tilix-quake
+    deps: [init-tilix]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_quake}}"'
+    run: wrap set-gnome-key "{{.vars.key_quake}}"
+
+  - id: tilix-norm
+    deps: [init-tilix]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_norm}}"'
+    run: wrap set-gnome-key "{{.vars.key_norm}}"
+
+  - id: chrome-shortcut
+    deps: [chrome]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_chrome}}"'
+    run: wrap set-gnome-key "{{.vars.key_chrome}}"
+
+  - id: btop-shortcut
+    deps: [btop]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_btop}}"'
+    run: wrap set-gnome-key "{{.vars.key_btop}}"
+
+  - id: gnome-maple
+    deps: [maple-mono]
+    check: |
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        CURRENT=$(gsettings get org.gnome.desktop.interface monospace-font-name) && \
+        [ "$CURRENT" = "'Maple Mono NF CN {{.vars.font_size_gnome}}'" ] \
+      )
+    run: |
+      SIZE="{{.vars.font_size_gnome}}"
+      echo "Setting GNOME Monospace to size $SIZE..."
+      gsettings set org.gnome.desktop.interface monospace-font-name "Maple Mono NF CN $SIZE" 

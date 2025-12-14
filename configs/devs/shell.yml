@@ -1,0 +1,62 @@
+vars:
+  omz_path: "{{.vars.home}}/.oh-my-zsh"  
+
+pkgs:
+  - zsh
+  # Oh-My-Zsh
+  - name: oh-my-zsh
+    deps: [git, zsh]
+    check: "[ -d {{.vars.omz_path}} ]"
+    exec: git-ensure "{{.vars.omz_path}}" "https://github.com/ohmyzsh/ohmyzsh.git"
+
+  # Zsh Autosuggestions
+  - name: zsh-autosuggestions
+    deps: [oh-my-zsh]
+    check: "[ -d {{.vars.omz_path}}/custom/plugins/zsh-autosuggestions ]"
+    exec: git-ensure "{{.vars.omz_path}}/custom/plugins/zsh-autosuggestions" "https://github.com/zsh-users/zsh-autosuggestions"
+
+  # Zsh Syntax Highlighting
+  - name: zsh-syntax-highlighting
+    deps: [oh-my-zsh]
+    check: "[ -d {{.vars.omz_path}}/custom/plugins/zsh-syntax-highlighting ]"
+    exec: git-ensure "{{.vars.omz_path}}/custom/plugins/zsh-syntax-highlighting" "https://github.com/zsh-users/zsh-syntax-highlighting.git"
+
+  # Powerlevel10k
+  - name: p10k
+    deps: [oh-my-zsh]
+    check: "[ -d {{.vars.omz_path}}/custom/themes/powerlevel10k ]"
+    exec: git-ensure "{{.vars.omz_path}}/custom/themes/powerlevel10k" "https://github.com/romkatv/powerlevel10k.git"
+
+files:
+  - id: zshrc
+    src: "conf/zshrc"
+    dest: "{{.vars.home}}/.zshrc"
+    override: true
+    deps: [zsh]
+  
+  - src: "conf/p10k.zsh"
+    dest: "{{.vars.home}}/.p10k.zsh"
+    override: true
+  
+  - id: zshrc-fcitx5
+    src: "conf/fcitx5.zsh"
+    dest: "{{.vars.home}}/.zshrc"
+    append: true
+    deps: [zshrc, fcitx] # relay on fcitx5
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+
+tasks:
+  - id: zsh-shell
+    deps: [oh-my-zsh]
+    check: '[ "$SHELL" = "$(which zsh)" ]'
+    run: "sudo chsh -s $(which zsh) {{.vars.user}}"
+  
+  - id: zsh-copydir
+    deps: [oh-my-zsh]
+    check: "[ -f {{.vars.omz_path}}/custom/plugins/copydir/copydir.plugin.zsh ]"
+    run: |
+      DEST_PATH="{{.vars.omz_path}}/custom/plugins/copydir/copydir.plugin.zsh"
+      SOURCE_URL="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/plugins/copypath/copypath.plugin.zsh"
+      
+      file-ensure "$DEST_PATH" "$SOURCE_URL"
+      echo "copydir plugin ensured."

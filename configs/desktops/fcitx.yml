@@ -1,0 +1,96 @@
+vars:
+  rime_config_path: "{{.vars.home}}/.local/share/fcitx5/rime"
+pkgs:
+  - name: libfuse2
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || dpkg -s libfuse2 || dpkg -s libfuse2t64'
+    manager: apt
+  
+  - name: dconf-cli
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || ({{.super.check}})'
+    manager: apt
+
+  # Fcitx5, replace IBus
+  - name: fcitx
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+    map:
+      pacman: fcitx5-im fcitx5-rime fcitx5-configtool fcitx5-chinese-addons
+      dnf: fcitx5 fcitx5-rime fcitx5-configtool fcitx5-autostart
+      apt: fcitx5 fcitx5-rime fcitx5-config-qt fcitx5-frontend-gtk2 fcitx5-frontend-gtk3 fcitx5-frontend-qt5
+      def: fcitx5 fcitx5-rime fcitx5-config-qt
+
+files:
+  
+  - id: fcitx-profile
+    src: "conf/fcitx5_profile"
+    dest: "{{.vars.home}}/.config/fcitx5/profile"
+    deps: [fcitx]
+    override: true
+    override_if: "test ! -f {{.vars.home}}/.config/fcitx5/profile || ! grep -q 'Name=rime' {{.vars.home}}/.config/fcitx5/profile"
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+
+  - id: fcitx-ui
+    src: "conf/fcitx5_ui.conf"
+    dest: "{{.vars.home}}/.config/fcitx5/conf/classicui.conf"
+    deps: [fcitx]
+    override: true
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+  
+  - id: rime-custom
+    src: "conf/rime.yaml"
+    dest: "{{.vars.home}}/.local/share/fcitx5/rime/default.custom.yaml"
+    deps: [fcitx]
+    override: true
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+
+  - id: rime-origin
+    src: "conf/rime.yaml"
+    dest: "{{.vars.home}}/.local/share/fcitx5/rime/default.yaml"
+    deps: [fcitx]
+    override: true
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+
+tasks:
+  - id: rime-ice
+    deps: [fcitx]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -e {{.vars.rime_config_path}}/.rime-ice-installed ]'
+    run: |
+      set -e
+      RIME_CONFIG_PATH="{{.vars.rime_config_path}}"
+      RIME_ICE_TMP_PATH="$RIME_CONFIG_PATH/rime-ice"
+      echo "Install to $RIME_CONFIG_PATH..."
+      git-ensure "$RIME_ICE_TMP_PATH" "https://github.com/iDvel/rime-ice.git"
+      rsync -av --remove-source-files "$RIME_ICE_TMP_PATH/" "$RIME_CONFIG_PATH/"
+      touch "$RIME_CONFIG_PATH/.rime-ice-installed"
+      echo "Rime Ice Installed."
+
+  - id: init-fcitx
+    deps: [fcitx, fix-rime, fcitx-profile, fcitx-ui]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || pgrep fcitx5 > /dev/null'
+    on:
+      fail: run
+    run: |
+      if command -v im-config >/dev/null; then
+        sudo im-config -n fcitx5
+      fi
+      
+      killall ibus-daemon || true
+      killall fcitx5 || true
+      nohup fcitx5 -d --replace > /dev/null 2>&1 &
+      sleep 2
+      echo "Fcitx5 started."
+
+  - id: fix-rime
+    deps: [fcitx]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -f {{.vars.home}}/.local/share/fcitx5/rime/luna_pinyin.schema.yaml ]'
+    run: |
+      echo "Copying system Rime data..."
+      if [ -d /usr/share/rime-data ]; then
+        cp -r /usr/share/rime-data/* {{.vars.home}}/.local/share/fcitx5/rime/
+      elif [ -d /usr/share/rime-data ]; then
+         cp -r /usr/share/rime-data/* {{.vars.home}}/.local/share/fcitx5/rime/
+      fi
+  
+  - id: use-fcitx
+    deps: [fcitx]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -f {{.vars.home}}/.config/autostart/org.fcitx.Fcitx5.desktop ]'
+    run: "mkdir -p {{.vars.home}}/.config/autostart && cp /usr/share/applications/org.fcitx.Fcitx5.desktop {{.vars.home}}/.config/autostart/"

@@ -1,0 +1,248 @@
+# Some Inline Help Function
+scripts:
+  # -----------------------------------------------------------
+  # Func: wrap
+  # Param: $1=FuncName, $2=ParamsKey
+  # Desc: Wrap 
+  # -----------------------------------------------------------
+  wrap: |
+    #!/bin/sh
+    FUNC="$1"
+    RAW="$2"
+    if [ -z "$FUNC" ] || [ -z "$RAW" ]; then
+      echo "Usage: wrap <func> <string_with_pipes>"
+      exit 1
+    fi
+
+    OLD_IFS="$IFS"
+    IFS='|'
+    set -f
+    set -- $RAW
+    set +f
+    IFS="$OLD_IFS"
+    "$FUNC" "$@"
+
+  # -----------------------------------------------------------
+  # Func: map
+  # Param: $1=CommandPrefix, $2=ListString(Pipe separated)
+  # Desc: Split the list and run Command on EACH item.
+  #       If any execution fails, map exits with 1.
+  # -----------------------------------------------------------
+  map: |
+    #!/bin/sh
+    CMD="$1"
+    RAW="$2"
+
+    if [ -z "$CMD" ] || [ -z "$RAW" ]; then
+      echo "Usage: map <cmd> <pipe_separated_list>"
+      exit 1
+    fi
+
+    OLD_IFS="$IFS"
+    IFS='|'
+    set -f
+    set -- $RAW
+    set +f
+    IFS="$OLD_IFS"
+
+    for item in "$@"; do
+      if ! $CMD "$item"; then
+        echo "Map failed on item: $item"
+        exit 1
+      fi
+    done
+    exit 0
+
+  # -----------------------------------------------------------
+  # Func: set-gnome-key
+  # Param: $1=ID, $2=Name, $3=Command, $4=Binding
+  # Desc: Set a keyshort for GNOME Desktop
+  # -----------------------------------------------------------
+  set-gnome-key: |
+    #!/bin/sh
+    set -e # Exit if error
+
+    ID="$1"
+    NAME="$2"
+    CMD="$3"
+    BINDING="$4"
+
+    if [ -z "$ID" ] || [ -z "$CMD" ]; then
+      echo "Usage: set-gnome-key <ID> <NAME> <CMD> <BINDING>"
+      exit 1
+    fi
+
+    # Block Wait
+    LOCK="/tmp/dotb_gnome_keybindings.lock"
+    exec 9>"$LOCK"
+    flock -x 9
+
+    SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+    PATH_PREFIX="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
+    KEY_PATH="$PATH_PREFIX/$ID/"
+    FULL_SCHEMA="${SCHEMA}.custom-keybinding:${KEY_PATH}"
+    echo "Configuring GNOME Key: [$ID] $NAME -> $BINDING"
+    gsettings set "$FULL_SCHEMA" name "$NAME"
+    gsettings set "$FULL_SCHEMA" command "$CMD"
+    gsettings set "$FULL_SCHEMA" binding "$BINDING"
+    CURRENT_LIST=$(gsettings get "$SCHEMA" custom-keybindings)
+    if echo "$CURRENT_LIST" | grep -Fq "$KEY_PATH"; then
+      exit 0
+    fi
+    if [ "$CURRENT_LIST" = "@as []" ] || [ "$CURRENT_LIST" = "[]" ]; then
+      NEW_LIST="['$KEY_PATH']"
+    else
+      NEW_LIST=$(echo "$CURRENT_LIST" | sed "s|]$|, '$KEY_PATH']|")
+    fi
+    gsettings set "$SCHEMA" custom-keybindings "$NEW_LIST"
+
+  # -----------------------------------------------------------
+  # Func: check-gnome-key
+  # Params: $1=ID, $2=IgnoredName, $3=Command, $4=Binding
+  # Desc: Check if the keyshort is set correctly
+  # -----------------------------------------------------------
+  check-gnome-key: |
+    #!/bin/sh
+    # 0 -> Success
+    # 1 -> Fail
+    ID="$1"
+    IGNORE_NAME="$2"
+    EXPECTED_CMD="$3"
+    EXPECTED_BINDING="$4"
+    SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+    PATH_PREFIX="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
+    KEY_PATH="$PATH_PREFIX/$ID/"
+    FULL_SCHEMA="${SCHEMA}.custom-keybinding:${KEY_PATH}"
+    LIST=$(gsettings get "$SCHEMA" custom-keybindings)
+    if ! echo "$LIST" | grep -Fq "$KEY_PATH"; then
+      exit 1 # No Keyshort
+    fi
+    ACTUAL_CMD=$(gsettings get "$FULL_SCHEMA" command)
+    if [ "$ACTUAL_CMD" != "'$EXPECTED_CMD'" ]; then
+      exit 1 # Cmd Error
+    fi
+    if [ -n "$EXPECTED_BINDING" ]; then
+      ACTUAL_BINDING=$(gsettings get "$FULL_SCHEMA" binding)
+      if [ "$ACTUAL_BINDING" != "'$EXPECTED_BINDING'" ]; then
+        exit 1 # Bind Error
+      fi
+    fi
+    exit 0 
+
+  # -----------------------------------------------------------
+  # Func: git-ensure
+  # Param: $1=Path, $2=RepoURL
+  # Desc: Clone git repo only if path does not exist
+  # -----------------------------------------------------------
+  git-ensure: |
+    #!/bin/sh
+    PATH_DIR="$1"
+    REPO_URL="$2"
+
+    if [ -d "$PATH_DIR" ]; then
+      echo "Repo exists at $PATH_DIR, skipping..."
+      exit 0
+    fi
+
+    echo "Cloning $REPO_URL -> $PATH_DIR"
+    mkdir -p "$(dirname "$PATH_DIR")"
+    git clone --depth=1 "$REPO_URL" "$PATH_DIR"
+
+  # -----------------------------------------------------------
+  # Func: file-ensure
+  # Param: $1=DestPath, $2=SourceURL
+  # Desc: Download a file from a URL only if it does not exist.
+  # -----------------------------------------------------------
+  file-ensure: |
+    #!/bin/sh
+    DEST_PATH="$1"
+    SOURCE_URL="$2"
+
+    if [ -f "$DEST_PATH" ]; then
+      echo "File exists at $DEST_PATH, skipping..."
+      exit 0
+    fi
+
+    echo "Downloading $SOURCE_URL -> $DEST_PATH"
+    mkdir -p "$(dirname "$DEST_PATH")"
+    curl -L -o "$DEST_PATH" "$SOURCE_URL"
+  
+  # -----------------------------------------------------------
+  # Func: apt-ri (apt-run-install)
+  # Param: apt-ri [-u] <PackageName or URL or LocalPath>
+  #   -u: If present, runs 'apt-get update' before installing.
+  #
+  # Desc: Installs a package. NO LOCKING (rely on dotbuilder manager: apt).
+  # -----------------------------------------------------------
+  apt-ri: |
+    #!/bin/sh
+    set -e
+
+    DO_UPDATE=false
+    while getopts "u" opt; do
+      case $opt in
+        u) DO_UPDATE=true ;;
+        \?) echo "[apt-ri] Invalid option: -$OPTARG" >&2; exit 1 ;;
+      esac
+    done
+    shift $((OPTIND-1))
+
+    INPUT="$1"
+    if [ -z "$INPUT" ]; then
+      echo "[apt-ri] Error: Package name/URL required." >&2; exit 1
+    fi
+
+    if ! command -v apt-get >/dev/null; then
+        echo "[apt-ri] 'apt-get' not found. Skipping '$INPUT'."
+        exit 0
+    fi
+
+    # Update if requested
+    if [ "$DO_UPDATE" = true ]; then
+        echo "[apt-ri] Running apt-get update..."
+        sudo apt-get update
+    fi
+
+    case "$INPUT" in
+      http://* | https://*)
+        PACKAGE_NAME=$(basename "$INPUT" .deb)
+        echo "[apt-ri] Installing from URL: $PACKAGE_NAME..."
+        TMP_FILE="/tmp/install_${PACKAGE_NAME}_$(date +%s).deb"
+        
+        if command -v curl >/dev/null; then
+            curl -L --fail -o "$TMP_FILE" "$INPUT"
+        else
+            wget -O "$TMP_FILE" "$INPUT"
+        fi
+        
+        sudo apt-get install -y "$TMP_FILE"
+        rm -f "$TMP_FILE"
+        ;;
+      ./* | /*)
+        if [ -f "$INPUT" ]; then
+            echo "[apt-ri] Installing local file: $INPUT"
+            sudo apt-get install -y "$INPUT"
+        else
+            echo "[apt-ri] Local file not found: $INPUT" >&2
+            exit 1
+        fi
+        ;;
+      *)
+        echo "[apt-ri] Installing from repository: $INPUT"
+        sudo apt-get install -y "$INPUT"
+        ;;
+    esac
+ 
+  # -----------------------------------------------------------
+  # Func: ex
+  # Param: $@ = Files...
+  # Desc: chmod +x for multiple files
+  # -----------------------------------------------------------
+  ex: |
+    #!/bin/sh
+    for file in "$@"; do
+      if [ -f "$file" ] && [ ! -x "$file" ]; then
+        echo "chmod +x $file"
+        chmod +x "$file"
+      fi
+    done

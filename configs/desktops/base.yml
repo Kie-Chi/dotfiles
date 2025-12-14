@@ -1,0 +1,53 @@
+vars:
+  wechat_url: "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb"
+  snipaste_url: "https://dl.snipaste.com/linux"
+  yesplaymusic_ver: "v0.4.10"
+
+
+pkgs:
+  - name: copyq
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+  
+  - name: pavucontrol
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+  
+  - name: wechat
+    manager: apt
+    deps: [wget]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || dpkg -s wechat || dpkg -s com.tencent.wechat'
+    exec: apt-ri "{{.vars.wechat_url}}"
+
+  - name: yesplaymusic
+    manager: apt
+    deps: [wget]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || dpkg -s yesplaymusic'
+    exec: |
+      VER="{{.vars.yesplaymusic_ver}}"
+      CLEAN_VER="${VER#v}"
+      URL="https://github.com/qier222/YesPlayMusic/releases/download/${VER}/yesplaymusic_${CLEAN_VER}_amd64.deb"
+      apt-ri "$URL"
+
+files:
+  - src: "conf/wechat.desktop"
+    dest: "{{.vars.home}}/.config/autostart/wechat.desktop"
+    tpl: true
+    deps: [wechat]
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+  
+  - src: "conf/snipaste.desktop"
+    dest: "{{.vars.home}}/.config/autostart/snipaste.desktop"
+    tpl: true
+    deps: [snipaste]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -f "{{.vars.home}}/.config/autostart/snipaste.desktop" ]'
+
+tasks:
+
+  - id: snipaste
+    deps: [libfuse2]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || test -f {{.vars.home}}/.local/bin/snipaste'
+    run: |
+      mkdir -p {{.vars.home}}/.local/bin
+      echo "Downloading Snipaste..."
+      curl -L -o {{.vars.home}}/.local/bin/snipaste {{.vars.snipaste_url}}
+      ex {{.vars.home}}/.local/bin/snipaste
+      echo "Snipaste installed to ~/.local/bin/snipaste"

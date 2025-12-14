@@ -1,0 +1,39 @@
+vars:
+  conda_path: "{{.vars.home}}/miniconda3"
+
+pkgs:
+  - name: build-essential
+    manager: apt
+    check: '! command -v apt-get || ({{.super.check}})'
+  
+  # Sdk Man
+  - name: sdk
+    check: '! command -v bash || zsh -c ". {{.vars.home}}/.zshrc && sdk version"'
+    exec: |
+      curl -s "https://get.sdkman.io" | bash
+      bash -c "source '{{.vars.home}}/.sdkman/bin/sdkman-init.sh'"
+
+  # Docker
+  - name: docker
+    check: "docker --version"
+    exec: |
+      curl -fsSL https://get.docker.com | sh
+    post: |
+      # 允许当前用户不加 sudo 使用 docker
+      sudo usermod -aG docker $USER || true
+      sudo systemctl enable docker || true
+      sudo systemctl start docker || true
+    deps: [curl]
+
+  # Miniconda
+  - name: miniconda
+    check: "{{.vars.conda_path}}/bin/conda --version"
+    pre: "mkdir -p /tmp/conda_install"
+    exec: |
+      wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/mc.sh
+      bash /tmp/mc.sh -b -u -p {{.vars.conda_path}}
+    post: |
+      # 初始化 Shell
+      {{.vars.conda_path}}/bin/conda init zsh
+      {{.vars.conda_path}}/bin/conda config --set auto_activate_base false
+    deps: [wget, curl]

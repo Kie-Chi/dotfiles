@@ -1,0 +1,29 @@
+pkgs:
+  - openssh-server
+  - ssh
+
+files:
+  - id: ssh-config
+    src: "conf/ssh_config"
+    dest: "{{.vars.home}}/.ssh/config"
+    deps: [ssh-key]
+    override: true
+
+tasks:
+  - id: ssh-key
+    deps: [git, ssh]
+    check: "[ -f {{.vars.home}}/.ssh/id_ed25519 ]"
+    run: |
+      echo "Generating SSH Key for {{.vars.email}}..."
+      mkdir -p {{.vars.home}}/.ssh
+      chmod 700 {{.vars.home}}/.ssh
+      ssh-keygen -t ed25519 -C "{{.vars.email}}" -f {{.vars.home}}/.ssh/id_ed25519 -N ""
+
+      eval "$(ssh-agent -s)"
+      ssh-add {{.vars.home}}/.ssh/id_ed25519
+
+      echo "--------------------------------------------------------"
+      echo "PUBLIC KEY GENERATED:"
+      echo "--------------------------------------------------------"
+      cat {{.vars.home}}/.ssh/id_ed25519.pub
+      echo "--------------------------------------------------------"

@@ -1,0 +1,21 @@
+vars:
+  maple_ver: "v7.8"
+
+pkgs:
+  - name: fontconfig
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+
+tasks:
+  - id: maple-mono
+    deps: [wget, unzip, fontconfig]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || fc-list | grep -i "Maple Mono NF CN"'
+    run: |
+      echo "Installing Maple Mono NF CN {{.vars.maple_ver}}..."
+      mkdir -p {{.vars.home}}/.local/share/fonts/maple
+      wget "https://github.com/subframe7536/Maple-font/releases/download/{{.vars.maple_ver}}/MapleMono-NF-CN.zip" -O /tmp/maple.zip
+      unzip -o /tmp/maple.zip -d /tmp/maple_ext
+      find /tmp/maple_ext -name "*MapleMono-NF-CN*.ttf" -exec cp {} {{.vars.home}}/.local/share/fonts/maple/ \;
+
+      rm -rf /tmp/maple.zip /tmp/maple_ext
+      fc-cache -fv
+      echo "Font installed."

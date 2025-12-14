@@ -7,30 +7,30 @@ dnsconf:
         netinterface: eth0
         cmd: ""
         domains:
-          - "$DDNS_PREFIX:$DDNS_DOMAIN"
+          - "{{.vars.env_DDNS_PREFIX}}:{{.vars.env_DDNS_DOMAIN}}"
       ipv6:
         enable: true
         gettype: netInterface
         url: https://api64.ipify.org, https://speed.neu6.edu.cn/getIP.php, https://v6.ident.me, https://6.ipw.cn, https://v6.yinghualuo.cn/bejson
         netinterface: eth0
         cmd: ""
-        ipv6reg: ""
+        ipv6reg: "{{.vars.env_DDNS_IPV6_REGXP}}"
         domains:
-          - "$DDNS_PREFIX6:$DDNS_DOMAIN"
+          - "{{.vars.env_DDNS_PREFIX6}}:{{.vars.env_DDNS_DOMAIN}}"
       dns:
         name: alidns
-        id: $DDNS_ID
-        secret: $DDNS_SECRET
+        id: "{{.vars.env_DDNS_ID}}"
+        secret: "{{.vars.env_DDNS_SECRET}}"
       ttl: ""
 webhook:
-    webhookurl: $DDNS_WEBHOOK
+    webhookurl: "{{.vars.env_DDNS_WEBHOOK}}"
     webhookrequestbody: |-
         {
             "msg_type": "post",
             "content": {
                 "post": {
                     "zh_cn": {
-                        "title": "{{.vars.name}}的公网IP变了",
+                        "title": "{{.vars.env_DDNS_NAME}}的公网IP变了",
                         "content": [
                             [
                                 {

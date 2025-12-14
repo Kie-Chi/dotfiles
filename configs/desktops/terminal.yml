@@ -1,0 +1,67 @@
+vars:
+  tilix_theme_name: "Dracula"
+  tilix_theme_url: "https://raw.githubusercontent.com/dracula/tilix/master/Dracula.json"
+
+pkgs:
+  - name: tilix
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+
+tasks:
+  - id: init-tilix
+    deps: [dconf-cli]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -n "$(dconf read /com/gexperts/Tilix/default-profile)" ]'
+    run: |
+      echo "Initializing Tilix configuration manually..."
+      EXISTING_ID=$(dconf list /com/gexperts/Tilix/profiles/ | head -n1 | tr -d "/")
+
+      if [ -n "$EXISTING_ID" ]; then
+        echo "Found existing profile: $EXISTING_ID"
+        FINAL_UUID="$EXISTING_ID"
+      else
+        echo "No existing profile found. Generating new UUID..."
+        FINAL_UUID="2b7c4080-0ddd-46c5-8f23-563fd3ba789d"
+        dconf write "/com/gexperts/Tilix/profiles/$FINAL_UUID/visible-name" "'Default'"
+        dconf write "/com/gexperts/Tilix/profiles/$FINAL_UUID/automatic-switch-profile" "false"
+      fi
+      echo "Setting default profile to: $FINAL_UUID"
+      dconf write /com/gexperts/Tilix/default-profile "'$FINAL_UUID'"
+  
+  - id: tilix-theme-dracula
+    deps: [wget, dconf-cli, jq]
+    check: |
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        PROFILE=$(dconf read /com/gexperts/Tilix/default-profile | tr -d "'") && \
+        [ -n "$PROFILE" ] && \
+        BG=$(dconf read "/com/gexperts/Tilix/profiles/$PROFILE/background-color" | tr -d "'") && \
+        [ "$BG" = "#282936" ] \
+      )
+    run: |
+      echo "Manually injecting Dracula theme colors..."
+
+      mkdir -p /tmp/tilix_theme
+      wget -qO /tmp/tilix_theme/Dracula.json "https://raw.githubusercontent.com/dracula/tilix/master/Dracula.json"
+      JSON_FILE="/tmp/tilix_theme/Dracula.json"
+
+      PROFILE_ID=$(dconf read /com/gexperts/Tilix/default-profile | tr -d "'")
+      if [ -z "$PROFILE_ID" ]; then echo "Error: No Profile ID found."; exit 1; fi
+
+      BASE_PATH="/com/gexperts/Tilix/profiles/$PROFILE_ID"
+      echo "Target Profile: $PROFILE_ID"
+
+      BG_COLOR="'$(jq -r '.["background-color"]' $JSON_FILE)'"
+      FG_COLOR="'$(jq -r '.["foreground-color"]' $JSON_FILE)'"
+      CURSOR_COLOR="'$(jq -r '.["cursor-background-color"]' $JSON_FILE)'"
+
+      echo "Setting Background: $BG_COLOR"
+      dconf write "$BASE_PATH/background-color" "$BG_COLOR"
+      dconf write "$BASE_PATH/foreground-color" "$FG_COLOR"
+      dconf write "$BASE_PATH/cursor-background-color" "$CURSOR_COLOR"
+
+      PALETTE_STR=$(jq -c '.palette' $JSON_FILE | sed "s/\"/'/g")
+
+      echo "Setting Palette..."
+      dconf write "$BASE_PATH/palette" "$PALETTE_STR"
+
+      dconf write "$BASE_PATH/use-theme-colors" "false"
+      rm -rf /tmp/tilix_theme
+      echo "Dracula theme injection complete!"

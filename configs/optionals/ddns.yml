@@ -1,0 +1,48 @@
+vars:
+  ddns_go_ver: "6.14.0"  
+
+files:
+  ## Optional for linux
+  - id: ddns-conf
+    src: "conf/ddns.yml"
+    deps: [ddns-go]
+    dest: "{{.vars.home}}/.ddns_go_config.yml"
+    check: '[ {{.vars.if_ddns}} != "true" ]'
+    tpl: true
+    override: true
+
+tasks:
+  - id: ddns-go
+    deps: [curl, wget]
+    check: "command -v ddns-go || systemctl is-active --quiet ddns-go.service"
+    run: |
+      set -e
+      VERSION="{{.vars.ddns_go_ver}}"
+      OS="{{.vars.sys_os}}"
+      ARCH="{{.vars.sys_arch}}"
+
+      case "$ARCH" in
+        amd64)
+          FINAL_ARCH="x86_64"
+          ;;
+        *)
+          FINAL_ARCH="$ARCH"
+          ;;
+      esac
+      
+      FILENAME="ddns-go_${VERSION}_${OS}_${FINAL_ARCH}.tar.gz"
+      DOWNLOAD_URL="https://github.com/jeessy2/ddns-go/releases/download/v${VERSION}/${FILENAME}"
+      
+      echo "Downloading ddns-go for ${OS}/${FINAL_ARCH}..."
+      echo "URL: ${DOWNLOAD_URL}"      
+      TMP_DIR=$(mktemp -d)      
+
+      curl -L -o "$TMP_DIR/$FILENAME" "$DOWNLOAD_URL"
+      tar -xzf "$TMP_DIR/$FILENAME" -C "$TMP_DIR"
+      
+      sudo mv "$TMP_DIR/ddns-go" /usr/local/bin/ddns-go
+      chmod +x /usr/local/bin/ddns-go
+      sudo /usr/local/bin/ddns-go -s install -c {{.vars.home}}/.ddns_go_config.yml
+
+      rm -rf "$TMP_DIR"
+      echo "ddns-go v${VERSION} installed successfully."
