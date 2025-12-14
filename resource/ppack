@@ -35,6 +35,8 @@ DEFAULT_IGNORE_PATTERNS=(
     ".DS_Store"
     ".env"
     "*.env"
+    "my.env"
+    "proj.txt"
 )
 
 
@@ -53,7 +55,7 @@ usage() {
     echo "  -h, --help         Display this help message and exit."
     echo
     echo "Example:"
-    echo "  propack -o my_project.txt -i 'temp/*' src"
+    echo "  ppack -o my_project.txt -i 'temp/*' src"
 }
 
 is_binary() {

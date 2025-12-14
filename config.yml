@@ -6,11 +6,12 @@ include:
   - configs/optionals
 
 vars:
-  email: "137579437@qq.com"
-  username: "Kie-Chi"
+  # Default Variables, can be overridden in env(must lowercase, the same)
+  email: "example@email.com"
+  username: "user"
   # Optional Select
-  profile: "desktop"
-  if_ddns: true
+  profile: "server"
+  if_ddns: false
   
 tasks:
   - id: welcome-msg
