@@ -3,7 +3,8 @@ set -e
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTB_BIN="$BASE_DIR/bin/dotb"
-CONFIG_FILE="$BASE_DIR/configs/config.yml"
+CONFIG_FILE="$BASE_DIR/config.yml"
+ENV_FILE="$BASE_DIR/my.env"
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
