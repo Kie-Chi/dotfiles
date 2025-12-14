@@ -1,0 +1,77 @@
+dnsconf:
+    - name: ""
+      ipv4:
+        enable: true
+        gettype: netInterface
+        url: https://api.ipify.org, https://ddns.oray.com/checkip, https://ip.3322.net, https://4.ipw.cn, https://v4.yinghualuo.cn/bejson
+        netinterface: eth0
+        cmd: ""
+        domains:
+          - "$DDNS_PREFIX:$DDNS_DOMAIN"
+      ipv6:
+        enable: true
+        gettype: netInterface
+        url: https://api64.ipify.org, https://speed.neu6.edu.cn/getIP.php, https://v6.ident.me, https://6.ipw.cn, https://v6.yinghualuo.cn/bejson
+        netinterface: eth0
+        cmd: ""
+        ipv6reg: ""
+        domains:
+          - "$DDNS_PREFIX6:$DDNS_DOMAIN"
+      dns:
+        name: alidns
+        id: $DDNS_ID
+        secret: $DDNS_SECRET
+      ttl: ""
+webhook:
+    webhookurl: $DDNS_WEBHOOK
+    webhookrequestbody: |-
+        {
+            "msg_type": "post",
+            "content": {
+                "post": {
+                    "zh_cn": {
+                        "title": "{{.vars.name}}的公网IP变了",
+                        "content": [
+                            [
+                                {
+                                    "tag": "text",
+                                    "text": "IPv4地址：#{ipv4Addr}"
+                                }
+                            ],
+                            [
+                                {
+                                    "tag": "text",
+                                    "text": "IPv4域名更新结果：#{ipv4Result}"
+                                }
+                            ],
+                            [
+                                {
+                                    "tag": "text",
+                                    "text": "IPv4域名：#{ipv4Domains}"
+                                }
+                            ],
+                            [
+                                {
+                                    "tag": "text",
+                                    "text": "IPv6地址：#{ipv6Addr}"
+                                }
+                            ],
+                            [
+                                {
+                                    "tag": "text",
+                                    "text": "IPv6域名更新结果：#{ipv6Result}"
+                                }
+                            ],
+                            [
+                                {
+                                    "tag": "text",
+                                    "text": "IPv6域名：#{ipv6Domains}"
+                                }
+                            ]
+                        ]
+                    }
+                }
+            }
+        }
+    webhookheaders: ""
+

@@ -1,0 +1,164 @@
+#!/bin/bash
+
+# ==============================================================================
+# ppack - A Project Bundling Tool
+#
+# This script recursively traverses a project directory, concatenates the content
+# of all relevant files into a single text file, prefixed with a project
+# structure tree. It's useful for project archiving, code review, or feeding
+# context to Large Language Models.
+#
+# Author: Kie-Chi
+# Version: 1.0.0
+# ==============================================================================
+
+DEFAULT_OUTPUT_FILE="proj.txt"
+DEFAULT_SOURCE_DIR="."
+
+# Default list of patterns to ignore.
+DEFAULT_IGNORE_PATTERNS=(
+    ".git"
+    ".vscode"
+    "node_modules"
+    "dist"
+    "build"
+    "__pycache__"
+    "*.pyc"
+    "*.log"
+    "*.lock"
+    "*.svg"
+    "*.png"
+    "*.jpg"
+    "*.jpeg"
+    "*.gif"
+    "*.ico"
+    ".DS_Store"
+    ".env"
+)
+
+
+usage() {
+    echo "Usage: ppack [OPTIONS] [DIRECTORY]"
+    echo
+    echo "Packs a project directory into a single text file."
+    echo
+    echo "Arguments:"
+    echo "  DIRECTORY          The source directory to pack (default: current directory)."
+    echo
+    echo "Options:"
+    echo "  -o, --output FILE  Specify the output file name (default: $DEFAULT_OUTPUT_FILE)."
+    echo "  -i, --ignore PATTERN Add a pattern to the ignore list (can be used multiple times)."
+    echo "  --no-defaults      Do not use the default ignore patterns list."
+    echo "  -h, --help         Display this help message and exit."
+    echo
+    echo "Example:"
+    echo "  propack -o my_project.txt -i 'temp/*' src"
+}
+
+is_binary() {
+    grep -q -m 1 '^@$' "$1" || head -c 1024 "$1" | grep -q -aP '\x00'
+}
+
+OUTPUT_FILE="$DEFAULT_OUTPUT_FILE"
+SOURCE_DIR="$DEFAULT_SOURCE_DIR"
+IGNORE_PATTERNS=("${DEFAULT_IGNORE_PATTERNS[@]}")
+USE_DEFAULTS=true
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -o|--output)
+        OUTPUT_FILE="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        -i|--ignore)
+        IGNORE_PATTERNS+=("$2")
+        shift # past argument
+        shift # past value
+        ;;
+        --no-defaults)
+        USE_DEFAULTS=false
+        shift # past argument
+        ;;
+        -h|--help)
+        usage
+        exit 0
+        ;;
+        -*)
+        echo "Error: Unknown option '$1'"
+        usage
+        exit 1
+        ;;
+        *)
+        SOURCE_DIR="$1"
+        shift # past argument
+        ;;
+    esac
+done
+
+if [ "$USE_DEFAULTS" = false ]; then
+    IGNORE_PATTERNS=()
+fi
+
+if [ ! -d "$SOURCE_DIR" ]; then
+    echo "Error: Source directory '$SOURCE_DIR' not found."
+    exit 1
+fi
+
+if ! command -v tree &> /dev/null; then
+    echo "Warning: 'tree' command not found. Skipping project structure tree."
+    echo "To install it, use 'sudo apt-get install tree' or 'brew install tree'."
+    TREE_ENABLED=false
+else
+    TREE_ENABLED=true
+fi
+
+echo "Starting project packing..."
+echo "--------------------------------"
+echo "Source directory: $SOURCE_DIR"
+echo "Output file:      $OUTPUT_FILE"
+echo "Ignore patterns:  ${IGNORE_PATTERNS[*]}"
+echo "--------------------------------"
+
+# Overwrite or create the output file.
+# Using ">" clears the file content.
+echo "Project: $(basename "$(realpath "$SOURCE_DIR")")" > "$OUTPUT_FILE"
+echo "Packaged on: $(date)" >> "$OUTPUT_FILE"
+echo -e "\n==================== PROJECT STRUCTURE ====================\n" >> "$OUTPUT_FILE"
+
+
+# 3. Generate and append the project structure tree.
+if [ "$TREE_ENABLED" = true ]; then
+    # Convert the ignore array to a pipe-separated string for `tree -I`.
+    tree_ignore_pattern=$(printf "%s|" "${IGNORE_PATTERNS[@]}")
+    tree_ignore_pattern=${tree_ignore_pattern%|} # Remove trailing pipe
+
+    tree -a -I "$tree_ignore_pattern" "$SOURCE_DIR" >> "$OUTPUT_FILE"
+fi
+
+
+# 4. Append file contents.
+echo -e "\n\n====================== FILE CONTENT =====================\n\n" >> "$OUTPUT_FILE"
+find_args=()
+for pattern in "${IGNORE_PATTERNS[@]}"; do
+    find_args+=(-not -path "*/$pattern/*" -not -name "$pattern")
+done
+file_count=0
+while IFS= read -r file; do
+    if [ -f "$file" ]; then # Ensure it's a file
+        if is_binary "$file"; then
+            echo "Skipping binary file: $file"
+            continue
+        fi
+        
+        # Get a relative path for cleaner output.
+        relative_path="${file#$SOURCE_DIR/}"
+        
+        echo "--- File: $relative_path ---" >> "$OUTPUT_FILE"
+        cat "$file" >> "$OUTPUT_FILE"
+        echo -e "\n\n" >> "$OUTPUT_FILE"
+        ((file_count++))
+    fi
+done < <(find "$SOURCE_DIR" -type f "${find_args[@]}" | sort)
+

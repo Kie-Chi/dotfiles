@@ -23,7 +23,11 @@ vars:
   key_chrome: "google-chrome|Chrome|google-chrome-stable|F11"
   # Btop
   key_btop:   "btop|Btop|tilix -e btop|<Control><Alt>Backspace"
-  local_utils: "scrctl|spk"
+  local_utils: "scrctl|spk|ppack"
+  rime_config_path: "{{.vars.home}}/.local/share/fcitx5/rime"
+  
+  # Optional Select
+  if_ddns: true
 
 # Some Inline Help Function
 scripts:
@@ -227,6 +231,27 @@ scripts:
     echo "chmod +x -> {{.vars.home}}/.local/bin/$1"
     chmod +x "{{.vars.home}}/.local/bin/$1"
 
+  # -----------------------------------------------------------
+  # Func: is-local-e
+  # Param: $1 = File
+  # Desc: check if file exits
+  # -----------------------------------------------------------
+  is-local-f: |
+    #!/bin/sh
+    [ -f "{{.vars.home}}/.local/bin/$1" ]
+  
+  # -----------------------------------------------------------
+  # Func: lk-local
+  # Param: $1 = File
+  # Desc: symbolink the file from .dotfiles/resource
+  # -----------------------------------------------------------
+  lk-local: |
+    #!/bin/sh
+    if [ ! -f "{{.vars.home}}/.local/bin/$1" ]; then
+      echo "link {{.vars.home}}/.local/bin/$1 -> {{.vars.home}}/.dotfiles/resource/$1"
+      ln -sf "{{.vars.home}}/.dotfiles/resource/$1" "{{.vars.home}}/.local/bin/$1"
+    fi
+  
 # My Package List
 pkgs:
   - git
@@ -240,11 +265,14 @@ pkgs:
   - unzip
   - openssh-server
   - ssh
+  - jq
+  - tree
+  - name: copyq
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
   - name: tilix
     check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
   - name: fontconfig
     check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
-  - jq
   - name: pavucontrol
     check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
   - name: libfuse2
@@ -263,6 +291,13 @@ pkgs:
   - name: dconf-cli
     check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || ({{.super.check}})'
     manager: apt
+  
+  # Sdk Man
+  - name: sdk
+    check: '! command -v bash || zsh -c ". {{.vars.home}}/.zshrc && sdk version"'
+    exec: |
+      curl -s "https://get.sdkman.io" | bash
+      bash -c "source '{{.vars.home}}/.sdkman/bin/sdkman-init.sh'"
 
   # Docker
   - name: docker
@@ -333,7 +368,7 @@ pkgs:
       dnf: fcitx5 fcitx5-rime fcitx5-configtool fcitx5-autostart
       apt: fcitx5 fcitx5-rime fcitx5-config-qt fcitx5-frontend-gtk2 fcitx5-frontend-gtk3 fcitx5-frontend-qt5
       def: fcitx5 fcitx5-rime fcitx5-config-qt
-  
+
   # Google Chrome Browser
   - name: chrome
     check: '[ "{{.vars.profile}}" != "desktop" ] || command -v google-chrome-stable'
@@ -410,8 +445,16 @@ files:
     override: true
     check: '[ "{{.vars.profile}}" != "desktop" ]'
   
-  - src: "conf/rime.yaml"
+  - id: rime-custom
+    src: "conf/rime.yaml"
     dest: "{{.vars.home}}/.local/share/fcitx5/rime/default.custom.yaml"
+    deps: [fcitx]
+    override: true
+    check: '[ "{{.vars.profile}}" != "desktop" ]'
+
+  - id: rime-origin
+    src: "conf/rime.yaml"
+    dest: "{{.vars.home}}/.local/share/fcitx5/rime/default.yaml"
     deps: [fcitx]
     override: true
     check: '[ "{{.vars.profile}}" != "desktop" ]'
@@ -448,19 +491,14 @@ files:
     deps: [sunshine]
     check: '[ "{{.vars.profile}}" != "desktop" ]'
     override: true
-  
-  ## some utils for linux
-  # util to control xorg screen
-  - id: scrctl
-    src: "resource/scrctl"
-    dest: "{{.vars.home}}/.local/bin/scrctl"
-    check: '[ "{{.vars.profile}}" != "desktop" ]'
-    override: true
-  # util to push ssh key to remote
-  - id: spk
-    src: "resource/spk"
-    dest: "{{.vars.home}}/.local/bin/spk"
-    check: '[ "{{.vars.profile}}" != "desktop" ]'
+
+  ## Optional for linux
+  - id: ddns-conf
+    src: "conf/ddns.yml"
+    deps: [ddns-go]
+    dest: "{{.vars.home}}/.ddns_go_config.yml"
+    check: '[ {{.vars.if_ddns}} != "true" ]'
+    tpl: true
     override: true
 
 tasks:
@@ -801,8 +839,29 @@ tasks:
     deps: [btop]
     check: '[ "{{.vars.profile}}" != "desktop" ] || wrap check-gnome-key "{{.vars.key_btop}}"'
     run: wrap set-gnome-key "{{.vars.key_btop}}"
+  
+  - id: util-copy
+    check: map is-local-f "{{.vars.local_utils}}"
+    run: map lk-local "{{.vars.local_utils}}"
 
   - id: util-chmod
-    deps: [scrctl, spk]
+    deps: [util-copy]
     check: map is-local-x "{{.vars.local_utils}}"
     run: map en-local-x "{{.vars.local_utils}}"
+
+  - id: rime-ice
+    deps: [fcitx]
+    check: '[ "{{.vars.profile}}" != "desktop" ] || [ -e {{.vars.rime_config_path}}/.rime-ice-installed ]'
+    run: |
+      set -e
+      RIME_CONFIG_PATH="{{.vars.rime_config_path}}"
+      RIME_ICE_TMP_PATH="$RIME_CONFIG_PATH/rime-ice"
+      echo "Install to $RIME_CONFIG_PATH..."
+      git-ensure "$RIME_ICE_TMP_PATH" "https://github.com/iDvel/rime-ice.git"
+      rsync -av --remove-source-files "$RIME_ICE_TMP_PATH/" "$RIME_CONFIG_PATH/"
+      touch "$RIME_CONFIG_PATH/.rime-ice-installed"
+      echo "Rime Ice Installed."
+
+  - id: ddns-go
+    deps: []
+    run: 
