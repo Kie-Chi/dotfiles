@@ -5,6 +5,8 @@ vars:
 
 
 pkgs:
+  - name: okular
+    manager: apt
   - name: copyq
     check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
   
