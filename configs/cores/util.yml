@@ -1,6 +1,6 @@
 vars:
   local_utils: "scrctl|spk|ppack"
-  utils_dir: "{{.vars.home}}/.dotfiles/resource/scripts"  
+  utils_dir: "{{.vars.dotfiles}}/resource/scripts"  
 
 scripts:
   # Not Public Func, Not Suitable For Every Task

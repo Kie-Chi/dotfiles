@@ -9,7 +9,7 @@ vars:
   key_btop:   "btop|Btop|tilix -e btop|<Control><Alt>Backspace"
 
   font_size_gnome: "11"
-  wallpaper_path: "{{.vars.home}}/.dotfiles/resource/images/background.jpg"
+  wallpaper_path: "{{.vars.dotfiles}}/resource/images/background.jpg"
 
 tasks:
   - id: tilix-quake
