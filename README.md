@@ -9,7 +9,7 @@
 ### Cores
 - **Shell**: Zsh + Oh My Zsh + Powerlevel10k (即时提示符)
 - **Editors**: Vim (集成 Vundle, NERDTree, Airline), VS Code (自动安装并配置源)
-- **Tools**: Git, Tmux, Htop, Curl, Wget, Tree, Jq
+- **Tools**: Git, Tmux, Htop, Curl, Wget, Tree, Jq, Bat, Fzf, Ripgrep
 - **SSH**: 自动生成 Ed25519 密钥并配置 GitHub Alias
 
 ### Development
@@ -30,15 +30,26 @@
 ### Optional
 - **DDNS**: 集成 DDNS-Go，支持通过环境变量配置阿里云/腾讯云解析，支持飞书 Webhook 通知
 
-## Usage
+## Install & Usage
 
-### 1. 下载仓库
+### 1. curl
+
+```bash
+curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s -- -debug
+```
+- `-r/--remote`: 指定远程仓库，默认本仓库的https地址
+- `-b/--branch`: 指定分支，默认 `master`
+- `-g/--git`: 默认使用本仓库的 git 地址进行安装
+- 其他参数将透传给 `setup.sh` 脚本(也即传递给 `dotb`，例如 `-debug`, `-dry-run`)
+
+### 2. git
+#### i. clone repo
 ```bash
 git clone https://github.com/Kie-Chi/dotfiles.git ~/.dotfiles
 cd ~/.dotfiles
 ```
 
-### 2. 安装
+#### ii. install
 运行 `setup.sh`，脚本会自动检测环境并启动配置向导：
 
 ```bash
@@ -55,7 +66,7 @@ cd ~/.dotfiles
 
 安装完成后，脚本会自动调用 `dotb` 二进制文件开始构建环境
 
-### 3. 更新等
+### dtf
 项目自带包装命令`dtf`，用于简化常用命令
 ```
 dtf s|sync        # 更新 Dotfiles 仓库，并部署
@@ -102,7 +113,7 @@ DDNS_WEBHOOK=https://open.feishu.cn/...
 ### `config.yml`
 位于 `.dotfiles/config.yml`。这是 DotBuilder 的入口文件，定义了任务图的结构。如果你需要修改默认安装的软件列表或依赖关系，可以修改此文件或其引用的子配置文件 (`.dotfiles/configs/**/*.yml`)
 
-## 🛠 File Tree
+## File Tree
 
 ```text
 .
@@ -118,19 +129,19 @@ DDNS_WEBHOOK=https://open.feishu.cn/...
 └── config.yml        # 主配置文件
 ```
 
-## 📦 Support
+## Support
 
 目前主要适配并测试于：
 - **Ubuntu 22.04 / 24.04 LTS** (主要开发环境)
 - **Debian 11 / 12**
 - **Arch Linux** (部分支持 Pacman/Yay)
 
-## ⚠️ Notes 
+## Notes 
 
 1.  **重启生效**: 安装完成后（特别是 Docker 用户组、GNOME 扩展、Fcitx5 输入法、字体），建议注销或重启系统
 2.  **Snap**: 如果选择 `desktop` 模式，脚本默认会 **卸载并阻断 Snap**。如果你依赖 Snap，请在 `configs/desktops/likes.yml` 中移除相关任务
 3.  **Sudo**: 安装过程会请求 Sudo 权限以安装系统包
 
-## 📄 License
+## License
 
-MIT License © 2024 Kie-Chi
+MIT License © 2025 Kie-Chi
