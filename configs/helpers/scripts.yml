@@ -246,3 +246,25 @@ scripts:
         chmod +x "$file"
       fi
     done
+
+  # -----------------------------------------------------------
+  # Func: set-gnome-bg
+  # Param: $1=AbsolutePath
+  # Desc: Set GNOME background (Dark & Light)
+  # -----------------------------------------------------------
+  set-gnome-bg: |
+    #!/bin/sh
+    IMG_PATH="$1"
+    
+    if [ ! -f "$IMG_PATH" ]; then
+      echo "Error: Wallpaper file not found at $IMG_PATH"
+      exit 1
+    fi
+
+    URI="file://$IMG_PATH"
+    echo "Setting GNOME Wallpaper to: $URI"
+    
+    gsettings set org.gnome.desktop.background picture-uri "$URI"
+    gsettings set org.gnome.desktop.background picture-uri-dark "$URI"
+    # (zoom, centered, scaled, stretched, spanned, wallpaper)
+    gsettings set org.gnome.desktop.background picture-options 'zoom'

@@ -9,6 +9,7 @@ vars:
   key_btop:   "btop|Btop|tilix -e btop|<Control><Alt>Backspace"
 
   font_size_gnome: "11"
+  wallpaper_path: "{{.vars.home}}/.dotfiles/resource/images/background.jpg"
 
 tasks:
   - id: tilix-quake
@@ -42,3 +43,12 @@ tasks:
       SIZE="{{.vars.font_size_gnome}}"
       echo "Setting GNOME Monospace to size $SIZE..."
       gsettings set org.gnome.desktop.interface monospace-font-name "Maple Mono NF CN $SIZE" 
+  
+  - id: gnome-bg
+    check: |
+      [ "{{.vars.profile}}" != "desktop" ] || ( \
+        CURRENT=$(gsettings get org.gnome.desktop.background picture-uri) && \
+        TARGET="'file://{{.vars.wallpaper_path}}'" && \
+        [ "$CURRENT" = "$TARGET" ] \
+      )
+    run: set-gnome-bg "{{.vars.wallpaper_path}}"
