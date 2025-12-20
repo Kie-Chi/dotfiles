@@ -3,6 +3,8 @@ set -e
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTB_BIN="$BASE_DIR/bin/dotb"
+DTF_BIN="$BASE_DIR/bin/dtf"
+EXC_PATH="$HOME/.local/bin"
 CONFIG_FILE="$BASE_DIR/config.yml"
 ENV_FILE="$BASE_DIR/my.env"
 GREEN='\033[0;32m'
@@ -77,10 +79,23 @@ else
     fi
 fi
 
-if [ ! -f "/usr/local/bin/dotb" ]; then
+if [ -f "$DTF_BIN" ]; then
+    chmod +x "$DTF_BIN"
+else
+    echo -e "${YELLOW}Warning: dtf binary not found at $DTF_BIN${NC}"
+    exit 1
+fi
+
+if [ ! -f "$EXC_PATH/dotb" ]; then
     if command -v sudo >/dev/null && [ "$EUID" -ne 0 ]; then
         echo "Creating symlink for dotb..."
-        sudo ln -sf "$DOTB_BIN" /usr/local/bin/dotb || echo -e "${YELLOW}Warning: Failed to create symlink, skipping.${NC}"
+        sudo ln -sf "$DOTB_BIN" "$EXC_PATH/dotb" || echo -e "${YELLOW}Warning: Failed to create symlink, skipping.${NC}"
+    fi
+fi
+if [ ! -f "$EXC_PATH/dtf" ]; then
+    if command -v sudo >/dev/null && [ "$EUID" -ne 0 ]; then
+        echo "Creating symlink for dtf..."
+        sudo ln -sf "$DTF_BIN" "$EXC_PATH/dtf" || echo -e "${YELLOW}Warning: Failed to create symlink, skipping.${NC}"
     fi
 fi
 echo -e "${GREEN}-> Executing DotBuilder...${NC}"

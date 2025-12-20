@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# ==============================================================================
+# dtf - Dotfiles Management Wrapper
+# Wraps git and dotb.
+# ==============================================================================
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do 
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" 
+done
+DOTFILES_DIR="$( cd -P "$( dirname "$SOURCE" )/.." && pwd )"
+
+DOTB_BIN="dotb" # if dotb in PATH
+CONFIG_FILE="$DOTFILES_DIR/config.yml"
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+function log_info() { echo -e "${BLUE}[DTF] $1${NC}"; }
+function log_success() { echo -e "${GREEN}[DTF] $1${NC}"; }
+
+COMMAND="$1"
+shift #
+
+case "$COMMAND" in
+  sync)
+    # pull and apply
+    log_info "Syncing dotfiles from remote..."
+    git -C "$DOTFILES_DIR" pull
+    
+    log_info "Building environment..."
+    "$DOTB_BIN" -c "$CONFIG_FILE" "$@"
+    ;;
+
+  apply)
+    # apply only
+    log_info "Building environment..."
+    "$DOTB_BIN" -c "$CONFIG_FILE" "$@"
+    ;;
+
+
+  edit)
+    # quick edit config
+    EDITOR=${EDITOR:-vim}
+    cd "$DOTFILES_DIR" && "$EDITOR" "$DOTFILES_DIR"
+    ;;
+  
+  push)
+    # commit and push
+    MSG="${1:-update dotfiles}"
+    log_info "Pushing changes..."
+    git -C "$DOTFILES_DIR" add .
+    git -C "$DOTFILES_DIR" commit -m "$MSG"
+    git -C "$DOTFILES_DIR" push
+    log_success "Pushed."
+    ;;
+
+  status)
+    # status
+    git -C "$DOTFILES_DIR" status
+    ;;
+
+  *)
+    if [ -z "$COMMAND" ]; then
+        log_info "No command specified, defaulting to apply..."
+        "$DOTB_BIN" -c "$CONFIG_FILE"
+    else
+        "$DOTB_BIN" -c "$CONFIG_FILE" "$COMMAND" "$@"
+    fi
+    ;;
+esac

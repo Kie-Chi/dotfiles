@@ -28,10 +28,11 @@ source $ZSH/oh-my-zsh.sh
 # User configuration
 export LANG=en_US.UTF-8
 export EDITOR='vim'
+export LIKED_CONDA_ENV='mypy' # use mypy can auto activate it and use
 
 # Aliases
-alias zshconfig="vim ~/.zshrc"
-alias omzconfig="vim ~/.oh-my-zsh"
+alias zshconf="vim ~/.zshrc"
+alias omzconf="vim ~/.oh-my-zsh"
 alias ll="ls -alh"
 alias ..='cd ..'
 alias ...='cd ../..'
@@ -39,6 +40,10 @@ alias ....='cd ../../..'
 alias -- -='cd -'
 alias myip='ip -c -br a'
 alias ports='sudo ss -nultp'
+alias py='python3'
+alias c='batcat'
+alias bat='batcat'
+alias grep='rg'
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
@@ -77,6 +82,14 @@ fi
 
 mkcd() {
     mkdir -p "$1" && cd "$1"
+}
+
+mypy() {
+    if [[ "$CONDA_DEFAULT_ENV" != "$LIKED_CONDA_ENV" ]]; then
+        echo "Activating $LIKED_CONDA_ENV..."
+        conda activate $LIKED_CONDA_ENV
+    fi
+    python3 "$@"
 }
 
 extract() {
@@ -297,6 +310,62 @@ _pm() {
     _$tool
 }
 compdef _pm pm
+
+
+# ==============================================================================
+# dtf (Dotfiles Wrapper) Zsh Completion
+# ==============================================================================
+function _dtf() {
+    local context state state_descr line
+    typeset -A opt_args
+    local -a common_flags
+    common_flags=(
+        '(-n --dry-run)'{-n,--dry-run}'[Dry run mode (Simulate)]'
+        '--debug[Enable debug logs]'
+        '-c[Specify config file]:filename:_files'
+    )
+
+    _arguments -C \
+        "${common_flags[@]}" \
+        '1: :->cmds' \
+        '*:: :->args'
+
+    case $state in
+        cmds)
+            local -a commands
+            commands=(
+                "sync: Pull git changes and apply dotb"
+                "apply: Apply dotb config only (no pull)"
+                "edit: Edit dotfiles with default editor"
+                "push:  Commit and push changes"
+                "status: Show git status"
+            )
+            _describe -t commands 'dtf commands' commands
+            ;;
+        args)
+            case $line[1] in
+                push)
+                    _message "✍️  Commit message (optional)"
+                    ;;
+                sync|apply)
+                    _arguments \
+                        "${common_flags[@]}"
+                    ;;
+                *)
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+compdef _dtf dtf
+
+
+_py_completion() {
+    _files -g "*.py"
+}
+
+compdef _py_completion mypy
 
 #THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
 export SDKMAN_DIR="$HOME/.sdkman"

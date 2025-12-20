@@ -1,5 +1,6 @@
 vars:
   local_utils: "scrctl|spk|ppack"
+  utils_dir: "{{.vars.home}}/.dotfiles/resource/scripts"  
 
 scripts:
   # Not Public Func, Not Suitable For Every Task
@@ -39,8 +40,8 @@ scripts:
   lk-local: |
     #!/bin/sh
     if [ ! -f "{{.vars.home}}/.local/bin/$1" ]; then
-      echo "link {{.vars.home}}/.local/bin/$1 -> {{.vars.home}}/.dotfiles/resource/$1"
-      ln -sf "{{.vars.home}}/.dotfiles/resource/$1" "{{.vars.home}}/.local/bin/$1"
+      echo "link {{.vars.home}}/.local/bin/$1 -> {{.vars.utils_dir}}/$1"
+      ln -sf "{{.vars.utils_dir}}/$1" "{{.vars.home}}/.local/bin/$1"
     fi
 
 tasks:

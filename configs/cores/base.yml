@@ -10,6 +10,9 @@ pkgs:
   - tree
   - xclip
   - xsel
+  - fzf
+  - bat
+  - ripgrep
   - name: apt-transport-https
     check: '[ "{{.vars.profile}}" != "desktop" ] || ! command -v apt-get || ({{.super.check}})'
     manager: apt
