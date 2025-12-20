@@ -340,7 +340,7 @@ function _dtf() {
                 "a: alias for apply"
                 "edit: Edit dotfiles with default editor"
                 "e: alias for edit"
-                "push:  Commit and push changes"
+                "push: Commit and push changes"
                 "p: alias for push"
                 "status: Show git status"
                 "st: alias for status"
