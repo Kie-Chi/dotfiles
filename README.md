@@ -58,10 +58,14 @@ cd ~/.dotfiles
 ### 3. 更新等
 项目自带包装命令`dtf`，用于简化常用命令
 ```
-dtf sync        # 更新 Dotfiles 仓库，并部署
-dtf apply       # 重新应用当前配置
-
+dtf s|sync        # 更新 Dotfiles 仓库，并部署
+dtf a|apply       # 重新应用当前配置
+dtf e|edit        # 使用默认编辑器打开 Dotfiles 仓库
+dtf p|push [msg]  # 提交并推送更改，默认提交信息为 "feat(config): auto pushed by dtf"
+dtf st|status     # 显示当前仓库状态
 ```
+
+同时，zsh将自动对`dtf`命令提供补全支持:)
 
 ---
 
