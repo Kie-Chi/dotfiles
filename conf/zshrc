@@ -335,10 +335,15 @@ function _dtf() {
             local -a commands
             commands=(
                 "sync: Pull git changes and apply dotb"
+                "s: alias for sync"
                 "apply: Apply dotb config only (no pull)"
+                "a: alias for apply"
                 "edit: Edit dotfiles with default editor"
+                "e: alias for edit"
                 "push:  Commit and push changes"
+                "p: alias for push"
                 "status: Show git status"
+                "st: alias for status"
             )
             _describe -t commands 'dtf commands' commands
             ;;

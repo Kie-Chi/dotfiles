@@ -1,24 +1,24 @@
-# 🚀 Chi's Linux Dotfiles
+# Chi's Linux Dotfiles
 
 > 自动化 Linux 开发环境配置方案，由 **[DotBuilder](https://github.com/Kie-Chi/dotbuiler)** 驱动
 
 本仓库旨在通过声明式配置（YAML），实现 Linux 环境的一键部署。支持从零配置 Shell、开发工具链、到完整的 GNOME 桌面环境
 
-## ✨ Features
+## Features
 
-### 🛠 Cores
+### Cores
 - **Shell**: Zsh + Oh My Zsh + Powerlevel10k (即时提示符)
 - **Editors**: Vim (集成 Vundle, NERDTree, Airline), VS Code (自动安装并配置源)
 - **Tools**: Git, Tmux, Htop, Curl, Wget, Tree, Jq
 - **SSH**: 自动生成 Ed25519 密钥并配置 GitHub Alias
 
-### 💻 Development
+### Development
 - **Docker**: 自动安装，配置用户组（免 sudo），启用服务
 - **Python**: Miniconda3 自动安装、初始化 Conda 环境
 - **Java**: 集成 SDKMan 管理多版本 JDK
 - **Build**: Build-essential / GCC / Make
 
-### 🖥 Desktop@GNOME
+### Desktop@GNOME
 *仅在 `profile: desktop` 模式下启用*
 - **Terminal**: Tilix (Dracula 主题 + F12 Quake 模式 + 快捷键绑定)
 - **Input**: Fcitx5 + Rime (雾凇拼音 / 小鹤双拼 / 自动同步配置)
@@ -27,10 +27,10 @@
 - **Fonts**: Maple Mono NF CN (自动下载并设为系统等宽字体)
 - **Optimization**: 自动移除并阻断 Snap (Ubuntu)
 
-### 🌐 Optional
+### Optional
 - **DDNS**: 集成 DDNS-Go，支持通过环境变量配置阿里云/腾讯云解析，支持飞书 Webhook 通知
 
-## 🚀 Usage
+## Usage
 
 ### 1. 下载仓库
 ```bash
@@ -54,6 +54,14 @@ cd ~/.dotfiles
 4.  **DDNS**: 是否启用动态域名解析服务
 
 安装完成后，脚本会自动调用 `dotb` 二进制文件开始构建环境
+
+### 3. 更新等
+项目自带包装命令`dtf`，用于简化常用命令
+```
+dtf sync        # 更新 Dotfiles 仓库，并部署
+dtf apply       # 重新应用当前配置
+
+```
 
 ---
 

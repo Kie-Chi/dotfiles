@@ -26,7 +26,7 @@ COMMAND="$1"
 shift #
 
 case "$COMMAND" in
-  sync)
+  sync|s)
     # pull and apply
     log_info "Syncing dotfiles from remote..."
     git -C "$DOTFILES_DIR" pull
@@ -35,20 +35,20 @@ case "$COMMAND" in
     "$DOTB_BIN" -c "$CONFIG_FILE" "$@"
     ;;
 
-  apply)
+  apply|a)
     # apply only
     log_info "Building environment..."
     "$DOTB_BIN" -c "$CONFIG_FILE" "$@"
     ;;
 
 
-  edit)
+  edit|e)
     # quick edit config
     EDITOR=${EDITOR:-vim}
     cd "$DOTFILES_DIR" && "$EDITOR" "$DOTFILES_DIR"
     ;;
   
-  push)
+  push|p)
     # commit and push
     MSG="${1:-update dotfiles}"
     log_info "Pushing changes..."
@@ -58,7 +58,7 @@ case "$COMMAND" in
     log_success "Pushed."
     ;;
 
-  status)
+  status|st)
     # status
     git -C "$DOTFILES_DIR" status
     ;;
