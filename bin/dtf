@@ -50,7 +50,7 @@ case "$COMMAND" in
   
   push|p)
     # commit and push
-    MSG="${1:-update dotfiles}"
+    MSG="${1:-'feat(config): auto pushed by dtf'}"
     log_info "Pushing changes..."
     git -C "$DOTFILES_DIR" add .
     git -C "$DOTFILES_DIR" commit -m "$MSG"
