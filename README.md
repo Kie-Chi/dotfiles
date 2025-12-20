@@ -56,6 +56,8 @@ cd ~/.dotfiles
 ./setup.sh
 ```
 
+### setup.sh
+
 **向导可能会询问以下信息：**
 1.  **Username**: 用户名（用于 Git 配置等，默认为当前用户）
 2.  **Email**: 邮箱地址（用于 SSH Key 生成和 Git 配置）
