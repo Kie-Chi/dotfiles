@@ -260,6 +260,7 @@ _sc_comp() {
 }
 compdef _sc_comp sc usc
 
+# 2. PM Completion
 _pm() {
     local -a commands
     commands=(
@@ -311,10 +312,7 @@ _pm() {
 }
 compdef _pm pm
 
-
-# ==============================================================================
-# dtf (Dotfiles Wrapper) Zsh Completion
-# ==============================================================================
+# 3. dtf Completion
 function _dtf() {
     local context state state_descr line
     typeset -A opt_args

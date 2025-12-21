@@ -15,5 +15,5 @@ vars:
   
 tasks:
   - id: welcome-msg
-    deps: [p10k, vim-plugins]
+    group: end
     run: "echo '🎉 Environment Setup for Kie-Chi Complete! Please relogin.'"  

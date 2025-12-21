@@ -1,0 +1,34 @@
+vars:
+  chsrc_marker: "{{.vars.home}}/.cache/dotbuilder/chsrc_optimized"
+
+pkgs:
+  - name: chsrc
+    group: boot
+    check: "command -v chsrc"
+    exec: "curl https://chsrc.run/posix | bash"
+
+tasks:
+  - id: run-chsrc
+    group: boot
+    deps: [chsrc]
+    check: "[ -f {{.vars.chsrc_marker}} ]"
+    run: |
+      echo "Optimizing mirrors with chsrc..."
+      
+      CHSRC="{{.vars.home}}/.local/bin/chsrc"
+
+      if [ "$(uname)" = "Linux" ]; then
+        echo "   -> Optimizing System..."
+        sudo $CHSRC set {{.vars.sys_distro}}
+      fi
+
+      echo "   -> Optimizing Dev Tools..."
+      $CHSRC set python || true
+      $CHSRC set node || true
+      $CHSRC set go || true
+      $CHSRC set rust || true
+      $CHSRC set ruby || true
+      
+      echo "Mirrors updated."
+      mkdir -p "$(dirname {{.vars.chsrc_marker}})"
+      touch "{{.vars.chsrc_marker}}"
