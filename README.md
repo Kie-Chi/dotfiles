@@ -82,7 +82,7 @@ dtf st|status     # 显示当前仓库状态
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 项目配置为 **分层机制**，优先级从高到低如下：
 
