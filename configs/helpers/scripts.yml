@@ -118,13 +118,17 @@ scripts:
       exit 1 # No Keyshort
     fi
     ACTUAL_CMD=$(gsettings get "$FULL_SCHEMA" command)
-    if [ "$ACTUAL_CMD" != "'$EXPECTED_CMD'" ]; then
-      exit 1 # Cmd Error
+    CLEAN_ACTUAL=$(echo "$ACTUAL_CMD" | sed -e "s/^['\"]//" -e "s/['\"]$//")    
+    if [ "$CLEAN_ACTUAL" != "$EXPECTED_CMD" ]; then
+      echo "Unexpected Command: [$CLEAN_ACTUAL] != [$EXPECTED_CMD]"
+      exit 1
     fi
     if [ -n "$EXPECTED_BINDING" ]; then
       ACTUAL_BINDING=$(gsettings get "$FULL_SCHEMA" binding)
-      if [ "$ACTUAL_BINDING" != "'$EXPECTED_BINDING'" ]; then
-        exit 1 # Bind Error
+      CLEAN_BINDING=$(echo "$ACTUAL_BINDING" | sed -e "s/^['\"]//" -e "s/['\"]$//")
+      if [ "$CLEAN_BINDING" != "$EXPECTED_BINDING" ]; then
+        echo "Unexpected Binding: [$CLEAN_BINDING] != [$EXPECTED_BINDING]"
+        exit 1
       fi
     fi
     exit 0 

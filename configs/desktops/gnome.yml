@@ -6,10 +6,17 @@ vars:
   # Chrome
   key_chrome: "google-chrome|Chrome|google-chrome-stable|F11"
   # Btop
-  key_btop:   "btop|Btop|tilix -e btop|<Control><Alt>Backspace"
+  key_btop: "btop|Btop|quake 'class:QuakeBtop' 'tilix --new-process --class=QuakeBtop --name=QuakeBtop --geometry=120x35 -e btop'|<Control><Alt>Backspace"
 
   font_size_gnome: "11"
   wallpaper_path: "{{.vars.dotfiles}}/resource/images/background.jpg"
+
+pkgs:
+  - name: wmctrl
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
+  
+  - name: xdotool
+    check: '[ "{{.vars.profile}}" != "desktop" ] || ({{.super.check}})'
 
 tasks:
   - id: tilix-quake

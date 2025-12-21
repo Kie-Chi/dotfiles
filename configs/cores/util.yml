@@ -1,6 +1,8 @@
 vars:
   local_utils: "scrctl|spk|ppack"
+  local_helpers: "quake"
   utils_dir: "{{.vars.dotfiles}}/resource/scripts"  
+  helpers_dir: "{{.vars.dotfiles}}/resource/helpers"
 
 scripts:
   # Not Public Func, Not Suitable For Every Task
@@ -35,7 +37,7 @@ scripts:
   # -----------------------------------------------------------
   # Func: lk-local
   # Param: $1 = File
-  # Desc: symbolink the file from .dotfiles/resource
+  # Desc: symbolink the file from .dotfiles/resource/helpers to .local/bin
   # -----------------------------------------------------------
   lk-local: |
     #!/bin/sh
@@ -44,12 +46,33 @@ scripts:
       ln -sf "{{.vars.utils_dir}}/$1" "{{.vars.home}}/.local/bin/$1"
     fi
 
+  # -----------------------------------------------------------
+  # Func: lk-local-helper
+  # Param: $1 = File
+  # Desc: symbolink the file from .dotfiles/resource/helpers
+  # -----------------------------------------------------------
+  lk-local-helper: |
+    #!/bin/sh
+    if [ ! -f "{{.vars.home}}/.local/bin/$1" ]; then
+      echo "link {{.vars.home}}/.local/bin/$1 -> {{.vars.helpers_dir}}/$1"
+      ln -sf "{{.vars.helpers_dir}}/$1" "{{.vars.home}}/.local/bin/$1"
+    fi
+
 tasks:
   - id: util-copy
     check: map is-local-f "{{.vars.local_utils}}"
     run: map lk-local "{{.vars.local_utils}}"
 
+  - id: helper-copy
+    check: map is-local-f "{{.vars.local_helpers}}"
+    run: map lk-local-helper "{{.vars.local_helpers}}"
+
   - id: util-chmod
     deps: [util-copy]
     check: map is-local-x "{{.vars.local_utils}}"
     run: map en-local-x "{{.vars.local_utils}}"
+
+  - id: helper-chmod
+    deps: [helper-copy]
+    check: map is-local-x "{{.vars.local_helpers}}"
+    run: map en-local-x "{{.vars.local_helpers}}"

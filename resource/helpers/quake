@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# ==============================================================================
+# Script: quake
+# Usage:  quake <Target> <LaunchCmd>
+# Target: "class:ClassName"
+# ==============================================================================
+
+TARGET="$1"
+LAUNCH_CMD="$2"
+LOCK_FILE="/tmp/quake_$(echo "$TARGET" | md5sum | cut -d' ' -f1).lock"
+
+if [ -z "$TARGET" ]; then
+  exit 1
+fi
+if [ -f "$LOCK_FILE" ]; then
+    PID=$(cat "$LOCK_FILE")
+    if kill -0 "$PID" 2>/dev/null; then
+        exit 0
+    fi
+fi
+echo $$ > "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
+get_win_id() {
+    if [[ "$TARGET" == class:* ]]; then
+        local search_term="${TARGET#class:}"
+        wmctrl -l -x | grep -i "$search_term" | awk '{print $1}' | head -n 1
+    else
+        wmctrl -l | grep -i "$TARGET" | awk '{print $1}' | head -n 1
+    fi
+}
+
+WIN_ID_HEX=$(get_win_id)
+if [ -z "$WIN_ID_HEX" ]; then
+    nohup bash -c "$LAUNCH_CMD" >/dev/null 2>&1 &
+    disown
+    for i in {1..20}; do
+        sleep 0.1
+        WIN_ID_HEX=$(get_win_id)
+        if [ -n "$WIN_ID_HEX" ]; then
+            wmctrl -i -r "$WIN_ID_HEX" -b add,skip_taskbar,skip_pager
+            xdotool windowmap "$WIN_ID_HEX"
+            wmctrl -i -R "$WIN_ID_HEX"
+            xdotool windowactivate "$WIN_ID_HEX"
+            break
+        fi
+    done
+
+else    
+    ACTIVE_ID_DEC=$(xdotool getactivewindow 2>/dev/null)
+    WIN_ID_DEC=$((${WIN_ID_HEX:-0}))
+
+    if [ "$ACTIVE_ID_DEC" -eq "$WIN_ID_DEC" ]; then
+        xdotool windowunmap "$WIN_ID_HEX"
+    else
+        xdotool windowmap "$WIN_ID_HEX" 
+        wmctrl -i -R "$WIN_ID_HEX"
+        xdotool windowactivate "$WIN_ID_HEX"
+    fi
+fi
+exit 0
