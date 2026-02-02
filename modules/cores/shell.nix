@@ -50,17 +50,4 @@
   
   home.file.".p10k.zsh".source = ../../files/zsh/p10k.zsh;
 
-  home.activation.setZshAsDefault = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    zsh_path="${config.home.profileDirectory}/bin/zsh"
-    if [ "$SHELL" != "$zsh_path" ]; then
-      echo "Setting Zsh as default shell..."
-      if ! grep -q "$zsh_path" /etc/shells; then
-        echo "Adding $zsh_path to /etc/shells"
-        echo "$zsh_path" | /usr/bin/sudo tee -a /etc/shells > /dev/null
-      fi
-      /usr/bin/sudo chsh -s "$zsh_path" $USER
-      echo "Default shell changed to Zsh. Please relogin."
-    fi
-  '';
-
 }

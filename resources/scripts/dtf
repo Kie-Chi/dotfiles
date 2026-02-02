@@ -1,4 +1,4 @@
-v#!/usr/bin/env bash
+#!/usr/bin/env bash
 
 # ==============================================================================
 # dtf - Darwin Dotfiles Manager (nix-darwin + sudo nix run mode)
@@ -26,6 +26,32 @@ ensure_secrets_link() {
     fi
 }
 
+usage() {
+    echo -e "Usage: dtf [COMMAND]"
+    echo -e "\nA friendly manager for your Nix dotfiles.\n"
+    echo -e "Commands:"
+    echo -e "  ${GREEN}a, apply${NC}        Apply the Home Manager configuration."
+    echo -e "  ${GREEN}s, sync${NC}         Pull latest changes from git and then apply."
+    echo -e "  ${GREEN}u, update${NC}       Update flake inputs (nixpkgs, etc.)."
+    echo -e "  ${GREEN}r, rollback [N|list]${NC} Rollback to generation N, list generations, or go to previous."
+    echo -e "  ${GREEN}e, edit${NC}         Open the dotfiles directory in your default editor."
+    echo -e "  ${GREEN}p, push [msg]${NC}   Commit and push changes with an optional message."
+    echo -e "  ${GREEN}st, status${NC}      Show the git status of the dotfiles repository."
+    echo -e "  ${GREEN}gc, clean${NC}       Run Nix garbage collection to clean old generations."
+    echo -e "  ${GREEN}h, help${NC}         Show this help message."
+    echo
+}
+
+rollback_usage() {
+    echo -e "Usage: dtf rollback [COMMAND]"
+    echo -e "\nManages Home Manager generations.\n"
+    echo -e "Commands:"
+    echo -e "  (no arguments)     Rollback to the immediately previous generation."
+    echo -e "  list               List all available generations."
+    echo -e "  <generation_num>   Switch to a specific generation number."
+}
+
+
 cd "$DOTFILES_DIR"
 
 case "$1" in
@@ -43,6 +69,12 @@ case "$1" in
         echo -e "${CYAN}--> Pulling from git...${NC}"
         git pull
         "$0" apply
+        ;;
+    
+    u|update)
+        echo -e "${CYAN}--> Updating flake inputs (nixpkgs, etc.)...${NC}"
+        nix flake update
+        echo -e "${GREEN}--> Flake inputs updated. Run 'dtf apply' to use them.${NC}"
         ;;
 
     r|rollback)
@@ -69,6 +101,20 @@ case "$1" in
                 ;;
         esac
         ;;
+    
+    e|edit)
+        echo -e "${CYAN}--> Opening dotfiles in \$EDITOR (${EDITOR:-vim})...${NC}"
+        ${EDITOR:-vim} .
+        ;;
+
+    p|push)
+        commit_msg="${2:-"chore: update configuration"}"
+        echo -e "${CYAN}--> Committing and pushing changes...${NC}"
+        git add .
+        git commit -m "$commit_msg"
+        git push
+        echo -e "${GREEN}--> Changes pushed successfully!${NC}"
+        ;;
 
     st|status)
         git status
@@ -81,8 +127,13 @@ case "$1" in
         echo -e "${GREEN}--> Cleanup finished.${NC}"
         ;;
 
+    h|help|-h|--help)
+        usage
+        ;;
+
     *)
-        echo -e "Usage: dtf {apply|sync|rollback [list|num]|status|gc}"
+        echo -e "${RED}Error: Unknown command '$1'${NC}\n"
+        usage
         exit 1
         ;;
 esac
