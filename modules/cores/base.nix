@@ -35,5 +35,6 @@
     ripgrep 
     bat
     tree
+    ncdu
   ];
 }

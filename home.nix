@@ -4,6 +4,7 @@
   imports = [
     ./modules/cores
     ./modules/devps
+    ./modules/desktops
   ];
   config = {
     home.username = secrets.home.user;

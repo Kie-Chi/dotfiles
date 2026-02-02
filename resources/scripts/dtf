@@ -59,7 +59,7 @@ case "$1" in
         ensure_secrets_link
         git add -N . || true
 
-        echo -e "${CYAN}--> Running nix-darwin switch via 'nix run'...${NC}"
+        echo -e "${CYAN}--> Running nix-darwin switch...${NC}"
         sudo -H nix run nix-darwin -- switch --flake "$FLAKE_TARGET" --impure
         
         echo -e "${GREEN}--> System successfully updated!${NC}"
@@ -72,7 +72,8 @@ case "$1" in
         ;;
     
     u|update)
-        echo -e "${CYAN}--> Updating flake inputs (nixpkgs, etc.)...${NC}"
+        echo -e "${CYAN}--> Updating flake inputs...${NC}"
+        brew update
         nix flake update
         echo -e "${GREEN}--> Flake inputs updated. Run 'dtf apply' to use them.${NC}"
         ;;
@@ -124,6 +125,8 @@ case "$1" in
         echo -e "${CYAN}--> Garbage collecting old generations...${NC}"
         sudo -H nix-collect-garbage -d
         nix-collect-garbage -d
+        nix-store --optimise
+        brew cleanup
         echo -e "${GREEN}--> Cleanup finished.${NC}"
         ;;
 

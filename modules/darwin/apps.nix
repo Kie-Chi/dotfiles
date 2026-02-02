@@ -7,7 +7,20 @@
       cleanup = "uninstall"; 
     };
 
+    # taps = [
+    #   {
+    #     name = "kde-mac/kde";
+    #     clone_target = "git@github.com:KDE/homebrew-kde.git";
+    #   }
+    # ];
+
+    # brews = [
+    #   "okular"
+    # ];
+
     casks = [
+      "raycast"
+      "skim"
       "wechat"
       "google-chrome"
       "feishu"
@@ -17,8 +30,9 @@
       "orbstack"
       "squirrel-app"
       "iina"
-      "iterm2" # 确保安装了 iTerm2
+      "iterm2"
       "snipaste"
+      "neteasemusic"
     ];
   };
 }
