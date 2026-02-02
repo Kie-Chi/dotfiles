@@ -3,7 +3,7 @@
 let
   dotfilesSrc = lib.cleanSource ../../.;
   scriptsPath = dotfilesSrc + "/resources/scripts";
-  helpersPath = dotfilesSrc + "/resources/helpers";
+  # helpersPath = dotfilesSrc + "/resources/helpers";
 
 
   packageScriptsFromDir = dirPath:
@@ -18,9 +18,10 @@ let
       )
       dirContents;
   packagedScripts = packageScriptsFromDir scriptsPath;
-  packagedHelpers = packageScriptsFromDir helpersPath;
+  # packagedHelpers = packageScriptsFromDir helpersPath;
 
 in
 {
-  home.packages = packagedScripts ++ packagedHelpers;
+  # home.packages = packagedScripts ++ packagedHelpers;
+  home.packages = packagedScripts;
 }

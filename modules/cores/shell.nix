@@ -22,10 +22,6 @@
     sessionVariables = {
       LANG = "en_US.UTF-8";
       EDITOR = "vim";
-      XMODIFIERS = "@im=fcitx";
-      GTK_IM_MODULE = "fcitx";
-      QT_IM_MODULE = "fcitx";
-      SDL_IM_MODULE = "fcitx";
     };
 
     shellAliases = {

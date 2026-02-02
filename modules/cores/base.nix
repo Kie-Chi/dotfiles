@@ -13,7 +13,6 @@
     # base
     git 
     tmux
-    systemd
 
     # crypt
     git-crypt
@@ -30,8 +29,6 @@
     # tools
     unzip 
     jq 
-    xclip 
-    xsel
     
     # opt 
     fzf 

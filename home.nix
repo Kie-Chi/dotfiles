@@ -1,24 +1,14 @@
-{ config, pkgs, ... }:
+{ config, pkgs, secrets, lib, ... }:
 
-let 
-  path = builtins.getEnv "HOME";
-  secretsPath = path + "/.config/dotfiles/secrets.nix";
-  secrets =
-    if builtins.pathExists (secretsPath)
-    then import (secretsPath)
-    else {};
-in
 {
   imports = [
     ./modules/cores
-    ./modules/desktops
     ./modules/devps
   ];
   config = {
     home.username = secrets.home.user;
-    home.homeDirectory = secrets.home.dir;
+    home.homeDirectory = lib.mkForce "${secrets.home.dir}";
     home.stateVersion = "25.11";
-    _module.args.secrets = secrets;
     programs.home-manager.enable = true;
   };
 }

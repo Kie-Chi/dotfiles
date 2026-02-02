@@ -24,7 +24,7 @@ msg_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 msg_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
 CONFIG_ITEMS="BASE|home.user|Enter your system username|whoami
-BASE|home.dir|Enter your home directory path|echo \"/home/\$(whoami)\"
+BASE|home.dir|Enter your home directory path|echo \"$HOME\"
 GIT|git.name|Enter your Git user name|echo \"Someone\"
 GIT|git.email|Enter your Git email address|echo \"someone@example.com\""
 
@@ -82,7 +82,7 @@ gen() {
 
 cold() {
     msg_info "Applying Home Manager configuration for the first time..."
-    nix run home-manager/master -- switch --flake .#default --impure
+    sudo nix run nix-darwin -- switch --flake .#MacBook-Air --impure
 }
 
 msg_info "Starting setup..."
