@@ -82,7 +82,7 @@ gen() {
 
 cold() {
     msg_info "Applying Home Manager configuration for the first time..."
-    sudo nix run nix-darwin -- switch --flake .#MacBook-Air --impure
+    /bin/bash resources/scripts/dtf apply
 }
 
 msg_info "Starting setup..."

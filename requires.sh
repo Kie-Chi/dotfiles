@@ -140,7 +140,7 @@ install_nix() {
 
     curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
     if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
-      . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+        . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
     fi
 
     msg_success "Nix installation complete."
@@ -152,9 +152,15 @@ main() {
     msg_info "Starting prerequisite check for Nix dotfiles..."
     install_system_deps
     install_nix
+    if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+        . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+    fi
     
     echo
     msg_success "All prerequisites are installed!"
 }
 
 main
+if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+    . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+fi
