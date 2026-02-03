@@ -7,5 +7,7 @@
 {
   imports = [
     ./apps.nix
+    ./dmgs.nix
+    ./zips.nix
   ];
 }

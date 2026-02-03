@@ -71,7 +71,7 @@ alias ec='extract'
 
 function cat() {
     if [ -t 1 ]; then
-        batcat "$@"
+        bat "$@"
     else
         command cat "$@"
     fi

@@ -14,11 +14,14 @@
     #   }
     # ];
 
-    # brews = [
-    #   "okular"
-    # ];
+    brews = [
+      # "okular"
+      "chsrc"
+      "sing-box"
+    ];
 
     casks = [
+      "moonlight"
       "raycast"
       "skim"
       "wechat"
