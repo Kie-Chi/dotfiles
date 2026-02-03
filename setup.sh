@@ -26,13 +26,14 @@ msg_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 CONFIG_ITEMS="BASE|home.user|Enter your system username|whoami
 BASE|home.dir|Enter your home directory path|echo \"$HOME\"
 GIT|git.name|Enter your Git user name|echo \"Someone\"
-GIT|git.email|Enter your Git email address|echo \"someone@example.com\""
+GIT|git.email|Enter your Git email address|echo \"someone@example.com\"
+PROXY|proxy.status|Enter your proxy status (keep/manual/none)|echo \"none\"
+PROXY|proxy.url|Enter your proxy URL (leave blank for none)|echo \"\""
 
 gen() {
     msg_info "Configuring user identity for secrets.nix..."
     echo "Please provide the following information. Press Enter to accept the default value."
 
-    # FIX 2: Initialize with a real newline to ensure printf %b works correctly.
     local file_content="{\n"
     local current_group=""
     while IFS='|' read -r group nix_path prompt default_cmd; do
@@ -49,8 +50,6 @@ gen() {
             current_group="$group"
         fi
 
-        # FIX 1: Use 'eval' to correctly execute commands with quotes and substitutions.
-        # This is necessary for commands like `echo "/home/$(whoami)"`.
         local default_val
         default_val=$(eval "$default_cmd")
 
@@ -67,7 +66,6 @@ gen() {
 
     file_content+="\n}"
 
-    # FIX 2: Use '%b' to interpret backslash escapes like \n when writing the file.
     printf '%b' "$file_content" > "$SECRETS_FILE"
 
     msg_success "Generated secrets.nix at: $SECRETS_FILE"
