@@ -96,7 +96,15 @@ pm() {
     shift
     local _install _search _remove _update _upgrade _clean
 
-    if command -v apt &> /dev/null; then
+    if command -v brew &> /dev/null; then
+        # macOS Homebrew
+        _install="brew install"
+        _search="brew search"
+        _remove="brew uninstall"
+        _update="brew update"
+        _upgrade="brew upgrade"
+        _clean="brew cleanup"
+    elif command -v apt &> /dev/null; then
         # Debian / Ubuntu
         _install="sudo apt install"
         _search="apt search"
@@ -185,6 +193,53 @@ if command -v systemctl > /dev/null 2>&1; then
     }
 fi
 
+if command -v launchctl >/dev/null 2>&1; then
+    _sc_mac_logic() {
+        local domain=$1
+        local action=$2
+        local target=$3
+        shift 3
+
+        case "$action" in
+            st|status)
+                if [ -z "$target" ]; then
+                    launchctl list | grep -v "com.apple"
+                else
+                    sudo launchctl print "$domain/$target"
+                fi
+                ;;
+            start)
+                # kickstart -p
+                sudo launchctl kickstart -p "$domain/$target"
+                ;;
+            stop)
+                sudo launchctl kill SIGTERM "$domain/$target"
+                ;;
+            res|restart)
+                sudo launchctl kickstart -k "$domain/$target"
+                ;;
+            en|enable)
+                sudo launchctl enable "$domain/$target"
+                ;;
+            dis|disable)
+                sudo launchctl disable "$domain/$target"
+                ;;
+            *)
+                echo "Action $action not fully mapped for launchctl"
+                ;;
+        esac
+    }
+
+    sc() {
+        _sc_mac_logic "system" "$1" "$2"
+    }
+
+    usc() {
+        local uid=$(id -u)
+        _sc_mac_logic "gui/$uid" "$1" "$2"
+    }
+fi
+
 # ==========================================
 # Journalctl Wrapper (jlog)
 # ==========================================
@@ -199,6 +254,15 @@ if command -v journalctl >/dev/null 2>&1; then
     }
 fi
 
+if command -v log >/dev/null 2>&1; then
+    jlog() {
+        if [ -z "$1" ]; then
+            log show --last 10m
+        else
+            log show --last 1h --predicate "process == '$1'" --info
+        fi
+    }
+fi
 
 
 ###########################################
@@ -210,33 +274,72 @@ fi
 autoload -Uz compinit && compinit
 
 # 1. SC Completion
-_sc_comp() {
-    if ! (( $+functions[_systemctl] )); then
-        autoload -U _systemctl
+if command -v systemctl > /dev/null 2>&1; then
+    _sc_comp() {
         if ! (( $+functions[_systemctl] )); then
-            return 1
+            autoload -U _systemctl
+            if ! (( $+functions[_systemctl] )); then
+                return 1
+            fi
         fi
-    fi
 
-    case "${words[2]}" in
-        st)   words[2]="status" ;;
-        res)  words[2]="restart" ;;
-        rel)  words[2]="reload" ;;
-        dr)   words[2]="daemon-reload" ;;
-        en)   words[2]="enable" ;;
-        dis)  words[2]="disable" ;;
-        enn)  words[2]="enable" ;;
-        disn) words[2]="disable" ;;
-        fail) words[2]="--failed" ;;
-        act)  words[2]="list-units" ;;
-    esac
-    if [[ "${words[1]}" == "usc" ]]; then
-        words=("systemctl" "--user" "${words[@]:1}")
-        (( CURRENT++ ))
-    fi
-    _systemctl
-}
-compdef _sc_comp sc usc
+        case "${words[2]}" in
+            st)   words[2]="status" ;;
+            res)  words[2]="restart" ;;
+            rel)  words[2]="reload" ;;
+            dr)   words[2]="daemon-reload" ;;
+            en)   words[2]="enable" ;;
+            dis)  words[2]="disable" ;;
+            enn)  words[2]="enable" ;;
+            disn) words[2]="disable" ;;
+            fail) words[2]="--failed" ;;
+            act)  words[2]="list-units" ;;
+        esac
+        if [[ "${words[1]}" == "usc" ]]; then
+            words=("systemctl" "--user" "${words[@]:1}")
+            (( CURRENT++ ))
+        fi
+        _systemctl
+    }
+    compdef _sc_comp sc usc
+fi
+
+if command -v launchctl >/dev/null 2>&1; then
+    _sc_mac_comp() {
+        local -a actions
+        actions=(
+            'st:Status of service'
+            'start:Start service'
+            'stop:Stop service'
+            'res:Restart service'
+            'en:Enable service'
+            'dis:Disable service'
+        )
+
+        if (( CURRENT == 2 )); then
+            _describe -t actions 'launchctl actions' actions
+            return
+        fi
+
+        if (( CURRENT == 3 )); then
+            local -a services
+            if [[ "${words[1]}" == "usc" ]]; then
+                services=(
+                    $(launchctl list | awk 'NR>1 && $3 !~ /com.apple/ {print $3}')
+                    $(ls ~/Library/LaunchAgents 2>/dev/null | sed 's/\.plist$//')
+                )
+            else
+                services=(
+                    $(sudo launchctl list | awk 'NR>1 && $3 !~ /com.apple/ {print $3}')
+                    $(ls /Library/LaunchDaemons 2>/dev/null | sed 's/\.plist$//')
+                )
+            fi            
+            services=(${(un)services})
+            _describe -t services 'available services' services
+        fi
+    }
+    compdef _sc_mac_comp sc usc
+fi
 
 # 2. PM Completion
 _pm() {
@@ -259,6 +362,7 @@ _pm() {
     if command -v apt &> /dev/null; then tool="apt"
     elif command -v dnf &> /dev/null; then tool="dnf"
     elif command -v pacman &> /dev/null; then tool="pacman"
+    elif command -v brew &> /dev/null; then tool="brew"
     else return 1; fi
     local curcontext="$curcontext" 
     local service="$tool"

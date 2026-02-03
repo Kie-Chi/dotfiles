@@ -9,5 +9,6 @@
     ./apps.nix
     ./dmgs.nix
     ./zips.nix
+    ./proxies.nix
   ];
 }

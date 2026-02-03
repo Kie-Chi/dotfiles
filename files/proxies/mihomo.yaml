@@ -1,0 +1,54 @@
+mixed-port: 20122
+external-controller: 127.0.0.1:9090
+allow-lan: true
+log-level: info
+ipv6: false
+
+tun:
+  enable: true
+  stack: gvisor
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - "any:53"
+
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 223.5.5.5
+    - https://dns.alidns.com/dns-query
+  fallback:
+    - https://8.8.8.8/dns-query
+    - https://1.1.1.1/dns-query
+
+proxy-groups:
+  - name: 代理手动
+    type: select
+    use: [my-sub]
+
+  - name: 自动选择
+    type: url-test
+    use: [my-sub]
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+
+  - name: 新加坡节点
+    type: select
+    use: [my-sub]
+    filter: "(?i)新加坡|SG|SGP"
+
+  - name: AI专用
+    type: select
+    use: [my-sub]
+    filter: "^(?!.*(?i)(HK|TW|CN|MO|香港|澳门|台湾|中国|新加坡|SG)).*$"
+
+rules:
+  - DOMAIN-SUFFIX,buaa.edu.cn,DIRECT
+  - DOMAIN-KEYWORD,google,AI专用
+  - DOMAIN-KEYWORD,openai,AI专用
+  - DOMAIN-SUFFIX,blob.core.windows.net,新加坡节点
+  - GEOIP,CN,DIRECT
+  - MATCH,自动选择
