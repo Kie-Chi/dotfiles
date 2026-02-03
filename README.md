@@ -1,149 +1,123 @@
 # Chi's Linux Dotfiles
 
-> 自动化 Linux 开发环境配置方案，由 **[DotBuilder](https://github.com/Kie-Chi/dotbuiler)** 驱动
-
-本仓库旨在通过声明式配置（YAML），实现 Linux 环境的一键部署。支持从零配置 Shell、开发工具链、到完整的 GNOME 桌面环境
+> 基于 **Nix Flakes** 与 **Home Manager** 构建的声明式 Linux 桌面/开发环境
 
 ## Features
 
-### Cores
-- **Shell**: Zsh + Oh My Zsh + Powerlevel10k (即时提示符)
-- **Editors**: Vim (集成 Vundle, NERDTree, Airline), VS Code (自动安装并配置源)
-- **Tools**: Git, Tmux, Htop, Curl, Wget, Tree, Jq, Bat, Fzf, Ripgrep
-- **SSH**: 自动生成 Ed25519 密钥并配置 GitHub Alias
+### Core
+- **pkg management**: Using [Nix Flakes](https://nixos.wiki/wiki/Flakes)
+- **environment management**: [Home Manager](https://github.com/nix-community/home-manager) manages home directory configuration files
+- **Shell**: Zsh + [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
+- **SSH**: 自动化生成 SSH 密钥对与配置
 
-### Development
-- **Docker**: 自动安装，配置用户组（免 sudo），启用服务
-- **Python**: Miniconda3 自动安装、初始化 Conda 环境
-- **Java**: 集成 SDKMan 管理多版本 JDK
-- **Build**: Build-essential / GCC / Make
+### DevOps
+- **Editor**: 
+    - **Vim**: 轻量化服务器配置，集成 NERDTree, Airline, ALE 
+    - **VS Code**: 声明式安装与配置
+- **Docker**: **Docker Rootless** 模式（免 Sudo，自动配置 subuid/subgid）
+- **Env**: **Mamba (Conda)** 环境支持
 
 ### Desktop@GNOME
-*仅在 `profile: desktop` 模式下启用*
-- **Terminal**: Tilix (Dracula 主题 + F12 Quake 模式 + 快捷键绑定)
-- **Input**: Fcitx5 + Rime (雾凇拼音 / 小鹤双拼 / 自动同步配置)
-- **Apps**: Google Chrome, WeChat (微信), Snipaste (截图), YesPlayMusic (网易云音乐)
-- **Remote**: Sunshine (串流服务，自动配置 Systemd/Udev)
-- **Fonts**: Maple Mono NF CN (自动下载并设为系统等宽字体)
-- **Optimization**: 自动移除并阻断 Snap (Ubuntu)
+- **Terminal**: Tilix (声明式配色/字体) + **Quake 模式**。
+- **Input**: Fcitx5 + **Rime (雾凇拼音)**，支持自动化部署与配置同步。
+- **Automation**: GNOME 快捷键绑定、壁纸设置、系统扩展自动配置。
+- **Remote**: Sunshine 串流服务自动化配置。
+- **Font**: Maple Mono NF CN (等宽) + Noto Sans CJK。
 
-### Optional
-- **DDNS**: 集成 DDNS-Go，支持通过环境变量配置阿里云/腾讯云解析，支持飞书 Webhook 通知
+---
 
-## Install & Usage
+## Tree
 
-### 1. curl
+```text
+.
+├── flake.nix           # 项目入口，定义输入与配置输出
+├── home.nix            # Home Manager 主逻辑
+├── setup.sh            # 引导脚本：安装依赖、生成密钥与 Secrets
+├── secrets.nix         # 个人身份信息 (由 setup.sh 生成，Git 忽略)
+├── modules/            # 模块化配置
+│   ├── cores/          # 基础工具、Git、Shell、SSH
+│   ├── desktops/       # GNOME、Fcitx5、字体、终端
+│   └── devps/          # Docker、编辑器、Mamba
+├── files/              # 原始配置文件模板 (vimrc, rime.yaml 等)
+└── resources/          # 脚本工具与静态资源 (dtf, scrctl 等)
+```
+
+---
+
+## Quick Start
+
+### 1. Git installation
+
+在干净的系统上运行以下命令，脚本会自动安装 Nix、配置环境依赖并生成个人信息：
 
 ```bash
-curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s -- -debug
+git clone https://github.com/Kie-Chi/.dotfiles.git ~/.dotfiles
+cd ~/.dotfiles
+chmod +x setup.sh
+./setup.sh
+```
+
+### 2. Curl installation
+
+```bash
+curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s
 ```
 - `-r/--remote`: 指定远程仓库，默认本仓库的https地址
 - `-b/--branch`: 指定分支，默认 `master`
 - `-g/--git`: 默认使用本仓库的 git 地址进行安装
-- 其他参数将透传给 `setup.sh` 脚本(也即传递给 `dotb`，例如 `-debug`, `-dry-run`)
 
-### 2. git
-#### i. clone repo
-```bash
-git clone https://github.com/Kie-Chi/dotfiles.git ~/.dotfiles
-cd ~/.dotfiles
-```
+### Maintenance
 
-#### ii. install
-运行 `setup.sh`，脚本会自动检测环境并启动配置向导：
+项目内置了包装脚本 `dtf`，方便管理 Home Manager 状态：
 
-```bash
-./setup.sh
-```
-
-### setup.sh
-
-**向导可能会询问以下信息：**
-1.  **Username**: 用户名（用于 Git 配置等，默认为当前用户）
-2.  **Email**: 邮箱地址（用于 SSH Key 生成和 Git 配置）
-3.  **Profile**:
-    - `desktop`: 完整安装（适合个人电脑/工作站，包含 GUI 软件）
-    - `server`: 最小化安装（适合服务器，仅包含 Shell/Vim/Docker 等）
-4.  **DDNS**: 是否启用动态域名解析服务
-
-安装完成后，脚本会自动调用 `dotb` 二进制文件开始构建环境
-
-### dtf
-项目自带包装命令`dtf`，用于简化常用命令
-```
-dtf s|sync        # 更新 Dotfiles 仓库，并部署
-dtf a|apply       # 重新应用当前配置
-dtf e|edit        # 使用默认编辑器打开 Dotfiles 仓库
-dtf p|push [msg]  # 提交并推送更改，默认提交信息为 "feat(config): auto pushed by dtf"
-dtf st|status     # 显示当前仓库状态
-```
-
-同时，zsh将自动对`dtf`命令提供补全支持:)
+| 命令 | 说明 |
+| :--- | :--- |
+| `dtf apply` | 应用当前 Nix 配置（重新构建） |
+| `dtf sync` | 拉取 Git 远程更新并应用 |
+| `dtf edit` | 使用 $EDITOR 快速编辑配置文件 |
+| `dtf update` | 更新 `flake.lock` (升级软件版本) |
+| `dtf rollback` | 回滚到之前的配置版本 |
+| `dtf push` | 快速提交并推送到远程仓库 |
 
 ---
 
-## Configuration
+## Modules
 
-项目配置为 **分层机制**，优先级从高到低如下：
+### `secrets.nix`
+为了保证仓库模板的通用性，所有敏感/个性化信息（如用户名、Git Email）都从 `secrets.nix` 读取。该文件在 `setup.sh` 运行期间生成：
 
-1.  **系统环境变量** (CI/CD 或 `export` 注入)
-2.  **`my.env`/`.env` 文件** (可由 `setup.sh` 生成，可包含基本敏感信息)
-3.  **`config.yml` 文件** (项目默认值)
-
-### `my.env` (recommended)
-`setup.sh` 运行后会在项目根目录生成 `my.env`。该文件被 `.gitignore` 忽略，适合存放个人配置和密钥
-
-如果你启用了 **DDNS**，请在 `setup.sh` 运行后手动编辑 `my.env` 填入密钥：
-
-```bash
-# vim ~/.dotfiles/my.env
-
-# 基础配置
-username=user
-email=example@email.com
-profile=desktop
-if_ddns=true
-
-# DDNS 敏感配置 (如启用)
-DDNS_ID=你的阿里云AccessKey
-DDNS_SECRET=你的阿里云Secret
-DDNS_DOMAIN=example.com
-DDNS_PREFIX=home
-DDNS_WEBHOOK=https://open.feishu.cn/...
+```nix
+# secrets.nix 示例
+{
+  home.user = "chi";
+  home.dir = "/home/chi";
+  git.name = "Kie-Chi";
+  git.email = "example@email.com";
+}
 ```
 
-### `config.yml`
-位于 `.dotfiles/config.yml`。这是 DotBuilder 的入口文件，定义了任务图的结构。如果你需要修改默认安装的软件列表或依赖关系，可以修改此文件或其引用的子配置文件 (`.dotfiles/config.d/**/*.yml`)
+### home modules
+只需修改 `home.nix` 中的 `imports` 列表，即可实现功能模块的插拔：
 
-## File Tree
-
-```text
-.
-├── bin/              # 二进制执行文件
-├── config.d/         # DotBuilder 任务分块配置
-├── files/            # 配置文件模板 (vimrc, zshrc, desktop entries...)
-│   ├── cores/        # 基础包 (git, ssh, utils...)
-│   ├── devs/         # 开发工具 (docker, conda, vscode...)
-│   ├── desktops/     # 桌面软件 (gnome, fcitx, apps...)
-│   └── optionals/    # 可选服务 (ddns...)
-├── my.env            # 本地环境变量，不提交到 git
-├── setup.sh          # 入口脚本，负责引导和环境检查
-└── config.yml        # 主配置文件
+```nix
+# home.nix
+imports = [
+  ./modules/cores     # 必须
+  ./modules/desktops  # 如果是服务器环境可注释此行
+  ./modules/devps     # 开发工具
+];
 ```
 
-## Support
+---
 
-目前主要适配并测试于：
-- **Ubuntu 22.04 / 24.04 LTS** (主要开发环境)
-- **Debian 11 / 12**
-- **Arch Linux** (部分支持 Pacman/Yay)
+## Tools
 
-## Notes 
+- **`scrctl`**: 屏幕分辨率与缩放控制工具（支持 GNOME 整数缩放）。
+- **`quake`**: 窗口呼出/隐藏辅助脚本，支持将 Tilix 等终端变为 Quake 模式。
+- **`spk`**: 快速将本地公钥推送至远程服务器的授权列表。
 
-1.  **重启生效**: 安装完成后（特别是 Docker 用户组、GNOME 扩展、Fcitx5 输入法、字体），建议注销或重启系统
-2.  **Snap**: 如果选择 `desktop` 模式，脚本默认会 **卸载并阻断 Snap**。如果你依赖 Snap，请在 `config.d/desktops/likes.yml` 中移除相关任务
-3.  **Sudo**: 安装过程会请求 Sudo 权限以安装系统包
+---
 
 ## License
 
-MIT License © 2025 Kie-Chi
+[MIT License](LICENSE) © 2026 Kie-Chi
