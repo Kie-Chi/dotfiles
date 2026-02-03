@@ -60,7 +60,7 @@ chmod +x setup.sh
 ### 2. Curl installation
 
 ```bash
-curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s
+curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s -- -b darwin
 ```
 - `-r/--remote`: 指定远程仓库，默认本仓库的https地址
 - `-b/--branch`: 指定分支，默认 `master`
@@ -93,6 +93,8 @@ curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s
   home.dir = "/home/chi";
   git.name = "Kie-Chi";
   git.email = "example@email.com";
+  proxy.url = "https://xxx";
+  proxy.status = "keep"; # "keep" | "manual" | "none"
 }
 ```
 
