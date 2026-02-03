@@ -5,5 +5,6 @@
     # utils
 
     # apps
+    sing-box
   ];
 }
