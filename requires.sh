@@ -75,31 +75,38 @@ install_system_deps() {
 
     case "$os_name" in
         ubuntu|debian)
+            check_sudo
+            msg_info "Adding Charm (gum) repository for $os_name..."
+            sudo mkdir -p /etc/apt/keyrings
+            curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+            echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
             PKG_MANAGER="apt-get"
             UPDATE_CMD="sudo apt-get update"
             INSTALL_CMD="sudo apt-get install -y"
-            DEPS=("curl" "git" "build-essential" "uidmap")
+            DEPS=("curl" "git" "build-essential" "uidmap" "gum")
             ;;
         arch)
             PKG_MANAGER="pacman"
             # pacman's -Syu updates and installs
             INSTALL_CMD="sudo pacman -Syu --noconfirm"
             # base-devel for build tools, shadow for uidmap/newuidmap
-            DEPS=("curl" "git" "base-devel" "shadow")
+            DEPS=("curl" "git" "base-devel" "shadow" "gum")
             ;;
         fedora)
             PKG_MANAGER="dnf"
             INSTALL_CMD="sudo dnf install -y"
-            DEPS=("curl" "git" "@development-tools" "shadow-utils")
+            DEPS=("curl" "git" "@development-tools" "shadow-utils" "gum")
             ;;
         macos)
             if ! command_exists brew; then
                 msg_info "Homebrew not found. Installing Homebrew..."
                 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-                eval "$(/opt/homebrew/bin/brew shellenv)"
+                if [ -f /opt/homebrew/bin/brew ]; then
+                    eval "$(/opt/homebrew/bin/brew shellenv)"
+                fi
             fi
             INSTALL_CMD="brew install"
-            DEPS=("git" "curl")
+            DEPS=("git" "curl" "gum")
             ;;
         *)
             msg_error "Distribution '$os_name' is not supported by this script."

@@ -1,11 +1,5 @@
 #!/bin/bash
 
-# ==============================================================================
-# setup.sh - Generic, Dictionary-Driven Installer for Nix-based Dotfiles
-#
-# The script will automatically handle user prompts and file generation.
-# ==============================================================================
-
 set -e
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,32 +12,81 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-msg_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
-msg_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-msg_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-msg_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
+command_exists() { command -v "$1" >/dev/null 2>&1; }
 
-CONFIG_ITEMS="BASE|home.user|Enter your system username|whoami
-BASE|home.dir|Enter your home directory path|echo \"$HOME\"
-GIT|git.name|Enter your Git user name|echo \"Someone\"
-GIT|git.email|Enter your Git email address|echo \"someone@example.com\"
-PROXY|proxy.status|Enter your proxy status (keep/manual/none)|echo \"none\"
-PROXY|proxy.url|Enter your proxy URL (leave blank for none)|echo \"\""
+ui_header() {
+    local title="$1"
+    if command_exists gum; then
+        echo ""
+        gum style --foreground 212 --border-foreground 212 --border double --align center --width 50 "$title"
+    else
+        echo -e "\n${CYAN}=== $title ===${NC}"
+    fi
+}
+
+ui_info() {
+    if command_exists gum; then
+        gum style --foreground 39 "[INFO] $1"
+    else
+        echo -e "${CYAN}[INFO]${NC} $1"
+    fi
+}
+
+ui_input() {
+    local prompt="$1" default="$2"
+    if command_exists gum; then
+        gum input --header "$prompt" --value "$default"
+    else
+        read -p "$(echo -e "${GREEN}${prompt}${NC} [default: ${YELLOW}${default}${NC}]: ")" user_input < /dev/tty
+        echo "${user_input:-$default}"
+    fi
+}
+
+ui_choose() {
+    local prompt="$1" choices="$2" default="$3"
+    if command_exists gum; then
+        gum choose --header "$prompt" --selected "$default" ${choices}
+    else
+        echo -e "${GREEN}${prompt}${NC} (${choices}) [default: ${YELLOW}${default}${NC}]"
+        read -p "> " user_input < /dev/tty
+        echo "${user_input:-$default}"
+    fi
+}
+
+ui_confirm() {
+    local prompt="$1"
+    if command_exists gum; then
+        gum confirm "$prompt"
+    else
+        read -p "$(echo -e "${YELLOW}${prompt} (y/N): ${NC}")" choice
+        [[ "$choice" =~ ^[Yy]$ ]]
+    fi
+}
+
+# ==========================================
+# 配置字典
+# 格式: Group | NixPath | Prompt | DefaultCmd | OptionalChoices
+# ==========================================
+read -r -d '' CONFIG_ITEMS << 'EOF' || true
+BASE|home.user|System username|whoami|
+BASE|home.dir|Home directory|echo "$HOME"|
+GIT|git.name|Git user name|echo "Someone"|
+GIT|git.email|Git email address|echo "someone@example.com"|
+PROXY|proxy.status|Proxy status|echo "none"|none manual keep
+PROXY|proxy.url|Proxy URL (blank for none)|echo ""|
+EOF
 
 gen() {
-    msg_info "Configuring user identity for secrets.nix..."
-    echo "Please provide the following information. Press Enter to accept the default value."
+    ui_header "Configuration Wizard"
+    ui_info "Please provide the following information."
 
     local file_content="{\n"
     local current_group=""
-    while IFS='|' read -r group nix_path prompt default_cmd; do
+    
+    while IFS='|' read -u 9 -r group nix_path prompt default_cmd choices; do
         [ -z "$group" ] && continue
-
         if [ "$group" != "$current_group" ]; then
-            if [ -n "$current_group" ]; then
-                file_content+="\n"
-            fi
-            # Using literal newlines which is safer and clearer
+            [ -n "$current_group" ] && file_content+="\n"
             file_content+="  ###################################\n"
             file_content+="  #  ${group} IDENTITY CONFIGURATION  #\n"
             file_content+="  ###################################\n"
@@ -52,64 +95,60 @@ gen() {
 
         local default_val
         default_val=$(eval "$default_cmd")
-
-        read -p "$(echo -e "${GREEN}${prompt}${NC} [default: ${YELLOW}${default_val}${NC}]: ")" user_input < /dev/tty
-        local final_value="${user_input:-$default_val}"
+        local final_value=""
+        
+        if [ -n "$choices" ]; then
+            final_value=$(ui_choose "$prompt" "$choices" "$default_val")
+        else
+            final_value=$(ui_input "$prompt" "$default_val")
+        fi
 
         final_value="${final_value//\\/\\\\}"
         final_value="${final_value//\"/\\\"}"
 
-        # Using printf to build the string piece by piece is robust
         file_content+=$(printf "  %s = \"%s\";\n" "$nix_path" "$final_value")
 
-    done <<< "$CONFIG_ITEMS"
+    done 9<<< "$CONFIG_ITEMS"
+
+    file_content+="\n}"
 
     file_content+="\n}"
 
     printf '%b' "$file_content" > "$SECRETS_FILE"
-
-    msg_success "Generated secrets.nix at: $SECRETS_FILE"
     local TARGET_DIR="$HOME/.config/dotfiles"
-    local TARGET_LINK="$TARGET_DIR/secrets.nix"
-    msg_info "Creating symbolic link for Home Manager..."
     mkdir -p "$TARGET_DIR"
-    ln -sf "$SECRETS_FILE" "$TARGET_LINK"
-    msg_success "Linked $SECRETS_FILE to $TARGET_LINK"
-    echo ""
+    ln -sf "$SECRETS_FILE" "$TARGET_DIR/secrets.nix"
+    
+    if command_exists gum; then
+        gum style --foreground 82 "✔ secrets.nix generated and linked successfully!"
+    else
+        echo -e "${GREEN}[SUCCESS]${NC} Generated and linked secrets.nix"
+    fi
 }
 
 cold() {
-    msg_info "Applying Home Manager configuration for the first time..."
+    ui_info "Applying Home Manager configuration for the first time..."
     /bin/bash resources/scripts/dtf apply
 }
 
-msg_info "Starting setup..."
-msg_info "Running prerequisite installer (requires.sh)..."
 if [ ! -f "$REQUIRES_SCRIPT" ]; then
-    msg_error "'requires.sh' not found in the script directory: $BASE_DIR"
+    echo -e "${RED}[ERROR]${NC} 'requires.sh' not found!"
+    exit 1
 fi
 chmod +x "$REQUIRES_SCRIPT"
-if ! "$REQUIRES_SCRIPT"; then
-    msg_error "The prerequisite ('requires.sh') failed. Please check the output above for errors."
-fi
-msg_success "Prerequisites check and installation completed successfully."
-echo ""
+"$REQUIRES_SCRIPT"
+
 if [ -f "$SECRETS_FILE" ]; then
-    msg_warn "'secrets.nix' already exists. Your existing configuration will be lost if you continue."
-    read -p "$(echo -e "${YELLOW}Do you want to overwrite it? (y/N): ${NC}")" OVERWRITE_CHOICE
-    echo ""
-    if [[ "$OVERWRITE_CHOICE" =~ ^[Yy]$ ]]; then
-        msg_info "Proceeding with reconfiguration..."
+    if ui_confirm "secrets.nix already exists. Overwrite it?"; then
         gen
-    else
-        msg_info "Skipping reconfiguration. Your existing 'secrets.nix' is preserved."
-        echo ""
     fi
 else
     gen
 fi
 
-msg_success "Initial setup process finished!"
-cold
-msg_info "Your dotfiles are ready to be applied."
-msg_warn "You may need to log out and log back in for all changes to take effect."
+if ui_confirm "Do you want to apply the configuration now?"; then
+    cold
+fi
+
+ui_header "Setup Finished"
+ui_info "Your dotfiles are ready. You may need to restart your shell."
