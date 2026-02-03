@@ -63,17 +63,66 @@ ui_confirm() {
     fi
 }
 
+
+get_val() {
+    local key="$1"
+    local safe_key="${key//./_}"
+    local var_name="VALUES_${safe_key}"
+    echo "${!var_name}"
+}
+
+set_val() {
+    local key="$1"
+    local val="$2"
+    local safe_key="${key//./_}"
+    printf -v "VALUES_${safe_key}" '%s' "$val"
+}
+
 # ==========================================
-# 配置字典
-# 格式: Group | NixPath | Prompt | DefaultCmd | OptionalChoices
+# CONFIG
+# FORMAT: Group | NixPath | Prompt | DefaultCmd | OptionalChoices
 # ==========================================
-read -r -d '' CONFIG_ITEMS << 'EOF' || true
-BASE|home.user|System username|whoami|
-BASE|home.dir|Home directory|echo "$HOME"|
-GIT|git.name|Git user name|echo "Someone"|
-GIT|git.email|Git email address|echo "someone@example.com"|
-PROXY|proxy.status|Proxy status|echo "none"|none manual keep
-PROXY|proxy.url|Proxy URL (blank for none)|echo ""|
+read -r -d '' CONFIG_JSON << 'EOF' || true
+[
+  {
+    "group": "BASE",
+    "path": "home.user",
+    "prompt": "System username",
+    "defaultCmd": "whoami"
+  },
+  {
+    "group": "BASE",
+    "path": "home.dir",
+    "prompt": "Home directory",
+    "defaultCmd": "echo \"$HOME\""
+  },
+  {
+    "group": "GIT",
+    "path": "git.name",
+    "prompt": "Git user name",
+    "defaultCmd": "whoami"
+  },
+  {
+    "group": "GIT",
+    "path": "git.email",
+    "prompt": "Git user email",
+    "defaultCmd": "echo \"$(whoami)@$(hostname -f)\""
+  },
+  {
+    "group": "PROXY",
+    "path": "proxy.status",
+    "prompt": "Proxy status",
+    "defaultCmd": "echo 'none'",
+    "choices": ["none", "manual", "keep"]
+  },
+  {
+    "group": "PROXY",
+    "path": "proxy.url",
+    "prompt": "Proxy URL",
+    "defaultCmd": "echo ''",
+    "condition": "[[ \"$(get_val proxy.status)\" != \"none\" ]]"
+  }
+]
 EOF
 
 gen() {
@@ -82,9 +131,13 @@ gen() {
 
     local file_content="{\n"
     local current_group=""
-    
-    while IFS='|' read -u 9 -r group nix_path prompt default_cmd choices; do
-        [ -z "$group" ] && continue
+    while IFS=$'\t' read -u 3 -r group nix_path prompt default_cmd condition choices_str; do
+        if [ -n "$condition" ] && [ "$condition" != "null" ]; then
+            if ! eval "$condition"; then
+                continue
+            fi
+        fi
+
         if [ "$group" != "$current_group" ]; then
             [ -n "$current_group" ] && file_content+="\n"
             file_content+="  ###################################\n"
@@ -96,33 +149,39 @@ gen() {
         local default_val
         default_val=$(eval "$default_cmd")
         local final_value=""
-        
-        if [ -n "$choices" ]; then
-            final_value=$(ui_choose "$prompt" "$choices" "$default_val")
+
+        if [ -n "$choices_str" ] && [ "$choices_str" != "null" ]; then
+            final_value=$(ui_choose "$prompt" "$choices_str" "$default_val")
         else
             final_value=$(ui_input "$prompt" "$default_val")
         fi
+        set_val "$nix_path" "$final_value"
 
         final_value="${final_value//\\/\\\\}"
         final_value="${final_value//\"/\\\"}"
 
         file_content+=$(printf "  %s = \"%s\";\n" "$nix_path" "$final_value")
 
-    done 9<<< "$CONFIG_ITEMS"
+    done 3< <(echo "$CONFIG_JSON" | jq -r '.[] | [
+        .group, 
+        .path, 
+        .prompt, 
+        .defaultCmd, 
+        (.condition // "null"), 
+        (.choices // [] | join(" "))
+    ] | @tsv')
 
     file_content+="\n}"
 
-    file_content+="\n}"
-
-    printf '%b' "$file_content" > "$SECRETS_FILE"
+    printf '%b' "$file_content" > "$SECRETS_FILE"    
     local TARGET_DIR="$HOME/.config/dotfiles"
     mkdir -p "$TARGET_DIR"
     ln -sf "$SECRETS_FILE" "$TARGET_DIR/secrets.nix"
     
     if command_exists gum; then
-        gum style --foreground 82 "✔ secrets.nix generated and linked successfully!"
+        gum style --foreground 82 "✔ secrets.nix generated successfully!"
     else
-        echo -e "${GREEN}[SUCCESS]${NC} Generated and linked secrets.nix"
+        echo -e "${GREEN}[SUCCESS]${NC} Generated secrets.nix"
     fi
 }
 
@@ -137,6 +196,11 @@ if [ ! -f "$REQUIRES_SCRIPT" ]; then
 fi
 chmod +x "$REQUIRES_SCRIPT"
 "$REQUIRES_SCRIPT"
+
+if ! command_exists jq; then
+    echo -e "${RED}[ERROR]${NC} 'jq' is required for this script but not installed."
+    exit 1
+fi
 
 if [ -f "$SECRETS_FILE" ]; then
     if ui_confirm "secrets.nix already exists. Overwrite it?"; then

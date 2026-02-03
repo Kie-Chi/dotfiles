@@ -83,19 +83,19 @@ install_system_deps() {
             PKG_MANAGER="apt-get"
             UPDATE_CMD="sudo apt-get update"
             INSTALL_CMD="sudo apt-get install -y"
-            DEPS=("curl" "git" "build-essential" "uidmap" "gum")
+            DEPS=("curl" "git" "build-essential" "uidmap" "gum" "jq")
             ;;
         arch)
             PKG_MANAGER="pacman"
             # pacman's -Syu updates and installs
             INSTALL_CMD="sudo pacman -Syu --noconfirm"
             # base-devel for build tools, shadow for uidmap/newuidmap
-            DEPS=("curl" "git" "base-devel" "shadow" "gum")
+            DEPS=("curl" "git" "base-devel" "shadow" "gum" "jq")
             ;;
         fedora)
             PKG_MANAGER="dnf"
             INSTALL_CMD="sudo dnf install -y"
-            DEPS=("curl" "git" "@development-tools" "shadow-utils" "gum")
+            DEPS=("curl" "git" "@development-tools" "shadow-utils" "gum" "jq")
             ;;
         macos)
             if ! command_exists brew; then
@@ -106,7 +106,7 @@ install_system_deps() {
                 fi
             fi
             INSTALL_CMD="brew install"
-            DEPS=("git" "curl" "gum")
+            DEPS=("git" "curl" "gum" "jq")
             ;;
         *)
             msg_error "Distribution '$os_name' is not supported by this script."
