@@ -2,6 +2,13 @@
 
 set -e
 
+handle_sigint() {
+    echo -e "\n${RED}Setup cancelled by user.${NC}" >&2
+    exit 130
+}
+
+trap 'handle_sigint' SIGINT
+
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SECRETS_FILE="$BASE_DIR/secrets.nix"
 REQUIRES_SCRIPT="$BASE_DIR/requires.sh"
@@ -34,32 +41,71 @@ ui_info() {
 
 ui_input() {
     local prompt="$1" default="$2"
+    local val=""
     if command_exists gum; then
-        gum input --header "$prompt" --value "$default"
+        val=$(gum input --header "$prompt" --placeholder "$default")
+        local gum_exit_status=$?
+        if [ "$gum_exit_status" -ne 0 ]; then
+            exit "$gum_exit_status"
+        fi
     else
         read -p "$(echo -e "${GREEN}${prompt}${NC} [default: ${YELLOW}${default}${NC}]: ")" user_input < /dev/tty
-        echo "${user_input:-$default}"
+        local read_exit_status=$?
+        if [ "$read_exit_status" -ne 0 ]; then
+            exit "$read_exit_status"
+        fi
+        val="${user_input:-$default}"
     fi
+    echo "${val:-$default}"
 }
 
 ui_choose() {
     local prompt="$1" choices="$2" default="$3"
+    local val=""
     if command_exists gum; then
-        gum choose --header "$prompt" --selected "$default" ${choices}
+        val=$(gum choose --header "$prompt" --selected "$default" ${choices})
+        local gum_exit_status=$?
+        if [ "$gum_exit_status" -ne 0 ]; then
+            exit "$gum_exit_status"
+        fi
     else
         echo -e "${GREEN}${prompt}${NC} (${choices}) [default: ${YELLOW}${default}${NC}]"
         read -p "> " user_input < /dev/tty
-        echo "${user_input:-$default}"
+        local read_exit_status=$?
+        if [ "$read_exit_status" -ne 0 ]; then
+            exit "$read_exit_status"
+        fi
+        val="${user_input:-$default}"
     fi
+    echo "$val"
 }
 
 ui_confirm() {
     local prompt="$1"
     if command_exists gum; then
         gum confirm "$prompt"
+        local gum_exit_status=$?
+        if [ "$gum_exit_status" -eq 130 ]; then
+            exit "$gum_exit_status"
+        fi
+        return "$gum_exit_status"
     else
-        read -p "$(echo -e "${YELLOW}${prompt} (y/N): ${NC}")" choice
+        read -p "$(echo -e "${YELLOW}${prompt} (y/N): ${NC}")" choice < /dev/tty
+        local read_exit_status=$?
+        if [ "$read_exit_status" -ne 0 ]; then
+            exit "$read_exit_status"
+        fi
         [[ "$choice" =~ ^[Yy]$ ]]
+        return "$?"
+    fi
+}
+
+ui_error() {
+    local msg="$1"
+    if command_exists gum; then
+        gum style --foreground 196 --bold "✖ $msg"
+    else
+        echo -e "${RED}[ERROR] ${msg}${NC}"
     fi
 }
 
@@ -80,7 +126,17 @@ set_val() {
 
 # ==========================================
 # CONFIG
-# FORMAT: Group | NixPath | Prompt | DefaultCmd | OptionalChoices
+# FORMAT: 
+# {
+#    "group": "GROUP_NAME",
+#    "path": "nix.path.to.value",
+#    "prompt": "Prompt to show user",
+#    "defaultCmd": "command to get default value",
+#    "condition": "optional bash condition to include this prompt",
+#    "choices": ["optional", "list", "of", "choices"]
+#    "validation": "optional bash command to validate input"
+#    "errorMsg": "optional error message if validation fails"
+# }
 # ==========================================
 read -r -d '' CONFIG_JSON << 'EOF' || true
 [
@@ -88,25 +144,33 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
     "group": "BASE",
     "path": "home.user",
     "prompt": "System username",
-    "defaultCmd": "whoami"
+    "defaultCmd": "whoami",
+    "validation": "[[ -n \"$input_val\" ]]", 
+    "errorMsg": "System username cannot be empty."
   },
   {
     "group": "BASE",
     "path": "home.dir",
     "prompt": "Home directory",
-    "defaultCmd": "echo \"$HOME\""
+    "defaultCmd": "echo \"$HOME\"",
+    "validation": "[[ -n \"$input_val\" ]]", 
+    "errorMsg": "Home directory cannot be empty."
   },
   {
     "group": "GIT",
     "path": "git.name",
     "prompt": "Git user name",
-    "defaultCmd": "whoami"
+    "defaultCmd": "whoami",
+    "validation": "[[ -n \"$input_val\" ]]", 
+    "errorMsg": "Git name cannot be empty."
   },
   {
     "group": "GIT",
     "path": "git.email",
     "prompt": "Git user email",
-    "defaultCmd": "echo \"$(whoami)@$(hostname -f)\""
+    "defaultCmd": "echo \"$(whoami)@$(hostname -f)\"",
+    "validation": "python3 -c \"import re, sys; sys.exit(0) if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$', sys.stdin.read().strip()) else sys.exit(1)\" <<< \"$input_val\"",    
+    "errorMsg": "Please enter a valid email address."
   },
   {
     "group": "PROXY",
@@ -120,18 +184,27 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
     "path": "proxy.url",
     "prompt": "Proxy URL",
     "defaultCmd": "echo ''",
-    "condition": "[[ \"$(get_val proxy.status)\" != \"none\" ]]"
+    "condition": "[[ \"$(get_val proxy.status)\" != \"none\" ]]",
+    "validation": "python3 -c \"import sys; url = sys.stdin.read().strip(); sys.exit(0) if url.startswith('http://') or url.startswith('https://') else sys.exit(1)\" <<< \"$input_val\"",
+    "errorMsg": "Proxy URL must start with http:// or https://"
   }
 ]
 EOF
 
 gen() {
+    if ! echo "$CONFIG_JSON" | jq . >/dev/null 2>&1; then
+        echo -e "${RED}[ERROR] Invalid JSON syntax in CONFIG_JSON.${NC}"
+        echo "$CONFIG_JSON" | jq . 
+        exit 1
+    fi
+
     ui_header "Configuration Wizard"
     ui_info "Please provide the following information."
 
     local file_content="{\n"
     local current_group=""
-    while IFS=$'\t' read -u 3 -r group nix_path prompt default_cmd condition choices_str; do
+    
+    while IFS=$'\t' read -u 3 -r group nix_path prompt default_cmd condition choices_str validation error_msg; do
         if [ -n "$condition" ] && [ "$condition" != "null" ]; then
             if ! eval "$condition"; then
                 continue
@@ -149,26 +222,43 @@ gen() {
         local default_val
         default_val=$(eval "$default_cmd")
         local final_value=""
+        
+        while true; do
+            if [ -n "$choices_str" ] && [ "$choices_str" != "null" ]; then
+                final_value=$(ui_choose "$prompt" "$choices_str" "$default_val")
+            else
+                final_value=$(ui_input "$prompt" "$default_val")
+            fi
 
-        if [ -n "$choices_str" ] && [ "$choices_str" != "null" ]; then
-            final_value=$(ui_choose "$prompt" "$choices_str" "$default_val")
-        else
-            final_value=$(ui_input "$prompt" "$default_val")
-        fi
+            if [ -n "$validation" ] && [ "$validation" != "null" ]; then
+                input_val="$final_value"
+                if eval "$validation"; then
+                    break
+                else
+                    local show_err="${error_msg:-"Invalid input, please try again."}"
+                    ui_error "$show_err"
+                    default_val="$final_value" 
+                fi
+            else
+                break
+            fi
+        done
+
         set_val "$nix_path" "$final_value"
 
         final_value="${final_value//\\/\\\\}"
         final_value="${final_value//\"/\\\"}"
 
         file_content+=$(printf "  %s = \"%s\";\n" "$nix_path" "$final_value")
-
     done 3< <(echo "$CONFIG_JSON" | jq -r '.[] | [
         .group, 
         .path, 
         .prompt, 
         .defaultCmd, 
         (.condition // "null"), 
-        (.choices // [] | join(" "))
+        (.choices // [] | if length > 0 then join(" ") else "null" end),
+        (.validation // "null"),
+        (.errorMsg // "null")
     ] | @tsv')
 
     file_content+="\n}"

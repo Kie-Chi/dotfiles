@@ -17,6 +17,7 @@
     brews = [
       # "okular"
       "chsrc"
+      "gum"
     ];
 
     casks = [
