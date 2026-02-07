@@ -53,15 +53,15 @@ in
             "Non Ascii Font" = "Monaco 12";
             "Use Ligatures" = true;
 
-            "Window Type" = 1;      # 1 代表 Top of Screen (顶部滑出)
-            "Screen" = -1;          # -1 代表当前光标所在的显示器
-            "Space" = -1;           # 在所有桌面(Spaces)中显示
+            "Window Type" = 1;      
+            "Screen" = -1;
+            "Space" = -1;
             
-            "Transparency" = 0.25;  # 增加透明度
+            "Transparency" = 0.25;
             "Blur" = true;
             "Blur Radius" = 25;
-            "Horizontal Canvas Fraction" = 1.0; # 宽度 100%
-            "Rows" = 25;            # 高度（行数）
+            "Horizontal Canvas Fraction" = 1.0;
+            "Rows" = 25;
 
             "Background Color" = { "Red Component" = 0.1568; "Green Component" = 0.1647; "Blue Component" = 0.2117; };
             "Foreground Color" = { "Red Component" = 0.9725; "Green Component" = 0.9725; "Blue Component" = 0.9490; };
@@ -74,7 +74,6 @@ in
             "Ansi 5 Color" = { "Red Component" = 1.0; "Green Component" = 0.4745; "Blue Component" = 0.7765; }; # Magenta
             "Ansi 6 Color" = { "Red Component" = 0.5451; "Green Component" = 0.9137; "Blue Component" = 0.9921; }; # Cyan
             "Ansi 7 Color" = { "Red Component" = 0.9725; "Green Component" = 0.9725; "Blue Component" = 0.9490; }; # White
-
             "Has Hotkey" = true;
             "HotKey Activated By Modifier" = false;
             "HotKey Key Code" = 111;            # 111 是 F12 的硬件码
@@ -87,17 +86,13 @@ in
             Guid = "F6A1C2D3-E4B5-4C6D-A7B8-D9E0F1A2B3C4";
             "Custom Command" = "Yes";
             "Command" = "${pkgs.btop}/bin/btop";
-            
-            # --- 窗口样式 ---
             "Window Type" = 2;              
             "Has Hotkey" = true;
-            "HotKey Key Code" = 51;             # Backspace 硬件码
-            "HotKey Character" = 63246;         # 修正：使用截图中的 63246
+            "HotKey Key Code" = 51;             
+            "HotKey Character" = 63246;
             "HotKey Character (Native)" = 63246;
-            "HotKey Modifier" = 8388608;        # 修正：这里必须是 Function 掩码
-            "HotKey Modifier Flags" = 393216;   # 修正：Control + Shift 放在这里
-
-            # --- 其他设置 ---
+            "HotKey Modifier" = 8388608;
+            "HotKey Modifier Flags" = 393216;
             "Floating window" = true;
             "Animate showing and hiding" = true;
             "Space" = -1;

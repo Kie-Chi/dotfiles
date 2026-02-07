@@ -21,6 +21,7 @@
     ];
 
     casks = [
+      "tailscale"
       "moonlight"
       "raycast"
       "skim"
