@@ -15,6 +15,13 @@
             user = "git";
         };
 
+        "nas" = {
+            hostname = "nas.fl0wer.cn";
+            port = 2222;
+            user = "gitea";
+            identityfile = "~/.ssh/id_ed25519"
+        };
+
         "dell-1" = {
             hostname = "202.112.47.189";
             port = 22;
