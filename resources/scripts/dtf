@@ -7,6 +7,7 @@
 set -e
 
 DOTFILES_DIR="${HOME}/.dotfiles"
+SETUP_SCRIPT="${DOTFILES_DIR}/setup.sh"
 USER_SECRETS="${HOME}/.config/dotfiles/secrets.nix"
 SYSTEM_SECRETS="/etc/dotfiles/secrets.nix"
 FLAKE_TARGET=".#MacBook-Air"
@@ -55,6 +56,11 @@ rollback_usage() {
 cd "$DOTFILES_DIR"
 
 case "$1" in
+    c|config)
+        echo -e "${CYAN}--> Reconfig nix-darwin...${NC}"
+        /bin/bash "$SETUP_SCRIPT"
+        echo -e "${GREEN}--> Configuration complete!${NC}"
+        ;;
     a|apply|switch)
         ensure_secrets_link
         git add -N . || true

@@ -18,9 +18,11 @@
       # "okular"
       "chsrc"
       "gum"
+      "proxychains-ng"
     ];
 
     casks = [
+      "linearmouse"
       "tailscale"
       "moonlight"
       "raycast"

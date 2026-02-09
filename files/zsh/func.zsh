@@ -408,6 +408,9 @@ _dtf() {
             commands=(
                 'a:Alias for apply'
                 'apply:Apply the Home Manager configuration'
+                'switch:Alias for apply'
+                'c:Alias for config'
+                'config:Run the setup script to configure secrets'
                 'clean:Run Nix garbage collection to clean old generations'
                 'e:Alias for edit'
                 'edit:Open the dotfiles directory in your default editor'

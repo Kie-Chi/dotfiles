@@ -4,14 +4,6 @@ allow-lan: true
 log-level: info
 ipv6: false
 
-tun:
-  enable: true
-  stack: gvisor
-  auto-route: true
-  auto-detect-interface: true
-  dns-hijack:
-    - "any:53"
-
 dns:
   enable: true
   listen: 0.0.0.0:1053

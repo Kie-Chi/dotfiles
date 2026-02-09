@@ -124,6 +124,13 @@ set_val() {
     printf -v "VALUES_${safe_key}" '%s' "$val"
 }
 
+get_existing_val() {
+    local key="$1"
+    if [ -f "$SECRETS_FILE" ]; then
+        grep -w "$key" "$SECRETS_FILE" | sed -n "s/.*$key[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
+    fi
+}
+
 # ==========================================
 # CONFIG
 # FORMAT: 
@@ -181,6 +188,14 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
   },
   {
     "group": "PROXY",
+    "path": "proxy.tun",
+    "prompt": "Proxy TUN status",
+    "defaultCmd": "echo 'true'",
+    "condition": "[[ \"$(get_val proxy.status)\" != \"none\" ]]",
+    "choices": ["true", "false"]
+  },
+  {
+    "group": "PROXY",
     "path": "proxy.url",
     "prompt": "Proxy URL",
     "defaultCmd": "echo ''",
@@ -219,8 +234,14 @@ gen() {
             current_group="$group"
         fi
 
+        local existing_val=$(get_existing_val "$nix_path")
         local default_val
-        default_val=$(eval "$default_cmd")
+        
+        if [ -n "$existing_val" ]; then
+            default_val="$existing_val"
+        else
+            default_val=$(eval "$default_cmd")
+        fi
         local final_value=""
         
         while true; do
