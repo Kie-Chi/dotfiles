@@ -6,10 +6,13 @@
 
 set -e
 
-DOTFILES_DIR="${HOME}/.dotfiles"
-SETUP_SCRIPT="${DOTFILES_DIR}/setup.sh"
 USER_SECRETS="${HOME}/.config/dotfiles/secrets.nix"
 SYSTEM_SECRETS="/etc/dotfiles/secrets.nix"
+if [ -f "$USER_SECRETS" ]; then
+    DOTFILES_DIR=$(grep -w "dotfiles.path" "$USER_SECRETS" | sed -n 's/.*dotfiles.path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+fi
+DOTFILES_DIR="${DOTFILES_DIR:-${HOME}/.dotfiles}"
+SETUP_SCRIPT="${DOTFILES_DIR}/setup.sh"
 FLAKE_TARGET=".#MacBook-Air"
 SYSTEM_PROFILE="/nix/var/nix/profiles/system"
 

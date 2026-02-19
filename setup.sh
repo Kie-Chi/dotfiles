@@ -143,6 +143,7 @@ get_existing_val() {
 #    "choices": ["optional", "list", "of", "choices"]
 #    "validation": "optional bash command to validate input"
 #    "errorMsg": "optional error message if validation fails"
+#    "ignore": true/false - if true, skip user input and use defaultCmd directly
 # }
 # ==========================================
 read -r -d '' CONFIG_JSON << 'EOF' || true
@@ -178,6 +179,13 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
     "defaultCmd": "echo \"$(whoami)@$(hostname -f)\"",
     "validation": "python3 -c \"import re, sys; sys.exit(0) if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$', sys.stdin.read().strip()) else sys.exit(1)\" <<< \"$input_val\"",    
     "errorMsg": "Please enter a valid email address."
+  },
+  {
+    "group": "BASE",
+    "path": "dotfiles.path",
+    "prompt": "Dotfiles local path",
+    "defaultCmd": "echo \"$BASE_DIR\"",
+    "ignore": true
   },
   {
     "group": "PROXY",
@@ -219,7 +227,7 @@ gen() {
     local file_content="{\n"
     local current_group=""
     
-    while IFS=$'\t' read -u 3 -r group nix_path prompt default_cmd condition choices_str validation error_msg; do
+    while IFS=$'\t' read -u 3 -r group nix_path prompt default_cmd condition choices_str validation error_msg ignore; do
         if [ -n "$condition" ] && [ "$condition" != "null" ]; then
             if ! eval "$condition"; then
                 continue
@@ -244,26 +252,30 @@ gen() {
         fi
         local final_value=""
         
-        while true; do
-            if [ -n "$choices_str" ] && [ "$choices_str" != "null" ]; then
-                final_value=$(ui_choose "$prompt" "$choices_str" "$default_val")
-            else
-                final_value=$(ui_input "$prompt" "$default_val")
-            fi
-
-            if [ -n "$validation" ] && [ "$validation" != "null" ]; then
-                input_val="$final_value"
-                if eval "$validation"; then
-                    break
+        if [ "$ignore" = "true" ]; then
+            final_value="$default_val"
+        else
+            while true; do
+                if [ -n "$choices_str" ] && [ "$choices_str" != "null" ]; then
+                    final_value=$(ui_choose "$prompt" "$choices_str" "$default_val")
                 else
-                    local show_err="${error_msg:-"Invalid input, please try again."}"
-                    ui_error "$show_err"
-                    default_val="$final_value" 
+                    final_value=$(ui_input "$prompt" "$default_val")
                 fi
-            else
-                break
-            fi
-        done
+
+                if [ -n "$validation" ] && [ "$validation" != "null" ]; then
+                    input_val="$final_value"
+                    if eval "$validation"; then
+                        break
+                    else
+                        local show_err="${error_msg:-\"Invalid input, please try again.\"}"
+                        ui_error "$show_err"
+                        default_val="$final_value" 
+                    fi
+                else
+                    break
+                fi
+            done
+        fi
 
         set_val "$nix_path" "$final_value"
 
@@ -279,7 +291,8 @@ gen() {
         (.condition // "null"), 
         (.choices // [] | if length > 0 then join(" ") else "null" end),
         (.validation // "null"),
-        (.errorMsg // "null")
+        (.errorMsg // "null"),
+        (if .ignore == true then "true" else "false" end)
     ] | @tsv')
 
     file_content+="\n}"

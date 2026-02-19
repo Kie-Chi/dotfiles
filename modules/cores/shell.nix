@@ -1,4 +1,4 @@
-{ pkgs, lib, config, ... }:
+{ pkgs, lib, config, secrets, ... }:
 
 {
   programs.zsh = {
@@ -22,10 +22,11 @@
     sessionVariables = {
       LANG = "en_US.UTF-8";
       EDITOR = "vim";
+      DOTFILES_DIR = secrets.dotfiles.path;
     };
 
     shellAliases = {
-      zshconf = "vim ~/.dotfiles/modules/core.nix";
+      zshconf = "vim ${secrets.dotfiles.path}/modules/core.nix";
       omzconf = "vim ~/.oh-my-zsh";
       
       ll = "ls -alh";
