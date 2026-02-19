@@ -181,13 +181,6 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
     "errorMsg": "Please enter a valid email address."
   },
   {
-    "group": "BASE",
-    "path": "dotfiles.path",
-    "prompt": "Dotfiles local path",
-    "defaultCmd": "echo \"$BASE_DIR\"",
-    "ignore": true
-  },
-  {
     "group": "PROXY",
     "path": "proxy.status",
     "prompt": "Proxy status",
@@ -210,6 +203,13 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
     "condition": "[[ \"$(get_val proxy.status)\" != \"none\" ]]",
     "validation": "python3 -c \"import sys; url = sys.stdin.read().strip(); sys.exit(0) if url.startswith('http://') or url.startswith('https://') else sys.exit(1)\" <<< \"$input_val\"",
     "errorMsg": "Proxy URL must start with http:// or https://"
+  },
+  {
+    "group": "ENV",
+    "path": "dotfiles.path",
+    "prompt": "Dotfiles local path",
+    "defaultCmd": "echo \"$BASE_DIR\"",
+    "ignore": true
   }
 ]
 EOF
