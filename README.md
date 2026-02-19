@@ -88,13 +88,14 @@ curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s -- -b darwin
 ## Modules
 
 ### `secrets.nix`
-为了保证仓库模板的通用性，所有敏感/个性化信息（如用户名、Git Email）都从 `secrets.nix` 读取。该文件在 `setup.sh` 运行期间生成，存储位置为 `~/.dotfiles/secrets.nix`：
+为了保证仓库模板的通用性，所有敏感/个性化信息（如用户名、Git Email）都从 `secrets.nix` 读取。该文件在 `setup.sh` 运行期间生成，存储位置为 `~/.config/dotfiles/secrets.nix`：
 
 ```nix
 # secrets.nix 示例
 {
   home.user = "chi";
   home.dir = "/Users/chi";  # macOS 用户目录
+  dotfiles.path = "/Users/chi/.dotfiles";  # dotfiles 本地路径
   git.name = "Kie-Chi";
   git.email = "example@email.com";
   proxy.url = "https://xxx";
