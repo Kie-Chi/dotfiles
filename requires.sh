@@ -159,15 +159,10 @@ main() {
     msg_info "Starting prerequisite check for Nix dotfiles..."
     install_system_deps
     install_nix
-    if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
-        . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
-    fi
-    
+
     echo
     msg_success "All prerequisites are installed!"
+    msg_warn "Please run the following command:"
+    echo -e "${BLUE}    source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh${NC}"
+    msg_info "Or, simply close this terminal and reopen another."
 }
-
-main
-if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
-    . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
-fi

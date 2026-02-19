@@ -17,9 +17,8 @@
 
         "nas" = {
             hostname = "nas.fl0wer.cn";
-            port = 2222;
-            user = "gitea";
-            identityfile = "~/.ssh/id_ed25519"
+            port = 6611;
+            user = "chi";
         };
 
         "dell-1" = {
