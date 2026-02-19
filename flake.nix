@@ -36,9 +36,9 @@
           ./modules/darwin/default.nix
           home-manager.darwinModules.home-manager
           {
-	        system.stateVersion = 6;          
-	        nixpkgs.config.allowUnfree = true;
-	        nix.enable = false;
+            system.stateVersion = 6;          
+            nixpkgs.config.allowUnfree = true;
+            nix.enable = false;
             system.primaryUser = user;
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
@@ -47,7 +47,7 @@
             home-manager.extraSpecialArgs = {
                 secrets = debugSecrets;
             };
-	    _module.args.secrets = debugSecrets;
+	          _module.args.secrets = debugSecrets;
           }
         ];
       };
