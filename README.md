@@ -1,28 +1,27 @@
-# Chi's Linux Dotfiles
+# Chi's Darwin Dotfiles
 
-> 基于 **Nix Flakes** 与 **Home Manager** 构建的声明式 Linux 桌面/开发环境
+> 基于 **Nix Flakes**、**nix-darwin** 与 **Home Manager** 构建的声明式 macOS 开发环境
 
 ## Features
 
 ### Core
-- **pkg management**: Using [Nix Flakes](https://nixos.wiki/wiki/Flakes)
-- **environment management**: [Home Manager](https://github.com/nix-community/home-manager) manages home directory configuration files
+- **pkg management**: 使用 [Nix Flakes](https://nixos.wiki/wiki/Flakes) 进行包管理
+- **system management**: 使用 [nix-darwin](https://github.com/LnL7/nix-darwin) 管理 macOS 系统配置
+- **environment management**: [Home Manager](https://github.com/nix-community/home-manager) 管理用户环境配置
 - **Shell**: Zsh + [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
 - **SSH**: 自动化生成 SSH 密钥对与配置
 
 ### DevOps
 - **Editor**: 
-    - **Vim**: 轻量化服务器配置，集成 NERDTree, Airline, ALE 
+    - **Vim**: 轻量化配置，集成 NERDTree, Airline, ALE 
     - **VS Code**: 声明式安装与配置
-- **Docker**: **Docker Rootless** 模式（免 Sudo，自动配置 subuid/subgid）
-- **Env**: **Mamba (Conda)** 环境支持
+- **Env**: 开发环境与工具链管理
 
-### Desktop@GNOME
-- **Terminal**: Tilix (声明式配色/字体) + **Quake 模式**。
-- **Input**: Fcitx5 + **Rime (雾凇拼音)**，支持自动化部署与配置同步。
-- **Automation**: GNOME 快捷键绑定、壁纸设置、系统扩展自动配置。
-- **Remote**: Sunshine 串流服务自动化配置。
-- **Font**: Maple Mono NF CN (等宽) + Noto Sans CJK。
+### macOS Applications & Services
+- **Terminal**: iTerm2 + 自定义配色与字体配置
+- **Proxy**: Mihomo (Clash Meta) 代理服务自动化配置
+- **Apps**: 声明式安装常用 macOS 应用程序
+- **System**: macOS 系统偏好设置与快捷键配置
 
 ---
 
@@ -30,16 +29,17 @@
 
 ```text
 .
-├── flake.nix           # 项目入口，定义输入与配置输出
-├── home.nix            # Home Manager 主逻辑
+├── flake.nix           # 项目入口，定义 nix-darwin 与 Home Manager 配置
+├── home.nix            # Home Manager 主配置
 ├── setup.sh            # 引导脚本：安装依赖、生成密钥与 Secrets
 ├── secrets.nix         # 个人身份信息 (由 setup.sh 生成，Git 忽略)
 ├── modules/            # 模块化配置
 │   ├── cores/          # 基础工具、Git、Shell、SSH
-│   ├── desktops/       # GNOME、Fcitx5、字体、终端
-│   └── devps/          # Docker、编辑器、Mamba
-├── files/              # 原始配置文件模板 (vimrc, rime.yaml 等)
-└── resources/          # 脚本工具与静态资源 (dtf, scrctl 等)
+│   ├── darwin/         # macOS 系统配置、应用程序、终端、代理
+│   ├── desktops/       # 桌面环境相关配置
+│   └── devps/          # 开发工具与编辑器
+├── files/              # 原始配置文件模板 (vimrc, mihomo.yaml 等)
+└── resources/          # 脚本工具与静态资源 (dtf, ppack, spk 等)
 ```
 
 ---
@@ -48,7 +48,7 @@
 
 ### 1. Git installation
 
-在干净的系统上运行以下命令，脚本会自动安装 Nix、配置环境依赖并生成个人信息：
+在干净的 macOS 系统上运行以下命令，脚本会自动安装 Nix、配置环境依赖并生成个人信息：
 
 ```bash
 git clone https://github.com/Kie-Chi/.dotfiles.git ~/.dotfiles
@@ -62,9 +62,17 @@ chmod +x setup.sh
 ```bash
 curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s -- -b darwin
 ```
-- `-r/--remote`: 指定远程仓库，默认本仓库的https地址
-- `-b/--branch`: 指定分支，默认 `master`
-- `-g/--git`: 默认使用本仓库的 git 地址进行安装
+- `-r/--remote`: 指定远程仓库，默认本仓库的 https 地址
+- `-b/--branch`: 指定分支，默认 `master`（此处使用`darwin`分支）
+- `-g/--git`: 使用本仓库的 git 地址进行安装
+
+### Setup
+
+安装完成后，使用以下命令应用配置：
+
+```bash
+./setup.sh # bash ./setup.sh
+```
 
 ### Maintenance
 
@@ -72,25 +80,21 @@ curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s -- -b darwin
 
 | 命令 | 说明 |
 | :--- | :--- |
-| `dtf apply` | 应用当前 Nix 配置（重新构建） |
-| `dtf sync` | 拉取 Git 远程更新并应用 |
+| `dtf apply` | 应用当前配置状态  |
+| `dtf apply` | 应用当前配置（darwin-rebuild switch） |
+| `dtf sync` | 拉取 Git 远程更新并应用配置 |
 | `dtf edit` | 使用 $EDITOR 快速编辑配置文件 |
-| `dtf update` | 更新 `flake.lock` (升级软件版本) |
-| `dtf rollback` | 回滚到之前的配置版本 |
-| `dtf push` | 快速提交并推送到远程仓库 |
-
----
-
+| `dtf update` | 更新 `flake.lock` (升级软件包) |
 ## Modules
 
 ### `secrets.nix`
-为了保证仓库模板的通用性，所有敏感/个性化信息（如用户名、Git Email）都从 `secrets.nix` 读取。该文件在 `setup.sh` 运行期间生成：
+为了保证仓库模板的通用性，所有敏感/个性化信息（如用户名、Git Email）都从 `secrets.nix` 读取。该文件在 `setup.sh` 运行期间生成，存储位置为 `~/.dotfiles/secrets.nix`：
 
 ```nix
 # secrets.nix 示例
 {
   home.user = "chi";
-  home.dir = "/home/chi";
+  home.dir = "/Users/chi";  # macOS 用户目录
   git.name = "Kie-Chi";
   git.email = "example@email.com";
   proxy.url = "https://xxx";

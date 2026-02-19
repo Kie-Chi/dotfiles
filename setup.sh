@@ -298,7 +298,7 @@ gen() {
 
 cold() {
     ui_info "Applying Home Manager configuration for the first time..."
-    /bin/bash resources/scripts/dtf apply
+    bash -c "source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true; bash $BASE_DIR/resources/scripts/dtf apply"
 }
 
 if [ ! -f "$REQUIRES_SCRIPT" ]; then
