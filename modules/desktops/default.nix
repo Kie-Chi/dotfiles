@@ -10,5 +10,6 @@
     ./dmgs.nix
     ./zips.nix
     ./proxies.nix
+    ./wallpaper.nix
   ];
 }
