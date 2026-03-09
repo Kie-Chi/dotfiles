@@ -123,11 +123,9 @@ case "$1" in
         remote="${3}"
         current_branch=$(git branch --show-current)
         
-        git add .
-        
-        # Check if there are staged changes
-        if ! git diff --cached --quiet; then
-            # Has staged changes, commit them
+        if ! git diff-index --quiet HEAD --; then
+            # Has uncommitted changes, stage and commit them
+            git add .
             if [ -z "$remote" ]; then
                 echo -e "${CYAN}--> Committing and pushing changes to upstream...${NC}"
                 git commit -m "$commit_msg"
