@@ -39,7 +39,7 @@ usage() {
     echo -e "  ${GREEN}u, update${NC}       Update flake inputs (nixpkgs, etc.)."
     echo -e "  ${GREEN}r, rollback [N|list]${NC} Rollback to generation N, list generations, or go to previous."
     echo -e "  ${GREEN}e, edit${NC}         Open the dotfiles directory in your default editor."
-    echo -e "  ${GREEN}p, push [msg]${NC}   Commit and push changes with an optional message."
+    echo -e "  ${GREEN}p, push [msg] [remote]${NC}   Commit and push changes with an optional message and remote (default: origin)."
     echo -e "  ${GREEN}st, status${NC}      Show the git status of the dotfiles repository."
     echo -e "  ${GREEN}dif, diff${NC}             Show the git difference of the dotfiles repository."
     echo -e "  ${GREEN}gc, clean${NC}       Run Nix garbage collection to clean old generations."
@@ -120,11 +120,12 @@ case "$1" in
 
     p|push)
         commit_msg="${2:-"chore: update configuration"}"
-        echo -e "${CYAN}--> Committing and pushing changes...${NC}"
+        remote="${3:-origin}"
+        echo -e "${CYAN}--> Committing and pushing changes to ${remote}...${NC}"
         git add .
         git commit -m "$commit_msg"
-        git push
-        echo -e "${GREEN}--> Changes pushed successfully!${NC}"
+        git push "$remote"
+        echo -e "${GREEN}--> Changes pushed successfully to ${remote}!${NC}"
         ;;
 
     st|status)

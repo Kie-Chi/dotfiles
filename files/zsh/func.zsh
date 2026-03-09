@@ -436,8 +436,19 @@ _dtf() {
         args)
             case $line[1] in
                 p|push)
-                    # For push, we just want to provide a hint, not complete a file.
-                    _message "✍️  Commit message (optional)"
+                    if (( CURRENT == 3 )); then
+                        # Second argument: commit message
+                        _message "Commit message (optional)"
+                    elif (( CURRENT == 4 )); then
+                        # Third argument: remote name
+                        local -a remotes
+                        remotes=($(git -C "${DOTFILES_DIR:-${HOME}/.dotfiles}" remote 2>/dev/null))
+                        if [[ ${#remotes[@]} -gt 0 ]]; then
+                            _describe -t remotes 'git remotes' remotes
+                        else
+                            _message "Remote name (default: origin)"
+                        fi
+                    fi
                     ;;
                 r|rollback)
                     # For rollback, we can suggest the 'list' command or a number.
@@ -446,7 +457,7 @@ _dtf() {
                         "list:List all available generations"
                     )
                     _describe -t options 'rollback options' rollback_opts
-                    _message "🔢 or enter a specific generation number"
+                    _message "or enter a specific generation number"
                     ;;
                 *)
                     # All other commands do not take arguments, so we complete nothing.
