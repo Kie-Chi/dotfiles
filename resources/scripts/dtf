@@ -50,6 +50,7 @@ usage() {
     echo -e "  ${GREEN}p, push [msg] [remote]${NC}   Commit and push changes with an optional message and remote (default: origin)."
     echo -e "  ${GREEN}st, status${NC}      Show the git status of the dotfiles repository."
     echo -e "  ${GREEN}dif, diff${NC}             Show the git difference of the dotfiles repository."
+    echo -e "  ${GREEN}git [args...]${NC}   Execute git commands in the dotfiles directory."
     echo -e "  ${GREEN}gc, clean${NC}       Run Nix garbage collection to clean old generations."
     echo -e "  ${GREEN}h, help${NC}         Show this help message."
     echo
@@ -186,6 +187,10 @@ case "$1" in
         ;;
     d|dif|diff)
         git diff
+        ;;
+    git)
+        shift
+        git "$@"
         ;;
     gc|clean)
         echo -e "${CYAN}--> Garbage collecting old generations...${NC}"

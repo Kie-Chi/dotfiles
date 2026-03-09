@@ -428,6 +428,7 @@ _dtf() {
                 'd:Alias for diff'
                 'dif:Alias for dif'
                 'diff:Show the git difference of the dotfiles repository'
+                'git:Execute git commands in the dotfiles directory'
                 'sync:Pull latest changes from git and then apply'
                 'u:Alias for update'
                 'update:Update flake inputs (nixpkgs, etc.)'
@@ -459,6 +460,16 @@ _dtf() {
                     )
                     _describe -t options 'rollback options' rollback_opts
                     _message "or enter a specific generation number"
+                    ;;                
+                git)
+                    local offset=${words[(i)git]}
+                    
+                    if (( offset <= ${#words} )); then
+                        words=("${(@)words[offset,-1]}")
+                        (( CURRENT = CURRENT - offset + 1 ))
+                        local service="git"
+                        _normal
+                    fi
                     ;;
                 *)
                     # All other commands do not take arguments, so we complete nothing.
