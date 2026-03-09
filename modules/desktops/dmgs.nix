@@ -1,32 +1,56 @@
 { config, pkgs, lib, ... }:
 
 let
-  v2rayNApp = pkgs.stdenv.mkDerivation {
+  # Helper Function to package a macOS App from a .dmg archive
+  #   - pname:       The package name (e.g., "v2rayN").
+  #   - version:     The package version (e.g., "7.17.3").
+  #   - url:         The full URL to the .dmg file. You can use `${version}` inside.
+  #   - hash:        The SHA256 hash of the .dmg file.
+  #   - appName:     (Optional) The name of the .app bundle inside the dmg. If not provided, uses "*.app".
+  #   - description: (Optional) Description for the package metadata.
+  #   - homepage:    (Optional) Homepage URL for the package metadata.
+  makeMacDmgApp = { pname, version, url, hash, appName ? "*.app", description ? "", homepage ? "" }:
+    pkgs.stdenv.mkDerivation rec {
+      inherit pname version;
+      src = pkgs.fetchurl {
+        inherit url hash;
+      };
+      nativeBuildInputs = [ pkgs.undmg ];
+      sourceRoot = ".";
+      installPhase = ''
+        mkdir -p $out/Applications
+        cp -r ${appName} $out/Applications/
+      '';
+      dontStrip = true;
+      dontFixup = true;
+      dontPatchELF = true;
+      meta = with lib; {
+        inherit description homepage;
+        platforms = platforms.darwin;
+      };
+    };
+
+  v2rayNApp = makeMacDmgApp rec {
     pname = "v2rayN";
     version = "7.17.3";
-    src = pkgs.fetchurl {
-      url = "https://github.com/2dust/v2rayN/releases/download/7.17.3/v2rayN-macos-arm64.dmg";
-      sha256 = "sha256-EGWDManMYMdtzCb5Es70GoqSB5O4fkLtEZufZe/TYFc=";
-    };
-    nativeBuildInputs = with pkgs; [ undmg ];
-    sourceRoot = ".";
-    installPhase = ''
-      mkdir -p $out/Applications
-      cp -r *.app $out/Applications
-    '';
-    dontStrip = true;
-    dontFixup = true;
-    dontPatchELF = true;
-    meta = with lib; {
-      description = "A GUI client for V2Ray/Xray/sing-box";
-      homepage = "https://github.com/2dust/v2rayN";
-      license = licenses.gpl3;
-      platforms = platforms.darwin;
-    };
+    url = "https://github.com/2dust/v2rayN/releases/download/${version}/v2rayN-macos-arm64.dmg";
+    hash = "sha256-EGWDManMYMdtzCb5Es70GoqSB5O4fkLtEZufZe/TYFc=";
+    description = "A GUI client for V2Ray/Xray/sing-box";
+    homepage = "https://github.com/2dust/v2rayN";
+  };
+
+  okular = makeMacDmgApp rec {
+    pname = "okular";
+    version = "26.04";
+    url = "https://cdn.kde.org/ci-builds/graphics/okular/release-${version}/macos-arm64/okular-release_${version}-7256-macos-clang-arm64.dmg";
+    hash = "sha256-KwKNsLr0rAl+ZqHtObCepAk7BKChsDzcv9o9nI3dCL4=";
+    description = "A PDF viewer for KDE";
+    homepage = "https://okular.kde.org/";
   };
 in
 {
   home.packages = with pkgs; [
     # v2rayNApp
+    okular
   ];
 }

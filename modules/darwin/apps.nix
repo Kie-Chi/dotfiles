@@ -8,14 +8,13 @@
     };
 
     # taps = [
-    #   {
-    #     name = "kde-mac/kde";
-    #     clone_target = "git@github.com:KDE/homebrew-kde.git";
-    #   }
-    # ];
+    #    {
+    #      name = "kde-mac/kde";
+    #      clone_target = "git@github.com:KDE/homebrew-kde.git";
+    #    }
+    #  ];
 
     brews = [
-      # "okular"
       "chsrc"
       "gum"
       "proxychains-ng"
