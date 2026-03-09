@@ -28,7 +28,6 @@
       "tailscale-app"
       "moonlight"
       "raycast"
-      "skim"
       "wechat"
       "google-chrome"
       "feishu"
