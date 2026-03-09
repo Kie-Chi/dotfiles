@@ -19,11 +19,14 @@
       "chsrc"
       "gum"
       "proxychains-ng"
+      "uv"
+      "java"
+      "go"
     ];
 
     casks = [
       "linearmouse"
-      "tailscale"
+      "tailscale-app"
       "moonlight"
       "raycast"
       "skim"
