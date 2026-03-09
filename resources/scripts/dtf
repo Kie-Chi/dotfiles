@@ -4,7 +4,13 @@
 # dtf - Darwin Dotfiles Manager (nix-darwin + sudo nix run mode)
 # ==============================================================================
 
-set -e
+# Check for -e flag for debug mode
+if [[ "$1" == "-e" ]]; then
+    set -ex
+    shift
+else
+    set -e
+fi
 
 USER_SECRETS="${HOME}/.config/dotfiles/secrets.nix"
 SYSTEM_SECRETS="/etc/dotfiles/secrets.nix"
@@ -31,9 +37,11 @@ ensure_secrets_link() {
 }
 
 usage() {
-    echo -e "Usage: dtf [COMMAND]"
+    echo -e "Usage: dtf [Options] [COMMAND]"
     echo -e "\nA friendly manager for your Nix dotfiles.\n"
-    echo -e "Commands:"
+    echo -e "Options:"
+    echo -e "  ${CYAN}-e${NC}              Enable debug mode (set -x)."
+    echo -e "\nCommands:"
     echo -e "  ${GREEN}a, apply${NC}        Apply the Home Manager configuration."
     echo -e "  ${GREEN}s, sync${NC}         Pull latest changes from git and then apply."
     echo -e "  ${GREEN}u, update${NC}       Update flake inputs (nixpkgs, etc.)."

@@ -399,6 +399,7 @@ _dtf() {
     typeset -A opt_args
 
     _arguments -C \
+        '(-e)-e[Enable debug mode]' \
         '1:Command:->cmds' \
         '*:Arguments:->args'
 
