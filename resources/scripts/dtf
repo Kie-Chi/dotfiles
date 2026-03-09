@@ -120,19 +120,34 @@ case "$1" in
 
     p|push)
         commit_msg="${2:-"chore: update configuration"}"
-        remote="${3:-origin}"        
+        remote="${3}"
+        
+        # Add and check for changes
         git add .
         if git diff-index --quiet HEAD; then
             # No changes to commit, just push
-            echo -e "${CYAN}--> No changes to commit. Pushing to ${remote}...${NC}"
-            git push "$remote"
+            if [ -z "$remote" ]; then
+                echo -e "${CYAN}--> No changes to commit. Pushing to upstream...${NC}"
+                git push
+            else
+                current_branch=$(git branch --show-current)
+                echo -e "${CYAN}--> No changes to commit. Pushing to ${remote}/${current_branch}...${NC}"
+                git push "$remote" "$current_branch"
+            fi
         else
             # Commit and push
-            echo -e "${CYAN}--> Committing and pushing changes to ${remote}...${NC}"
-            git commit -m "$commit_msg"
-            git push "$remote"
+            if [ -z "$remote" ]; then
+                echo -e "${CYAN}--> Committing and pushing changes to upstream...${NC}"
+                git commit -m "$commit_msg"
+                git push
+            else
+                current_branch=$(git branch --show-current)
+                echo -e "${CYAN}--> Committing and pushing changes to ${remote}/${current_branch}...${NC}"
+                git commit -m "$commit_msg"
+                git push "$remote" "$current_branch"
+            fi
         fi
-        echo -e "${GREEN}--> Changes pushed successfully to ${remote}!${NC}"
+        echo -e "${GREEN}--> Changes pushed successfully!${NC}"
         ;;
 
     st|status)
