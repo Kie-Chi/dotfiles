@@ -120,11 +120,18 @@ case "$1" in
 
     p|push)
         commit_msg="${2:-"chore: update configuration"}"
-        remote="${3:-origin}"
-        echo -e "${CYAN}--> Committing and pushing changes to ${remote}...${NC}"
+        remote="${3:-origin}"        
         git add .
-        git commit -m "$commit_msg"
-        git push "$remote"
+        if git diff --cached --quiet; then
+            # No changes to commit, just push
+            echo -e "${CYAN}--> No changes to commit. Pushing to ${remote}...${NC}"
+            git push "$remote"
+        else
+            # Commit and push
+            echo -e "${CYAN}--> Committing and pushing changes to ${remote}...${NC}"
+            git commit -m "$commit_msg"
+            git push "$remote"
+        fi
         echo -e "${GREEN}--> Changes pushed successfully to ${remote}!${NC}"
         ;;
 
