@@ -121,33 +121,58 @@ case "$1" in
     p|push)
         commit_msg="${2:-"chore: update configuration"}"
         remote="${3}"
+        current_branch=$(git branch --show-current)
         
-        # Add and check for changes
         git add .
-        if git diff-index --quiet HEAD; then
-            # No changes to commit, just push
-            if [ -z "$remote" ]; then
-                echo -e "${CYAN}--> No changes to commit. Pushing to upstream...${NC}"
-                git push
-            else
-                current_branch=$(git branch --show-current)
-                echo -e "${CYAN}--> No changes to commit. Pushing to ${remote}/${current_branch}...${NC}"
-                git push "$remote" "$current_branch"
-            fi
-        else
-            # Commit and push
+        
+        # Check if there are staged changes
+        if ! git diff --cached --quiet; then
+            # Has staged changes, commit them
             if [ -z "$remote" ]; then
                 echo -e "${CYAN}--> Committing and pushing changes to upstream...${NC}"
                 git commit -m "$commit_msg"
                 git push
             else
-                current_branch=$(git branch --show-current)
                 echo -e "${CYAN}--> Committing and pushing changes to ${remote}/${current_branch}...${NC}"
                 git commit -m "$commit_msg"
                 git push "$remote" "$current_branch"
             fi
+            echo -e "${GREEN}--> Changes pushed successfully!${NC}"
+        else
+            # No staged changes, check if local branch is ahead of remote
+            if [ -z "$remote" ]; then
+                # Use default upstream
+                if git rev-parse @{u} > /dev/null 2>&1; then
+                    local_commits=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "0")
+                    if [ "$local_commits" -gt 0 ]; then
+                        echo -e "${CYAN}--> Pushing $local_commits local commit(s) to upstream...${NC}"
+                        git push
+                        echo -e "${GREEN}--> Changes pushed successfully!${NC}"
+                    else
+                        echo -e "${YELLOW}--> Nothing to push. Local branch is up to date with remote.${NC}"
+                    fi
+                else
+                    echo -e "${YELLOW}--> No upstream branch configured. Use: git push -u origin ${current_branch}${NC}"
+                fi
+            else
+                # Check against specified remote
+                remote_ref="${remote}/${current_branch}"
+                if git rev-parse "$remote_ref" > /dev/null 2>&1; then
+                    local_commits=$(git rev-list --count "${remote_ref}..HEAD" 2>/dev/null || echo "0")
+                    if [ "$local_commits" -gt 0 ]; then
+                        echo -e "${CYAN}--> Pushing $local_commits local commit(s) to ${remote}/${current_branch}...${NC}"
+                        git push "$remote" "$current_branch"
+                        echo -e "${GREEN}--> Changes pushed successfully!${NC}"
+                    else
+                        echo -e "${YELLOW}--> Nothing to push. Local branch is up to date with ${remote_ref}.${NC}"
+                    fi
+                else
+                    echo -e "${CYAN}--> Creating new branch on ${remote}/${current_branch}...${NC}"
+                    git push "$remote" "$current_branch"
+                    echo -e "${GREEN}--> Branch pushed successfully!${NC}"
+                fi
+            fi
         fi
-        echo -e "${GREEN}--> Changes pushed successfully!${NC}"
         ;;
 
     st|status)
