@@ -11,5 +11,6 @@
     ./zips.nix
     ./proxies.nix
     ./wallpaper.nix
+    ./squirrel.nix
   ];
 }

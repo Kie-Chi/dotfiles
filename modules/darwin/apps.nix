@@ -24,6 +24,8 @@
     ];
 
     casks = [
+      "squirrel-app"
+      "trae"
       "linearmouse"
       "tailscale-app"
       "moonlight"
