@@ -143,7 +143,7 @@ install_nix() {
     fi
 
     msg_info "Nix not found. Starting installation of the Nix package manager..."
-    read -p "Press Enter to continue, or Ctrl+C to cancel."
+    read -p "Press Enter to continue, or Ctrl+C to cancel." </dev/tty
 
     curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
     if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
