@@ -83,19 +83,19 @@ install_system_deps() {
             PKG_MANAGER="apt-get"
             UPDATE_CMD="sudo apt-get update"
             INSTALL_CMD="sudo apt-get install -y"
-            DEPS=("curl" "git" "build-essential" "uidmap" "gum" "jq")
+            DEPS=("curl" "git" "build-essential" "uidmap" "gum" "jq" "gh")
             ;;
         arch)
             PKG_MANAGER="pacman"
             # pacman's -Syu updates and installs
             INSTALL_CMD="sudo pacman -Syu --noconfirm"
             # base-devel for build tools, shadow for uidmap/newuidmap
-            DEPS=("curl" "git" "base-devel" "shadow" "gum" "jq")
+            DEPS=("curl" "git" "base-devel" "shadow" "gum" "jq" "gh")
             ;;
         fedora)
             PKG_MANAGER="dnf"
             INSTALL_CMD="sudo dnf install -y"
-            DEPS=("curl" "git" "@development-tools" "shadow-utils" "gum" "jq")
+            DEPS=("curl" "git" "@development-tools" "shadow-utils" "gum" "jq" "gh")
             ;;
         macos)
             if ! command_exists brew; then
@@ -106,7 +106,7 @@ install_system_deps() {
                 fi
             fi
             INSTALL_CMD="brew install"
-            DEPS=("git" "curl" "gum" "jq")
+            DEPS=("git" "curl" "gum" "jq" "gh")
             ;;
         *)
             msg_error "Distribution '$os_name' is not supported by this script."
@@ -159,10 +159,15 @@ main() {
     msg_info "Starting prerequisite check for Nix dotfiles..."
     install_system_deps
     install_nix
-
+    if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+        . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+    fi
+    
     echo
     msg_success "All prerequisites are installed!"
-    msg_warn "Please run the following command:"
-    echo -e "${BLUE}    source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh${NC}"
-    msg_info "Or, simply close this terminal and reopen another."
 }
+
+main
+if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+    . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+fi
