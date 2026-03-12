@@ -158,6 +158,14 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
   },
   {
     "group": "BASE",
+    "path": "home.passwd",
+    "prompt": "System password",
+    "defaultCmd": "whoami",
+    "validation": "[[ -n \"$input_val\" ]]", 
+    "errorMsg": "System password cannot be empty."
+  },
+  {
+    "group": "BASE",
     "path": "home.dir",
     "prompt": "Home directory",
     "defaultCmd": "echo \"$HOME\"",
@@ -337,6 +345,29 @@ fi
 if ui_confirm "Do you want to apply the configuration now?"; then
     cold
 fi
+
+login=$(ui_choose "Select a devops to login" "none github onedev" "none")
+
+case "$login" in
+  github)
+    gh auth login
+    ;;
+  onedev)
+    tod_url=$(ui_input "Enter your OneDev Server URL" "http://nas.fl0wer.cn:6610")
+    tod_token=$(ui_input "Enter your OneDev Access Token" "")
+    cat << EOF > ~/.todconfig
+server-url=$tod_url
+access-token=$tod_token
+EOF
+    echo "tod configured successfully at ~/.todconfig!"
+    ;;
+  none)
+    echo "Skipped devops login."
+    ;;
+  *)
+    echo "Invalid selection."
+    ;;
+esac
 
 ui_header "Setup Finished"
 ui_info "Your dotfiles are ready. You may need to restart your shell."
