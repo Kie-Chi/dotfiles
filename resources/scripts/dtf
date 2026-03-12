@@ -16,8 +16,10 @@ USER_SECRETS="${HOME}/.config/dotfiles/secrets.nix"
 SYSTEM_SECRETS="/etc/dotfiles/secrets.nix"
 if [ -f "$USER_SECRETS" ]; then
     DOTFILES_DIR=$(grep -w "dotfiles.path" "$USER_SECRETS" | sed -n 's/.*dotfiles.path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    USER_PASSWD=$(grep -w "home\.passwd" "$USER_SECRETS" | sed -n 's/.*home\.passwd[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
 fi
 DOTFILES_DIR="${DOTFILES_DIR:-${HOME}/.dotfiles}"
+USER_PASSWD="${USER_PASSWD:-}"
 SETUP_SCRIPT="${DOTFILES_DIR}/setup.sh"
 FLAKE_TARGET=".#MacBook-Air"
 SYSTEM_PROFILE="/nix/var/nix/profiles/system"
@@ -28,11 +30,26 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+esudo() {
+    if [ -z "$USER_PASSWD" ]; then
+        sudo "$@"
+    fi
+    
+    echo "USER_PASSWD" | sudo -S "$@"
+}
+
 ensure_secrets_link() {
     if [ ! -L "$SYSTEM_SECRETS" ]; then
-        echo -e "${CYAN}--> Setting up global secrets link at $SYSTEM_SECRETS...${NC}"
-        sudo mkdir -p /etc/dotfiles
-        sudo ln -sf "$USER_SECRETS" "$SYSTEM_SECRETS"
+        echo -e "${CYAN}--> Setting up global secrets link...${NC}"
+        esudo mkdir -p /etc/dotfiles
+        esudo ln -sf "$USER_SECRETS" "$SYSTEM_SECRETS"
+    fi
+}
+
+clean_secrets_link() {
+    if [ -L "$SYSTEM_SECRETS" ]; then
+        echo -e "${CYAN}--> Cleaning up global secrets link...${NC}"
+        esudo rm -f "$SYSTEM_SECRETS"
     fi
 }
 
@@ -79,9 +96,10 @@ case "$1" in
         git add -N . || true
 
         echo -e "${CYAN}--> Running nix-darwin switch...${NC}"
-        sudo -H nix run nix-darwin -- switch --flake "$FLAKE_TARGET" --impure
+        esudo -H nix run nix-darwin -- switch --flake "$FLAKE_TARGET" --impure
         
         echo -e "${GREEN}--> System successfully updated!${NC}"
+        clean_secrets_link
         ;;
 
     s|sync)
@@ -101,22 +119,22 @@ case "$1" in
         case "$2" in
             list)
                 echo -e "${CYAN}--> Current System Generations:${NC}"
-                sudo -H nix-env -p "$SYSTEM_PROFILE" --list-generations
+                esudo -H nix-env -p "$SYSTEM_PROFILE" --list-generations
                 ;;
             
             [0-9]*)
                 echo -e "${CYAN}--> Switching system profile to generation $2...${NC}"
-                sudo -H nix-env -p "$SYSTEM_PROFILE" --set-generation "$2"
+                esudo -H nix-env -p "$SYSTEM_PROFILE" --set-generation "$2"
                 echo -e "${CYAN}--> Activating configuration $2...${NC}"
-                sudo -H "$SYSTEM_PROFILE/activate"
+                esudo -H "$SYSTEM_PROFILE/activate"
                 echo -e "${GREEN}--> Switched to generation $2 successfully.${NC}"
                 ;;
 
             *)
                 echo -e "${YELLOW}--> Rolling back to the PREVIOUS generation...${NC}"
-                sudo -H nix-env -p "$SYSTEM_PROFILE" --rollback
+                esudo -H nix-env -p "$SYSTEM_PROFILE" --rollback
                 echo -e "${CYAN}--> Re-activating previous configuration...${NC}"
-                sudo -H "$SYSTEM_PROFILE/activate"
+                esudo -H "$SYSTEM_PROFILE/activate"
                 echo -e "${GREEN}--> Rollback complete.${NC}"
                 ;;
         esac
@@ -194,7 +212,7 @@ case "$1" in
         ;;
     gc|clean)
         echo -e "${CYAN}--> Garbage collecting old generations...${NC}"
-        sudo -H nix-collect-garbage -d
+        esudo -H nix-collect-garbage -d
         nix-collect-garbage -d
         nix-store --optimise
         brew cleanup
