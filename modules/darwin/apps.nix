@@ -24,6 +24,8 @@
     ];
 
     casks = [
+      "karabiner-elements"
+      "ticktick"
       "squirrel-app"
       "trae"
       "linearmouse"

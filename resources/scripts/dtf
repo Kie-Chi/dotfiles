@@ -34,8 +34,7 @@ esudo() {
     if [ -z "$USER_PASSWD" ]; then
         sudo "$@"
     fi
-    
-    echo "USER_PASSWD" | sudo -S "$@"
+    echo "$USER_PASSWD" | sudo -S "$@"
 }
 
 ensure_secrets_link() {
