@@ -218,6 +218,12 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
     "prompt": "Dotfiles local path",
     "defaultCmd": "echo \"$BASE_DIR\"",
     "ignore": true
+  },
+  {
+    "group": "ENV",
+    "path": "agent.apikey",
+    "prompt": "Agent API Key",
+    "defaultCmd": "echo \"$API_KEY\""
   }
 ]
 EOF
