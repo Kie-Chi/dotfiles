@@ -6,6 +6,7 @@
     desktoppr
 
     # apps
+    claude-code
     sing-box
   ];
 }
