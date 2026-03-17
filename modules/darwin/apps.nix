@@ -15,6 +15,7 @@
     #  ];
 
     brews = [
+      "gh"
       "chsrc"
       "gum"
       "proxychains-ng"
