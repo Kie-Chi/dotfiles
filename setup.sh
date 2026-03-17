@@ -131,6 +131,20 @@ get_existing_val() {
     fi
 }
 
+init_values() {
+    ui_info "Initializing configuration..."
+    local paths=$(echo "$CONFIG_JSON" | jq -r '.[].path')
+    for p in $paths; do
+        local existing=$(get_existing_val "$p")
+        if [ -n "$existing" ]; then
+            set_val "$p" "$existing"
+        else
+            local cmd=$(echo "$CONFIG_JSON" | jq -r ".[] | select(.path == \"$p\") | .defaultCmd")
+            set_val "$p" "$(eval "$cmd")"
+        fi
+    done
+}
+
 # ==========================================
 # CONFIG
 # FORMAT: 
@@ -228,7 +242,13 @@ read -r -d '' CONFIG_JSON << 'EOF' || true
 ]
 EOF
 
-gen() {
+# ===========================================
+# 
+#           LIST ITERM MODE
+# 
+# ===========================================
+
+main() {
     if ! echo "$CONFIG_JSON" | jq . >/dev/null 2>&1; then
         echo -e "${RED}[ERROR] Invalid JSON syntax in CONFIG_JSON.${NC}"
         echo "$CONFIG_JSON" | jq . 
@@ -323,6 +343,107 @@ gen() {
     fi
 }
 
+# ===========================================
+# 
+#               TUI MODE
+# 
+# ===========================================
+configure_group() {
+    local group_name="$1"
+    while true; do
+        local map=$(echo "$CONFIG_JSON" | jq -r ".[] | select(.group == \"$group_name\") | \"\(.prompt)|\(.path)\"")        
+        local options=""
+        while read -r line; do
+            local prompt="${line%|*}"
+            local path="${line#*|}"
+            local cur_val=$(get_val "$path")
+            options+="$prompt: [$cur_val]\n"
+        done <<< "$map"
+        options+="BACK"
+
+        ui_header "Editing $group_name"
+        local choice=$(echo -e "$options" | gum choose --header "Select item to modify:")
+
+        if [[ "$choice" == "BACK" || -z "$choice" ]]; then break; fi
+        local selected_prompt="${choice%%:*}"
+        local selected_path=$(echo "$CONFIG_JSON" | jq -r ".[] | select(.prompt == \"$selected_prompt\" and .group == \"$group_name\") | .path")        
+        local item_json=$(echo "$CONFIG_JSON" | jq -c ".[] | select(.path == \"$selected_path\")")
+        edit_item "$item_json"
+    done
+}
+
+edit_item() {
+    local json="$1"
+    local path=$(echo "$json" | jq -r .path)
+    local prompt=$(echo "$json" | jq -r .prompt)
+    local choices=$(echo "$json" | jq -r '.choices // [] | join(" ")')
+    local validation=$(echo "$json" | jq -r '.validation // "null"')
+    local cur_val=$(get_val "$path")
+
+    local new_val=""
+    if [[ -n "$choices" && "$choices" != "null" ]]; then
+        new_val=$(ui_choose "$prompt" "$choices" "$cur_val")
+    else
+        new_val=$(ui_input "$prompt" "$cur_val")
+    fi
+
+    if [[ "$validation" != "null" ]]; then
+        input_val="$new_val"
+        if ! eval "$validation"; then
+            ui_error "Invalid input for $prompt"
+            sleep 1
+            return
+        fi
+    fi
+    set_val "$path" "$new_val"
+}
+
+main_tui() {
+    init_values
+    
+    while true; do
+        local groups=$(echo "$CONFIG_JSON" | jq -r '.[].group' | sort -u)
+        ui_header "NixOS Config TUI"        
+        local choice=$(printf "APPLY_AND_SAVE\nEXIT_WITHOUT_SAVING\n---\n%s" "$groups" | gum choose --header "Main Menu")
+
+        case "$choice" in
+            APPLY_AND_SAVE)
+                if ui_confirm "Save changes to $SECRETS_FILE?"; then
+                    save_all_to_nix
+                    break
+                fi
+                ;;
+            EXIT_WITHOUT_SAVING)
+                if ui_confirm "Exit without saving?"; then exit 0; fi
+                ;;
+            ---|"") continue ;;
+            *)
+                configure_group "$choice"
+                ;;
+        esac
+    done
+}
+
+save_all_to_nix() {
+    local file_content="{\n"
+    local groups=$(echo "$CONFIG_JSON" | jq -r '.[].group' | sort -u)
+    
+    for g in $groups; do
+        file_content+="\n  # --- $g CONFIG ---\n"
+        local paths=$(echo "$CONFIG_JSON" | jq -r ".[] | select(.group == \"$g\") | .path")
+        for p in $paths; do
+            local val=$(get_val "$p")
+            val="${val//\\/\\\\}"
+            val="${val//\"/\\\"}"
+            file_content+=$(printf "  %s = \"%s\";\n" "$p" "$val")
+        done
+    done
+    file_content+="\n}"
+    
+    printf '%b' "$file_content" > "$SECRETS_FILE"
+    ui_info "Secrets saved."
+}
+
 cold() {
     ui_info "Applying Home Manager configuration for the first time..."
     bash -c "source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true; bash $BASE_DIR/resources/scripts/dtf apply"
@@ -342,10 +463,10 @@ fi
 
 if [ -f "$SECRETS_FILE" ]; then
     if ui_confirm "secrets.nix already exists. Overwrite it?"; then
-        gen
+        main_tui
     fi
 else
-    gen
+    main_tui
 fi
 
 if ui_confirm "Do you want to apply the configuration now?"; then
