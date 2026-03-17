@@ -24,6 +24,7 @@
     ];
 
     casks = [
+      "wpsoffice-cn"
       "karabiner-elements"
       "ticktick"
       "squirrel-app"
