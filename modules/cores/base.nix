@@ -12,6 +12,7 @@
     home.packages = with pkgs; [
     # base
     git 
+    git-lfs
     tmux
 
     # crypt
