@@ -441,6 +441,9 @@ save_all_to_nix() {
     file_content+="\n}"
     
     printf '%b' "$file_content" > "$SECRETS_FILE"
+    local TARGET_DIR="$HOME/.config/dotfiles"
+    mkdir -p "$TARGET_DIR"
+    ln -sf "$SECRETS_FILE" "$TARGET_DIR/secrets.nix"
     ui_info "Secrets saved."
 }
 
