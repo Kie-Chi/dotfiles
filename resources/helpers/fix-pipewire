@@ -1,0 +1,15 @@
+#!/bin/bash
+# help fix pipewire
+
+SERVICES=(
+    "pipewire.service"
+    "pipewire-pulse.service"
+    "swayosd.service"
+)
+
+for service in "${SERVICES[@]}"; do
+    if ! systemctl --user is-active --quiet "$service"; then
+        echo "Restarting $service..."
+        systemctl --user restart "$service"
+    fi
+done

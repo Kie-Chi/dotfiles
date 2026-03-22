@@ -180,10 +180,10 @@ in
       "Mod+Shift+Down" { move-window-down; }
       "Mod+W" { toggle-column-tabbed-display; }
 
-      "XF86AudioRaiseVolume" allow-when-locked=true { spawn "${pkgs.swayosd}/bin/swayosd-client" "--output-volume" "raise"; }
-      "XF86AudioLowerVolume" allow-when-locked=true { spawn "${pkgs.swayosd}/bin/swayosd-client" "--output-volume" "lower"; }
-      "XF86AudioMute"        allow-when-locked=true { spawn "${pkgs.swayosd}/bin/swayosd-client" "--output-volume" "mute-toggle"; }
-      "XF86AudioMicMute"     allow-when-locked=true { spawn "${pkgs.swayosd}/bin/swayosd-client" "--input-volume" "mute-toggle"; }
+      "XF86AudioRaiseVolume" allow-when-locked=true { spawn-sh "${config.home.profileDirectory}/bin/fix-pipewire && ${pkgs.swayosd}/bin/swayosd-client --output-volume raise"; }
+      "XF86AudioLowerVolume" allow-when-locked=true { spawn-sh "${config.home.profileDirectory}/bin/fix-pipewire && ${pkgs.swayosd}/bin/swayosd-client --output-volume lower"; }
+      "XF86AudioMute"        allow-when-locked=true { spawn-sh "${config.home.profileDirectory}/bin/fix-pipewire && ${pkgs.swayosd}/bin/swayosd-client --output-volume mute-toggle"; }
+      "XF86AudioMicMute"     allow-when-locked=true { spawn-sh "${config.home.profileDirectory}/bin/fix-pipewire && ${pkgs.swayosd}/bin/swayosd-client --input-volume mute-toggle"; }
     }
 
     output "DP-3" {
