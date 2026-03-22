@@ -19,6 +19,7 @@ in
     git 
     tmux
     systemd
+    go
 
     # crypt
     git-crypt
