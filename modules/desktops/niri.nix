@@ -68,6 +68,7 @@ in
     spawn-at-startup "${pkgs.swaybg}/bin/swaybg" "-m" "fill" "-i" "${wallpaperPath}"
     spawn-at-startup "/usr/bin/dbus-update-activation-environment" "--all"
     spawn-at-startup "/usr/bin/gnome-keyring-daemon" "--start" "--components=secrets"
+    spawn-at-startup "${pkgs.dex}/bin/dex" "-a" "-s" "~/.config/autostart:/etc/xdg/autostart"
     spawn-at-startup "${config.home.profileDirectory}/bin/fcitx5" "-d"
     spawn-at-startup "nemo"
 
