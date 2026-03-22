@@ -39,6 +39,7 @@ in
     todesk
     google-chrome
     wpsoffice-cn
+    remmina
 
     # patches
     libcanberra-gtk3
