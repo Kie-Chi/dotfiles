@@ -46,6 +46,12 @@ in
     mesa
   ];
 
+  xresources.properties = {
+    # 144 (1.5倍), 168 (1.75倍), 192 (2倍)
+    "Xft.dpi" = 144; 
+  };
+  xsession.enable = true;
+
   xdg.autostart.enable = true;
   xdg.desktopEntries = {
     wechat = {
