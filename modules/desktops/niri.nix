@@ -70,6 +70,7 @@ in
     spawn-at-startup "/usr/bin/gnome-keyring-daemon" "--start" "--components=secrets"
     spawn-at-startup "${pkgs.dex}/bin/dex" "-a" "-s" "~/.config/autostart:/etc/xdg/autostart"
     spawn-at-startup "${config.home.profileDirectory}/bin/fcitx5" "-d"
+    spawn-at-startup "sh" "-c" "/usr/bin/xrdb -merge ~/.Xresources"
     spawn-at-startup "nemo"
 
     workspace "desktop"

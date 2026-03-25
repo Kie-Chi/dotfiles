@@ -1,7 +1,10 @@
 { pkgs, config, sys, ... }:
 
 let
-
+  xresourceDesktop = pkgs.runCommand "xresource-desktop" {} ''
+    mkdir -p $out/share/applications
+    cp ${../../files/desktop/xresource.desktop} $out/share/applications/xresource.desktop
+  '';
 in
 {
   home.packages = with pkgs; [
@@ -52,7 +55,24 @@ in
   };
   xsession.enable = true;
 
+  systemd.user.services.xresources-wayland = {
+    Unit = {
+      Description = "Load Xresources for XWayland";
+      PartOf = [ "graphical-session.target" ];
+    };
+    Install = {
+      WantedBy = [ "graphical-session.target" ];
+    };
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/usr/bin/xrdb -merge %h/.Xresources";
+    };
+  };
+
   xdg.autostart.enable = true;
+  xdg.autostart.entries = [
+    xresourceDesktop
+  ];
   xdg.desktopEntries = {
     wechat = {
       name = "WeChat";
