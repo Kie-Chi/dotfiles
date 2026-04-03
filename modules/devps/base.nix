@@ -8,6 +8,14 @@
     mamba-cpp
 
     # virtualenv
+
+
+    # build or pkg manager
+    go
+    uv
+    maven
+    javaPackages.compiler.openjdk21
+    nodejs_22
   ];
 
   programs.zsh = {
