@@ -1,0 +1,322 @@
+#!/bin/bash
+# Niri screen control - modify output resolution
+
+set -e
+
+handle_sigint() {
+    echo -e "\n${RED}Operation cancelled by user.${NC}" >&2
+    exit 130
+}
+
+trap 'handle_sigint' SIGINT
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+command_exists() { command -v "$1" >/dev/null 2>&1; }
+
+ui_header() {
+    local title="$1"
+    if command_exists gum; then
+        echo ""
+        gum style --foreground 212 --border-foreground 212 --border double --align center --width 50 "$title"
+    else
+        echo -e "\n${CYAN}=== $title ===${NC}"
+    fi
+}
+
+ui_info() {
+    if command_exists gum; then
+        gum style --foreground 39 "$1"
+    else
+        echo -e "${CYAN}$1${NC}"
+    fi
+}
+
+ui_success() {
+    if command_exists gum; then
+        gum style --foreground 82 "$1"
+    else
+        echo -e "${GREEN}$1${NC}"
+    fi
+}
+
+ui_error() {
+    local msg="$1"
+    if command_exists gum; then
+        gum style --foreground 196 --bold "✖ $msg"
+    else
+        echo -e "${RED}[ERROR] ${msg}${NC}"
+    fi
+}
+
+ui_choose() {
+    local prompt="$1"
+    local -a choices=("${@:2}")
+    local val=""
+    if command_exists gum; then
+        val=$(gum choose --header "$prompt" "${choices[@]}")
+        local gum_exit_status=$?
+        if [ "$gum_exit_status" -ne 0 ]; then
+            exit "$gum_exit_status"
+        fi
+    else
+        echo -e "${GREEN}${prompt}${NC}"
+        local i=1
+        for c in "${choices[@]}"; do
+            echo "  [$i] $c"
+            i=$((i+1))
+        done
+        read -p "> " user_input < /dev/tty
+        local read_exit_status=$?
+        if [ "$read_exit_status" -ne 0 ]; then
+            exit "$read_exit_status"
+        fi
+        val="${choices[$((user_input-1))]}"
+    fi
+    echo "$val"
+}
+
+ui_input() {
+    local prompt="$1" default="$2"
+    local val=""
+    if command_exists gum; then
+        val=$(gum input --header "$prompt" --placeholder "$default")
+        local gum_exit_status=$?
+        if [ "$gum_exit_status" -ne 0 ]; then
+            exit "$gum_exit_status"
+        fi
+    else
+        read -p "$(echo -e "${GREEN}${prompt}${NC} [default: ${YELLOW}${default}${NC}]: ")" user_input < /dev/tty
+        local read_exit_status=$?
+        if [ "$read_exit_status" -ne 0 ]; then
+            exit "$read_exit_status"
+        fi
+        val="${user_input:-$default}"
+    fi
+    echo "${val:-$default}"
+}
+
+ui_confirm() {
+    local prompt="$1"
+    if command_exists gum; then
+        gum confirm "$prompt"
+        local gum_exit_status=$?
+        if [ "$gum_exit_status" -eq 130 ]; then
+            exit "$gum_exit_status"
+        fi
+        return "$gum_exit_status"
+    else
+        read -p "$(echo -e "${YELLOW}${prompt} (y/N): ${NC}")" choice < /dev/tty
+        local read_exit_status=$?
+        if [ "$read_exit_status" -ne 0 ]; then
+            exit "$read_exit_status"
+        fi
+        [[ "$choice" =~ ^[Yy]$ ]]
+        return "$?"
+    fi
+}
+
+# Get DOTFILES_DIR
+if [ -z "$DOTFILES_DIR" ]; then
+    ui_error "DOTFILES_DIR environment variable is not set"
+    exit 1
+fi
+
+NIRI_FILE="$DOTFILES_DIR/modules/desktops/niri.nix"
+BACKUP_FILE="$DOTFILES_DIR/modules/desktops/niri.nix.back.scrctl"
+
+if [ ! -f "$NIRI_FILE" ]; then
+    ui_error "niri.nix not found at $NIRI_FILE"
+    exit 1
+fi
+
+# Extract output names from niri.nix
+parse_outputs() {
+    grep 'output "' "$NIRI_FILE" | sed -n 's/.*output "\([^"]*\)".*/\1/p'
+}
+
+# Get current mode for an output (returns empty if default)
+get_current_mode() {
+    local output_name="$1"
+    local in_block=0
+    local current_mode=""
+
+    while IFS= read -r line; do
+        if [[ "$line" == *'output "'"$output_name"'"'* ]]; then
+            in_block=1
+            continue
+        fi
+
+        if [ $in_block -eq 1 ]; then
+            if [[ "$line" == *'output "'* ]]; then
+                break
+            fi
+            if [[ "$line" == *'mode custom'* ]]; then
+                current_mode=$(echo "$line" | sed -n 's/.*"\([^"]*\)".*/\1/p')
+                break
+            fi
+            if [[ "$line" == *'}'* ]]; then
+                break
+            fi
+        fi
+    done < "$NIRI_FILE"
+
+    echo "$current_mode"
+}
+
+# Check if output has mode line
+has_mode_line() {
+    local output_name="$1"
+    local in_block=0
+
+    while IFS= read -r line; do
+        if [[ "$line" == *'output "'"$output_name"'"'* ]]; then
+            in_block=1
+            continue
+        fi
+
+        if [ $in_block -eq 1 ]; then
+            if [[ "$line" == *'output "'* ]] || [[ "$line" == *'}'* ]]; then
+                break
+            fi
+            if [[ "$line" == *'mode custom'* ]]; then
+                return 0
+            fi
+        fi
+    done < "$NIRI_FILE"
+
+    return 1
+}
+
+# Main script
+ui_header "Niri Screen Control"
+
+# Get all outputs
+mapfile -t outputs < <(parse_outputs)
+
+if [ ${#outputs[@]} -eq 0 ]; then
+    ui_error "No outputs found in niri.nix"
+    exit 1
+fi
+
+# Build choices array with current status
+output_choices=()
+for output in "${outputs[@]}"; do
+    mode=$(get_current_mode "$output")
+    if [ -z "$mode" ]; then
+        output_choices+=("$output (default)")
+    else
+        output_choices+=("$output ($mode)")
+    fi
+done
+
+ui_info "Select output to configure:"
+selected=$(ui_choose "Output:" "${output_choices[@]}")
+
+# Extract output name from selection
+selected_output="${selected%% (*}"
+
+current_mode=$(get_current_mode "$selected_output")
+
+echo ""
+if [ -z "$current_mode" ]; then
+    ui_info "Current: default resolution"
+else
+    ui_info "Current: $current_mode"
+fi
+
+# Build resolution choices
+res_choices=("default" "1920x1080@60" "2560x1440@60" "3200x2080@60" "3840x2160@60" "custom")
+
+ui_info "Select resolution:"
+new_res=$(ui_choose "Resolution:" "${res_choices[@]}")
+
+if [ "$new_res" = "custom" ]; then
+    new_res=$(ui_input "Enter custom resolution" "$current_mode")
+fi
+
+if [ -z "$new_res" ]; then
+    ui_error "No resolution provided"
+    exit 1
+fi
+
+# Backup current file
+cp "$NIRI_FILE" "$BACKUP_FILE"
+ui_success "Backup saved to niri.nix.back.scrctl"
+
+# Modify the file
+temp_file=$(mktemp)
+
+if [ "$new_res" = "default" ]; then
+    # Remove mode line within this output block
+    in_block=0
+    while IFS= read -r line; do
+        if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+            in_block=1
+        fi
+
+        if [ $in_block -eq 1 ] && [[ "$line" == *'output "'* ]] && [[ "$line" != *'output "'"$selected_output"'"'* ]]; then
+            in_block=0
+        fi
+
+        if [ $in_block -eq 1 ] && [[ "$line" == *'mode custom'* ]]; then
+            continue
+        fi
+
+        echo "$line"
+
+        if [ $in_block -eq 1 ] && [[ "$line" == *'}'* ]]; then
+            in_block=0
+        fi
+    done < "$NIRI_FILE" > "$temp_file"
+    ui_success "Removed custom resolution"
+else
+    if has_mode_line "$selected_output"; then
+        # Replace existing mode
+        in_block=0
+        while IFS= read -r line; do
+            if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+                in_block=1
+            fi
+
+            if [ $in_block -eq 1 ] && [[ "$line" == *'output "'* ]] && [[ "$line" != *'output "'"$selected_output"'"'* ]]; then
+                in_block=0
+            fi
+
+            if [ $in_block -eq 1 ] && [[ "$line" == *'mode custom'* ]]; then
+                echo "    mode custom=true \"$new_res\""
+                in_block=0
+                continue
+            fi
+
+            echo "$line"
+
+            if [ $in_block -eq 1 ] && [[ "$line" == *'}'* ]]; then
+                in_block=0
+            fi
+        done < "$NIRI_FILE" > "$temp_file"
+    else
+        # Add mode line
+        while IFS= read -r line; do
+            echo "$line"
+            if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+                echo "    mode custom=true \"$new_res\""
+            fi
+        done < "$NIRI_FILE" > "$temp_file"
+    fi
+    ui_success "Set resolution to $new_res"
+fi
+
+mv "$temp_file" "$NIRI_FILE"
+
+echo ""
+if ui_confirm "Run 'dtf a' to rebuild?"; then
+    ui_info "Running dtf a..."
+    dtf a
+fi
+
+ui_header "Done"
