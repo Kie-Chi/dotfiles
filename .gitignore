@@ -1,4 +1,5 @@
 *.back
+*.back*
 *.env
 *.txt
 secrets.*
