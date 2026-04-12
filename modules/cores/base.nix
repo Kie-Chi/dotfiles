@@ -26,7 +26,8 @@ in
 
     # network
     curl 
-    wget 
+    wget
+    wireshark
 
     # system
     btop 
