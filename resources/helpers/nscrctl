@@ -1,5 +1,5 @@
 #!/bin/bash
-# Niri screen control - modify output resolution
+# Niri screen control - modify output resolution and scale
 
 set -e
 
@@ -54,11 +54,15 @@ ui_error() {
 }
 
 ui_choose() {
-    local prompt="$1"
-    local -a choices=("${@:2}")
+    local prompt="$1" selected="$2"
+    local -a choices=("${@:3}")
     local val=""
     if command_exists gum; then
-        val=$(gum choose --header "$prompt" "${choices[@]}")
+        if [ -n "$selected" ]; then
+            val=$(gum choose --header "$prompt" --selected "$selected" "${choices[@]}")
+        else
+            val=$(gum choose --header "$prompt" "${choices[@]}")
+        fi
         local gum_exit_status=$?
         if [ "$gum_exit_status" -ne 0 ]; then
             exit "$gum_exit_status"
@@ -66,14 +70,21 @@ ui_choose() {
     else
         echo -e "${GREEN}${prompt}${NC}"
         local i=1
+        local default_idx=1
         for c in "${choices[@]}"; do
+            if [ "$c" = "$selected" ]; then
+                default_idx=$i
+            fi
             echo "  [$i] $c"
             i=$((i+1))
         done
-        read -p "> " user_input < /dev/tty
+        read -p "> [default: $default_idx] " user_input < /dev/tty
         local read_exit_status=$?
         if [ "$read_exit_status" -ne 0 ]; then
             exit "$read_exit_status"
+        fi
+        if [ -z "$user_input" ]; then
+            user_input=$default_idx
         fi
         val="${choices[$((user_input-1))]}"
     fi
@@ -168,6 +179,35 @@ get_current_mode() {
     echo "$current_mode"
 }
 
+# Get current scale for an output
+get_current_scale() {
+    local output_name="$1"
+    local in_block=0
+    local current_scale=""
+
+    while IFS= read -r line; do
+        if [[ "$line" == *'output "'"$output_name"'"'* ]]; then
+            in_block=1
+            continue
+        fi
+
+        if [ $in_block -eq 1 ]; then
+            if [[ "$line" == *'output "'* ]]; then
+                break
+            fi
+            if [[ "$line" =~ ^[[:space:]]*scale[[:space:]] ]]; then
+                current_scale=$(echo "$line" | sed -n 's/.*scale[[:space:]]*\([^[:space:]]*\).*/\1/p')
+                break
+            fi
+            if [[ "$line" == *'}'* ]]; then
+                break
+            fi
+        fi
+    done < "$NIRI_FILE"
+
+    echo "$current_scale"
+}
+
 # Check if output has mode line
 has_mode_line() {
     local output_name="$1"
@@ -192,131 +232,320 @@ has_mode_line() {
     return 1
 }
 
-# Main script
-ui_header "Niri Screen Control"
+# Check if output has scale line
+has_scale_line() {
+    local output_name="$1"
+    local in_block=0
 
-# Get all outputs
-mapfile -t outputs < <(parse_outputs)
-
-if [ ${#outputs[@]} -eq 0 ]; then
-    ui_error "No outputs found in niri.nix"
-    exit 1
-fi
-
-# Build choices array with current status
-output_choices=()
-for output in "${outputs[@]}"; do
-    mode=$(get_current_mode "$output")
-    if [ -z "$mode" ]; then
-        output_choices+=("$output (default)")
-    else
-        output_choices+=("$output ($mode)")
-    fi
-done
-
-ui_info "Select output to configure:"
-selected=$(ui_choose "Output:" "${output_choices[@]}")
-
-# Extract output name from selection
-selected_output="${selected%% (*}"
-
-current_mode=$(get_current_mode "$selected_output")
-
-echo ""
-if [ -z "$current_mode" ]; then
-    ui_info "Current: default resolution"
-else
-    ui_info "Current: $current_mode"
-fi
-
-# Build resolution choices
-res_choices=("default" "1920x1080@60" "2560x1440@60" "3200x2080@60" "3840x2160@60" "custom")
-
-ui_info "Select resolution:"
-new_res=$(ui_choose "Resolution:" "${res_choices[@]}")
-
-if [ "$new_res" = "custom" ]; then
-    new_res=$(ui_input "Enter custom resolution" "$current_mode")
-fi
-
-if [ -z "$new_res" ]; then
-    ui_error "No resolution provided"
-    exit 1
-fi
-
-# Backup current file
-cp "$NIRI_FILE" "$BACKUP_FILE"
-ui_success "Backup saved to niri.nix.back.scrctl"
-
-# Modify the file
-temp_file=$(mktemp)
-
-if [ "$new_res" = "default" ]; then
-    # Remove mode line within this output block
-    in_block=0
     while IFS= read -r line; do
-        if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+        if [[ "$line" == *'output "'"$output_name"'"'* ]]; then
             in_block=1
-        fi
-
-        if [ $in_block -eq 1 ] && [[ "$line" == *'output "'* ]] && [[ "$line" != *'output "'"$selected_output"'"'* ]]; then
-            in_block=0
-        fi
-
-        if [ $in_block -eq 1 ] && [[ "$line" == *'mode custom'* ]]; then
             continue
         fi
 
-        echo "$line"
-
-        if [ $in_block -eq 1 ] && [[ "$line" == *'}'* ]]; then
-            in_block=0
+        if [ $in_block -eq 1 ]; then
+            if [[ "$line" == *'output "'* ]] || [[ "$line" == *'}'* ]]; then
+                break
+            fi
+            if [[ "$line" =~ ^[[:space:]]*scale[[:space:]] ]]; then
+                return 0
+            fi
         fi
-    done < "$NIRI_FILE" > "$temp_file"
-    ui_success "Removed custom resolution"
-else
-    if has_mode_line "$selected_output"; then
-        # Replace existing mode
-        in_block=0
-        while IFS= read -r line; do
-            if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
-                in_block=1
-            fi
+    done < "$NIRI_FILE"
 
-            if [ $in_block -eq 1 ] && [[ "$line" == *'output "'* ]] && [[ "$line" != *'output "'"$selected_output"'"'* ]]; then
-                in_block=0
-            fi
+    return 1
+}
 
-            if [ $in_block -eq 1 ] && [[ "$line" == *'mode custom'* ]]; then
-                echo "    mode custom=true \"$new_res\""
-                in_block=0
-                continue
-            fi
-
-            echo "$line"
-
-            if [ $in_block -eq 1 ] && [[ "$line" == *'}'* ]]; then
-                in_block=0
-            fi
-        done < "$NIRI_FILE" > "$temp_file"
-    else
-        # Add mode line
-        while IFS= read -r line; do
-            echo "$line"
-            if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
-                echo "    mode custom=true \"$new_res\""
-            fi
-        done < "$NIRI_FILE" > "$temp_file"
+# Restore from backup
+do_restore() {
+    if [ ! -f "$BACKUP_FILE" ]; then
+        ui_error "No backup file found at $BACKUP_FILE"
+        exit 1
     fi
-    ui_success "Set resolution to $new_res"
+
+    cp "$BACKUP_FILE" "$NIRI_FILE"
+    rm -f "$BACKUP_FILE"
+    ui_success "Restored from backup and deleted backup file"
+}
+
+# Modify output settings
+do_modify() {
+    # Get all outputs
+    mapfile -t outputs < <(parse_outputs)
+
+    if [ ${#outputs[@]} -eq 0 ]; then
+        ui_error "No outputs found in niri.nix"
+        exit 1
+    fi
+
+    # Build choices array with current status
+    output_choices=()
+    for output in "${outputs[@]}"; do
+        mode=$(get_current_mode "$output")
+        scale=$(get_current_scale "$output")
+        local status=""
+        if [ -z "$mode" ]; then
+            status="default"
+        else
+            status="$mode"
+        fi
+        if [ -n "$scale" ]; then
+            status="$status, scale=$scale"
+        fi
+        output_choices+=("$output ($status)")
+    done
+
+    ui_info "Select output to configure:"
+    selected=$(ui_choose "Output:" "" "${output_choices[@]}")
+
+    # Extract output name from selection
+    selected_output="${selected%% (*}"
+
+    current_mode=$(get_current_mode "$selected_output")
+    current_scale=$(get_current_scale "$selected_output")
+
+    echo ""
+    ui_info "Configuring: $selected_output"
+    echo ""
+
+    # Build resolution choices with deduplication
+    res_defaults=("default" "1920x1080@60" "2560x1440@60" "3200x2080@60" "3840x2160@60")
+    res_choices=()
+    for r in "${res_defaults[@]}"; do
+        res_choices+=("$r")
+    done
+    # Add current mode if not empty and not in defaults
+    if [ -n "$current_mode" ]; then
+        local found=0
+        for r in "${res_defaults[@]}"; do
+            if [ "$r" = "$current_mode" ]; then
+                found=1
+                break
+            fi
+        done
+        if [ $found -eq 0 ]; then
+            res_choices+=("$current_mode")
+        fi
+    fi
+    res_choices+=("custom")
+
+    # Determine current resolution display value
+    current_res_display="${current_mode:-default}"
+
+    ui_info "Select resolution:"
+    new_res=$(ui_choose "Resolution:" "$current_res_display" "${res_choices[@]}")
+
+    if [ "$new_res" = "custom" ]; then
+        new_res=$(ui_input "Enter custom resolution" "$current_mode")
+    fi
+
+    if [ -z "$new_res" ]; then
+        ui_error "No resolution provided"
+        exit 1
+    fi
+
+    # Build scale choices with deduplication
+    scale_defaults=("1" "1.25" "1.5" "2" "2.5")
+    scale_choices=()
+    for s in "${scale_defaults[@]}"; do
+        scale_choices+=("$s")
+    done
+    # Add current scale if not empty and not in defaults
+    if [ -n "$current_scale" ]; then
+        local found=0
+        for s in "${scale_defaults[@]}"; do
+            if [ "$s" = "$current_scale" ]; then
+                found=1
+                break
+            fi
+        done
+        if [ $found -eq 0 ]; then
+            scale_choices+=("$current_scale")
+        fi
+    fi
+    scale_choices+=("custom")
+
+    # Determine current scale display value (default to 1 if empty)
+    current_scale_display="${current_scale:-1}"
+
+    ui_info "Select scale:"
+    new_scale=$(ui_choose "Scale:" "$current_scale_display" "${scale_choices[@]}")
+
+    if [ "$new_scale" = "custom" ]; then
+        new_scale=$(ui_input "Enter custom scale" "$current_scale")
+    fi
+
+    if [ -z "$new_scale" ]; then
+        ui_error "No scale provided"
+        exit 1
+    fi
+
+    # Backup current file
+    cp "$NIRI_FILE" "$BACKUP_FILE"
+    ui_success "Backup saved to niri.nix.back.scrctl"
+
+    # Modify the file
+    temp_file=$(mktemp)
+
+    # Process resolution change
+    if [ -n "$new_res" ]; then
+        if [ "$new_res" = "default" ]; then
+            # Remove mode line within this output block
+            in_block=0
+            while IFS= read -r line; do
+                if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+                    in_block=1
+                fi
+
+                if [ $in_block -eq 1 ] && [[ "$line" == *'output "'* ]] && [[ "$line" != *'output "'"$selected_output"'"'* ]]; then
+                    in_block=0
+                fi
+
+                if [ $in_block -eq 1 ] && [[ "$line" == *'mode custom'* ]]; then
+                    continue
+                fi
+
+                echo "$line"
+
+                if [ $in_block -eq 1 ] && [[ "$line" == *'}'* ]]; then
+                    in_block=0
+                fi
+            done < "$NIRI_FILE" > "$temp_file"
+            ui_success "Removed custom resolution"
+        else
+            if has_mode_line "$selected_output"; then
+                # Replace existing mode
+                in_block=0
+                while IFS= read -r line; do
+                    if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+                        in_block=1
+                    fi
+
+                    if [ $in_block -eq 1 ] && [[ "$line" == *'output "'* ]] && [[ "$line" != *'output "'"$selected_output"'"'* ]]; then
+                        in_block=0
+                    fi
+
+                    if [ $in_block -eq 1 ] && [[ "$line" == *'mode custom'* ]]; then
+                        echo "    mode custom=true \"$new_res\""
+                        in_block=0
+                        continue
+                    fi
+
+                    echo "$line"
+
+                    if [ $in_block -eq 1 ] && [[ "$line" == *'}'* ]]; then
+                        in_block=0
+                    fi
+                done < "$NIRI_FILE" > "$temp_file"
+            else
+                # Add mode line
+                while IFS= read -r line; do
+                    echo "$line"
+                    if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+                        echo "    mode custom=true \"$new_res\""
+                    fi
+                done < "$NIRI_FILE" > "$temp_file"
+            fi
+            ui_success "Set resolution to $new_res"
+        fi
+
+        # Use temp file as source for scale modification
+        mv "$temp_file" "$NIRI_FILE"
+        temp_file=$(mktemp)
+    fi
+
+    # Process scale change
+    if [ -n "$new_scale" ]; then
+        if has_scale_line "$selected_output"; then
+            # Replace existing scale
+            in_block=0
+            while IFS= read -r line; do
+                if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+                    in_block=1
+                fi
+
+                if [ $in_block -eq 1 ] && [[ "$line" == *'output "'* ]] && [[ "$line" != *'output "'"$selected_output"'"'* ]]; then
+                    in_block=0
+                fi
+
+                if [ $in_block -eq 1 ] && [[ "$line" =~ ^[[:space:]]*scale[[:space:]] ]]; then
+                    echo "    scale $new_scale"
+                    in_block=0
+                    continue
+                fi
+
+                echo "$line"
+
+                if [ $in_block -eq 1 ] && [[ "$line" == *'}'* ]]; then
+                    in_block=0
+                fi
+            done < "$NIRI_FILE" > "$temp_file"
+        else
+            # Add scale line after output declaration
+            in_block=0
+            while IFS= read -r line; do
+                echo "$line"
+                if [[ "$line" == *'output "'"$selected_output"'"'* ]]; then
+                    # Check if there's already a mode line, add scale after it
+                    if has_mode_line "$selected_output"; then
+                        # Scale will be added after mode
+                        :
+                    else
+                        echo "    scale $new_scale"
+                    fi
+                fi
+                # If we just wrote mode line, add scale after it
+                if [ -n "$new_res" ] && [[ "$line" == *'mode custom'* ]] && [[ "$line" == *"$new_res"* ]]; then
+                    echo "    scale $new_scale"
+                fi
+            done < "$NIRI_FILE" > "$temp_file"
+        fi
+        ui_success "Set scale to $new_scale"
+
+        mv "$temp_file" "$NIRI_FILE"
+    fi
+
+    echo ""
+    if ui_confirm "Run 'dtf a' to rebuild?"; then
+        ui_info "Running dtf a..."
+        dtf a
+    fi
+}
+
+# Main script
+ui_header "Niri Screen Control"
+
+# Main menu
+main_choices=("modify" "restore" "exit")
+
+# Default selection based on backup existence
+if [ -f "$BACKUP_FILE" ]; then
+    ui_info "Backup file exists: niri.nix.back.scrctl"
+    default_action="restore"
+else
+    default_action="modify"
 fi
 
-mv "$temp_file" "$NIRI_FILE"
+action=$(ui_choose "Action:" "$default_action" "${main_choices[@]}")
 
-echo ""
-if ui_confirm "Run 'dtf a' to rebuild?"; then
-    ui_info "Running dtf a..."
-    dtf a
-fi
+case "$action" in
+    modify)
+        do_modify
+        ;;
+    restore)
+        if ui_confirm "Restore from backup and delete backup file?"; then
+            do_restore
+            echo ""
+            if ui_confirm "Run 'dtf a' to rebuild?"; then
+                ui_info "Running dtf a..."
+                dtf a
+            fi
+        fi
+        ;;
+    exit)
+        ui_info "Exit"
+        exit 0
+        ;;
+esac
 
 ui_header "Done"
