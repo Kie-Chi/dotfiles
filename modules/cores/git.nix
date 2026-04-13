@@ -26,6 +26,10 @@
       color = {
         ui = true;
       };
+
+      core = {
+        editor = "vim";
+      };
       
     };
   };
