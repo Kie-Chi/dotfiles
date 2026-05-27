@@ -11,6 +11,7 @@ let
   systempkgs = [
     "cifs-utils"
     "openssh-server"
+    "linux-headers-$(uname -r)"
   ] ++ lib.optionals isDesktop [
   ];
   pkgStrings = lib.concatMapStringsSep " " (pkg: "\"${pkg}\"") systempkgs;
@@ -21,6 +22,7 @@ in
     pre = ''
       RAW_PKGS=(${pkgStrings})
       MISSING_PKGS=""
+      CURRENT_KERNEL="$(uname -r)"
       log_debug "configured platform.pkgManager='${sys.platform.pkgManager}'"
     '';
     script = ''
@@ -28,9 +30,20 @@ in
       log_debug "detected package manager: $PKG_MANAGER"
       log_debug "total managed packages: ''${#RAW_PKGS[@]}"
 
+      resolve_pkg_name() {
+        case "$1" in
+          'linux-headers-$(uname -r)')
+            echo "linux-headers-$CURRENT_KERNEL"
+            ;;
+          *)
+            echo "$1"
+            ;;
+        esac
+      }
+
       if [ ''${#RAW_PKGS[@]} -gt 0 ]; then
         for item in "''${RAW_PKGS[@]}"; do
-          PKG="$item"
+          PKG="$(resolve_pkg_name "$item")"
 
           if pkg_installed "$PKG"; then
             log_info "'$PKG' already installed, skip."
