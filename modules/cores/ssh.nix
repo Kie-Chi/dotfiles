@@ -15,6 +15,12 @@
             user = "git";
         };
 
+        "bitaction" = {
+            hostname = "115.190.182.138";
+            port = 22;
+            user = "root";
+            identityFile = "${config.home.homeDirectory}/.ssh/bitaction.pem";
+        };
         "dell-1" = {
             hostname = "202.112.47.189";
             port = 22;
