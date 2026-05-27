@@ -36,8 +36,16 @@ in
       # ANTHROPIC
       ANTHROPIC_BASE_URL = "https://dashscope.aliyuncs.com/apps/anthropic";
       ANTHROPIC_API_KEY = secrets.agent.apikey;
-      ANTHROPIC_MODEL = "qwen3.5-plus";
+      ANTHROPIC_MODEL = "glm-5.1";
+
+      # NPM
+      npm_config_prefix = "$HOME/.npm-global";
+      npm_config_cache = "$HOME/.cache/npm";
+      npm_config_registry = "https://registry.npmmirror.com";
     };
+    home.sessionPath = [
+      "$npm_config_prefix/bin"
+    ];
     _module.args.isDesktop = isDesktop;
     programs.home-manager.enable = true;
   };
