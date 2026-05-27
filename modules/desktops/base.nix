@@ -47,6 +47,9 @@ in
     # patches
     libcanberra-gtk3
     mesa
+
+    # agent IDE
+    code-cursor
   ];
 
   xresources.properties = {
