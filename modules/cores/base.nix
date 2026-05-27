@@ -28,6 +28,7 @@ in
     curl 
     wget
     wireshark
+    rclone
 
     # system
     btop 
@@ -46,6 +47,7 @@ in
 
     # ai
     claude-code
+    codex
   ];
 
   home.file.".config/nixpkgs/config.nix".text = ''
