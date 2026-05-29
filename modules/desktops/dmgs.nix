@@ -42,8 +42,8 @@ let
   okular = makeMacDmgApp rec {
     pname = "okular";
     version = "26.04";
-    url = "https://cdn.kde.org/ci-builds/graphics/okular/release-${version}/macos-arm64/okular-release_${version}-7256-macos-clang-arm64.dmg";
-    hash = "sha256-KwKNsLr0rAl+ZqHtObCepAk7BKChsDzcv9o9nI3dCL4=";
+    url = "https://cdn.kde.org/ci-builds/graphics/okular/release-${version}/macos-arm64/okular-release_${version}-7413-macos-clang-arm64.dmg";
+    hash = "sha256-iUBL/SW3j2AxHd4fPpq3C+o1Dgp90bGJpM0X4znSNi8=";
     description = "A PDF viewer for KDE";
     homepage = "https://okular.kde.org/";
   };
