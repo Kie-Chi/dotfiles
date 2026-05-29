@@ -14,23 +14,28 @@
     git 
     git-lfs
     tmux
+    git-filter-repo
 
     # crypt
     git-crypt
     gnupg
+    
 
     # network
     curl 
     wget 
+    wireshark
 
     # system
     btop 
     htop
-    
+    ncdu
+
     # tools
     unzip 
     jq 
-    
+    javaPackages.compiler.openjdk21
+
     # opt 
     fzf 
     ripgrep 

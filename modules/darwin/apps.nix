@@ -25,6 +25,12 @@
     ];
 
     casks = [
+      "clash-verge-rev"
+      "codex"
+      "cyberduck"
+      "betterdisplay"
+      "skim"
+      "microsoft-remote-desktop"
       "wpsoffice-cn"
       "karabiner-elements"
       "ticktick"
