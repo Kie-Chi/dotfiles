@@ -3,7 +3,7 @@
 
 let
   wallpaperPath = ../../resources/images/background.jpg;
-  niriScratchpadPkg = niri-scratchpad-flake.packages.${pkgs.system}.default;
+  niriScratchpadPkg = niri-scratchpad-flake.packages.${pkgs.stdenv.hostPlatform.system}.default;
   niri-wrapper = pkgs.writeShellScriptBin "start-niri-desktop" ''
     export XDG_SESSION_TYPE=wayland
     export XDG_CURRENT_DESKTOP=niri
@@ -204,6 +204,7 @@ in
       name = "Yaru-Dark";
       package = pkgs.yaru-theme;
     };
+    gtk4.theme = config.gtk.theme;
     iconTheme = {
       name = "Yaru";
       package = pkgs.yaru-theme;
