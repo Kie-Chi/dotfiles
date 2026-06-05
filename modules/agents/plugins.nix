@@ -9,7 +9,7 @@ let
   # tool = "python" → uv tool install     (check: .local/share/uv/tools/<name>)
   agentPlugins = [
     { name = "@colbymchenry/codegraph"; version = "0.9.7"; tool = "node"; }
-    { name = "headroom-ai"; tool = "python"; }
+    { name = "headroom-ai"; tool = "python"; withs = [ "fastapi" ]; }
   ];
 
   installScript = p:
@@ -25,10 +25,11 @@ let
     else if p.tool == "python" then
       let
         pkgSpec = if p ? extras then "${p.name}[${p.extras}]" else p.name;
+        withFlags = lib.concatStringsSep " " (map (w: "--with ${w}") (p.withs or []));
         checkPath = "$HOME/.local/share/uv/tools/${p.name}";
       in ''
         if ! [ -d "${checkPath}" ]; then
-          ${pkgs.uv}/bin/uv tool install ${pkgSpec}
+          ${pkgs.uv}/bin/uv tool install ${pkgSpec} ${withFlags}
         fi
       ''
     else throw "Unknown agent plugin tool: ${p.tool}";
