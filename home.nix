@@ -32,6 +32,9 @@ in
       GLFW_IM_MODULE = "ibus";
       XDG_DATA_DIRS = "$GSETTINGS_SCHEMAS_PATH:$XDG_DATA_DIRS";
     };
+    home.sessionPath = [
+      "/home/${secrets.home.user}/.local/bin"
+    ];
     _module.args.isDesktop = isDesktop;
     programs.home-manager.enable = true;
   };
