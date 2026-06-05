@@ -35,19 +35,15 @@ in
     htop
     
     # tools
-    unzip 
-    jq 
+    unzip
+    jq
 
-    # opt 
-    fzf 
-    ripgrep 
+    # opt
+    fzf
+    ripgrep
     bat
     tree
     chsrc
-
-    # ai
-    claude-code
-    codex
   ];
 
   home.file.".config/nixpkgs/config.nix".text = ''
