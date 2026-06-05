@@ -15,7 +15,7 @@
     uv
     maven
     javaPackages.compiler.openjdk21
-    nodejs_22
+    nodejs_26
   ];
 
   programs.zsh = {
