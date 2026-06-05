@@ -1,5 +1,5 @@
 # {...}:{}
-{ config, pkgs, lib, secrets, sys, niri-scratchpad-flake, ... }:
+{ config, pkgs, lib, secrets, sys, niri-scratchpad-flake, nixGLDefault, ... }:
 
 let
   wallpaperPath = ../../resources/images/background.jpg;
@@ -18,7 +18,7 @@ let
     fi
     ${pkgs.systemd}/bin/systemctl --user import-environment PATH XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP MOZ_ENABLE_WAYLAND
     ${pkgs.dbus}/bin/dbus-update-activation-environment --systemd --all
-    exec ${pkgs.nixgl.auto.nixGLDefault}/bin/nixGL ${pkgs.niri}/bin/niri > "$HOME/niri.log" 2>&1
+    exec ${nixGLDefault}/bin/nixGL ${pkgs.niri}/bin/niri > "$HOME/niri.log" 2>&1
   '';
   niriDesktop = [
     {

@@ -1,4 +1,4 @@
-{ pkgs, config, sys, ... }:
+{ pkgs, config, sys, nixGLDefault, ... }:
 
 let
   xresourceDesktop = pkgs.runCommand "xresource-desktop" {} ''
@@ -15,7 +15,7 @@ in
     slurp
     grim
     swappy
-    nixgl.auto.nixGLDefault
+    nixGLDefault
     wev
 
     # apps

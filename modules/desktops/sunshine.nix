@@ -1,11 +1,11 @@
-{ pkgs, config, lib, sys, ... }:
+{ pkgs, config, lib, sys, nixGLDefault, ... }:
 
 let
   sunshineAutostartDesktop = pkgs.runCommand "sunshine-autostart-desktop" {} ''
     mkdir -p $out/share/applications
     cp ${../../files/remote/sunshine.desktop} $out/share/applications/sunshine.desktop
   '';
-  sunshineExec = "${pkgs.nixgl.auto.nixGLDefault}/bin/nixGL ${pkgs.sunshine}/bin/sunshine";
+  sunshineExec = "${nixGLDefault}/bin/nixGL ${pkgs.sunshine}/bin/sunshine";
 in
 {
   home.packages = with pkgs; [

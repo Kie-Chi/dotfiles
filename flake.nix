@@ -20,8 +20,12 @@
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
-        overlays = [ nixgl.overlay ];
       };
+      nixGLDefault = (import nixgl {
+        inherit pkgs;
+        enable32bits = pkgs.stdenv.hostPlatform.isx86;
+        enableIntelX86Extensions = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
+      }).auto.nixGLDefault;
       repoSecretsPath = ./secrets.nix;
       homeSecretsPath = (builtins.getEnv "HOME") + "/.config/dotfiles/secrets.nix";
       secrets =
@@ -35,7 +39,7 @@
       homeConfigurations."default" = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         extraSpecialArgs = {
-          inherit secrets niri-scratchpad-flake;
+          inherit secrets niri-scratchpad-flake nixGLDefault;
         };
         modules = [ ./home.nix ];
       };
