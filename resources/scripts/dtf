@@ -151,23 +151,40 @@ case "$1" in
 
         # Auto-detect remote and branch if not specified
         if [ -z "$remote" ]; then
-            # Try to get upstream remote and branch
+            # Priority 1: Use upstream if configured (most accurate)
             upstream_branch=$(git rev-parse --abbrev-ref @{u} 2>/dev/null || echo "")
             if [ -n "$upstream_branch" ]; then
-                # Has upstream configured, use it
-                remote=$(echo "$upstream_branch" | cut -d'/' -f1)
+                remote="${upstream_branch%%/*}"
                 remote_branch="$upstream_branch"
             else
-                # No upstream, try common remotes
-                if git rev-parse --verify origin/"$current_branch" >/dev/null 2>&1; then
+                # Priority 2: Find matching branch in any remote
+                # Prefer 'origin' if it exists, otherwise use first matching remote
+                remote=""
+                remote_branch=""
+
+                # Check origin first (most common case)
+                if git rev-parse --verify "origin/$current_branch" >/dev/null 2>&1; then
                     remote="origin"
                     remote_branch="origin/$current_branch"
-                elif git rev-parse --verify upstream/"$current_branch" >/dev/null 2>&1; then
-                    remote="upstream"
-                    remote_branch="upstream/$current_branch"
                 else
-                    # No remote branch exists, push to origin with same branch name
-                    remote="origin"
+                    # Iterate through all remotes to find matching branch
+                    for r in $(git remote); do
+                        if git rev-parse --verify "$r/$current_branch" >/dev/null 2>&1; then
+                            remote="$r"
+                            remote_branch="$r/$current_branch"
+                            break
+                        fi
+                    done
+                fi
+
+                # Priority 3: No remote branch found, use origin as default
+                if [ -z "$remote" ]; then
+                    # Check if origin exists, otherwise use first remote
+                    if git remote | grep -q "^origin$"; then
+                        remote="origin"
+                    else
+                        remote=$(git remote | head -n1)
+                    fi
                     remote_branch="$current_branch"
                 fi
             fi
