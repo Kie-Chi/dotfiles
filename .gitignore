@@ -1,5 +1,6 @@
 *.back
 *.env
 *.txt
+.tmp
 secrets.*
 result

@@ -6,12 +6,12 @@
 #
 ###################################
 
-{ pkgs, config, secrets, lib, ... }: 
+{ pkgs, config, secrets, lib, ... }:
 
 {
     home.packages = with pkgs; [
     # base
-    git 
+    git
     git-lfs
     tmux
     git-filter-repo
@@ -19,26 +19,25 @@
     # crypt
     git-crypt
     gnupg
-    
+
 
     # network
-    curl 
-    wget 
+    curl
+    wget
     wireshark
 
     # system
-    btop 
+    btop
     htop
     ncdu
 
     # tools
-    unzip 
-    jq 
+    unzip
+    jq
     javaPackages.compiler.openjdk21
 
-    # opt 
-    fzf 
-    ripgrep 
+    # opt
+    ripgrep
     bat
     tree
   ];
@@ -55,7 +54,7 @@
       echo "No password file found at $SECRET_FILE."
       exit 0
     fi
-    SUDO_PWD=$(${pkgs.gnugrep}/bin/grep -w "home\.passwd" "$SECRET_FILE" | sed -n "s/.*home\.passwd[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1)      
+    SUDO_PWD=$(${pkgs.gnugrep}/bin/grep -w "home\.passwd" "$SECRET_FILE" | sed -n "s/.*home\.passwd[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1)
     if [ -z "$SUDO_PWD" ]; then
       echo "Failed to extract password from $SECRET_FILE."
       exit 1
@@ -69,7 +68,7 @@
       if ${pkgs.gnugrep}/bin/grep -qF "$CONTENT" /etc/nix/nix.custom.conf; then
         echo "Content already exists in /etc/nix/nix.custom.conf"
       else
-        echo "$SUDO_PWD" | $HOST_SUDO -S $HOST_SH -c "echo '$CONTENT' >> /etc/nix/nix.custom.conf"        
+        echo "$SUDO_PWD" | $HOST_SUDO -S $HOST_SH -c "echo '$CONTENT' >> /etc/nix/nix.custom.conf"
       fi
     fi
   '';
