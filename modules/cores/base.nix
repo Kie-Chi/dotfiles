@@ -43,6 +43,7 @@ in
     bat
     tree
     chsrc
+    neovim-remote
   ];
 
   home.file.".config/nixpkgs/config.nix".text = ''
