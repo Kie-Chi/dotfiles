@@ -126,12 +126,27 @@ vim.keymap.set('t', '<ESC>', '<C-\\><C-N>')
 vim.keymap.set('n', '<Leader>tt', ':terminal<CR>')
 vim.keymap.set('n', '<Leader>tv', ':vsplit | terminal<CR>')
 vim.keymap.set('n', '<Leader>th', ':split | terminal<CR>')
+
+-- Window switching (Leader + h/j/k/l)
+vim.keymap.set('n', '<Leader>h', '<C-w>h', { desc = 'Window left' })
+vim.keymap.set('n', '<Leader>j', '<C-w>j', { desc = 'Window down' })
+vim.keymap.set('n', '<Leader>k', '<C-w>k', { desc = 'Window up' })
+vim.keymap.set('n', '<Leader>l', '<C-w>l', { desc = 'Window right' })
+
+-- Window moving (Leader + H/J/K/L)
+vim.keymap.set('n', '<Leader>H', '<C-w>H', { desc = 'Move window left' })
+vim.keymap.set('n', '<Leader>J', '<C-w>J', { desc = 'Move window down' })
+vim.keymap.set('n', '<Leader>K', '<C-w>K', { desc = 'Move window up' })
+vim.keymap.set('n', '<Leader>L', '<C-w>L', { desc = 'Move window right' })
 local terminal = vim.api.nvim_create_augroup('terminal', {})
 vim.api.nvim_create_autocmd('TermOpen', {
   pattern = '*',
   group = terminal,
   callback = function ()
     vim.wo.number = false
+    -- Restore normal j/k in terminal buffer (gj/gk doesn't work well in terminal)
+    vim.keymap.set('n', 'j', 'j', { buffer = true })
+    vim.keymap.set('n', 'k', 'k', { buffer = true })
     vim.keymap.set('n', '<C-P>', 'i<C-P><C-\\><C-N>', { buffer = true })
     vim.keymap.set('n', '<C-N>', 'i<C-N><C-\\><C-N>', { buffer = true })
     vim.keymap.set('n', '<CR>',  'i<CR><C-\\><C-N>G', { buffer = true })
