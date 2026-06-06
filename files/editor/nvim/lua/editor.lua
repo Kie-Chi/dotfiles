@@ -90,6 +90,7 @@ vim.keymap.set('v', '>', '>gv')
 vim.keymap.set('n', '<Leader>w', '<Cmd>w<CR>')
 vim.keymap.set('n', '<Leader>q', '<Cmd>q<CR>')
 vim.keymap.set('n', '<Leader>Q', '<Cmd>q!<CR>')
+vim.keymap.set('n', '<Leader>sr', '<Cmd>source $MYVIMRC<CR>', { desc = 'Reload config' })
 
 -- Y behaves like C/D (yank to end of line)
 vim.keymap.set('n', 'Y', 'y$')
@@ -123,6 +124,9 @@ vim.keymap.set('c', 'w!!', 'w !sudo tee >/dev/null %')
 
 -- terminal
 vim.keymap.set('t', '<ESC>', '<C-\\><C-N>')
+vim.keymap.set('n', '<Leader>tt', ':terminal<CR>')
+vim.keymap.set('n', '<Leader>tv', ':vsplit | terminal<CR>')
+vim.keymap.set('n', '<Leader>th', ':split | terminal<CR>')
 local terminal = vim.api.nvim_create_augroup('terminal', {})
 vim.api.nvim_create_autocmd('TermOpen', {
   pattern = '*',
