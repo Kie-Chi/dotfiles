@@ -40,6 +40,7 @@
     ripgrep
     bat
     tree
+    neovim-remote
   ];
 
   home.file.".config/nixpkgs/config.nix".text = ''
