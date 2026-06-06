@@ -88,8 +88,7 @@ vim.keymap.set('v', '>', '>gv')
 
 -- Quick save/close
 vim.keymap.set('n', '<Leader>w', '<Cmd>w<CR>')
-vim.keymap.set('n', '<Leader>q', '<Cmd>q<CR>')
-vim.keymap.set('n', '<Leader>Q', '<Cmd>q!<CR>')
+vim.keymap.set('n', '<Leader>Q', '<Cmd>q!<CR>', { desc = 'Force quit window' })
 vim.keymap.set('n', '<Leader>sr', '<Cmd>source $MYVIMRC<CR>', { desc = 'Reload config' })
 
 -- Y behaves like C/D (yank to end of line)

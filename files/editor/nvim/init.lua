@@ -15,3 +15,12 @@ require("editor")
 
 require("lazy").setup("plugins")
 
+-- Keymaps that need to be set after plugins load (won't get overwritten)
+vim.keymap.set('n', '<Leader>qq', '<Cmd>q<CR>', { desc = 'Quit all' })
+vim.api.nvim_create_autocmd('User', {
+  pattern = 'LazyDone',
+  callback = function()
+    vim.keymap.set('n', '<Leader>q', '<Cmd>q<CR>', { desc = 'Quit window' })
+  end,
+})
+
