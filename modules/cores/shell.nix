@@ -1,4 +1,4 @@
-{ pkgs, lib, config, secrets, isDesktop, ... }:
+{ pkgs, lib, config, secrets, ... }:
 
 {
   programs.zsh = {
@@ -41,7 +41,7 @@
 
     sessionVariables = {
       LANG = "en_US.UTF-8";
-      EDITOR = if isDesktop then "code" else "nvim";
+      EDITOR = "code";
       DOTFILES_DIR = secrets.dotfiles.path;
     };
 
