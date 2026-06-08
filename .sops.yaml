@@ -1,10 +1,11 @@
 keys:
-  # Public age keys - managed by setup.sh
-  # Add new device keys here, then run: sops updatekeys /Users/chi/.dotfiles/secrets/secrets.yaml
-  - &user_chi age1c6w9j93pq9lu2mzfuqgdg52z593aeucavhvezzhaqye7txt9ru2qx0ttt6
+  # Device keys - managed by dtf key commands
+  - &macbook_air age1tc5l2g0mqrznxsh4wctf2a2hhxfg45p7k0gkwkd98gv2rxhsnvwsckmaev
+  - &recovery age1kjr29kl3xkh658x9n436ahvtfj322ufjl9s60tw2csyrutqr9v7sft7cer
 
 creation_rules:
   - path_regex: secrets/secrets\.yaml$
     key_groups:
       - age:
-          - *user_chi
+          - *macbook_air
+          - *recovery
