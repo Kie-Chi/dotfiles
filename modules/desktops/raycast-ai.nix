@@ -1,4 +1,4 @@
-{ pkgs, config, cfg, lib, ... }:
+{ pkgs, config, cfg, lib, sys, ... }:
 
 {
   # --- sops template: raycast AI providers with encrypted keys ---
@@ -56,18 +56,15 @@
     '';
   };
 
-  home.activation.createRaycastAIDirs = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    mkdir -p $HOME/.config/raycast/ai/backups
-    echo "[DEBUG] raycast-providers template path: ${config.sops.templates."raycast-providers".path}"
-    if [ -f "${config.sops.templates."raycast-providers".path}" ]; then
-      echo "[DEBUG] raycast-providers template EXISTS"
-    else
-      echo "[DEBUG] raycast-providers template MISSING!"
-    fi
-  '';
-
-  home.file.".config/raycast/ai/providers.yaml" = {
-    source = config.sops.templates."raycast-providers".path;
-    force = true;
+  home.activation.deployRaycastProviders = sys.task.activation {
+    name = "deployRaycastProviders";
+    pre = ''
+      mkdir -p "$HOME/.config/raycast/ai/backups"
+    '';
+    script = ''
+      TARGET="$HOME/.config/raycast/ai/providers.yaml"
+      ${sys.cmds.mkdir} -p "$(dirname "$TARGET")"
+      esudo ${sys.cmds.install} -m 0644 "${config.sops.templates."raycast-providers".path}" "$TARGET"
+    '';
   };
 }

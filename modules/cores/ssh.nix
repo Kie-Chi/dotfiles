@@ -29,17 +29,17 @@
     };
   };
 
-  home.activation.generateSSHKey = lib.hm.dag.entryAfter ["writeBoundary"] ''
+  home.activation.generateSSHKey = lib.hm.dag.entryAfter ["userBoundary"] ''
+    _LOG_CTX="generateSSHKey"
     ssh_key="$HOME/.ssh/id_ed25519"
     email="${config.programs.git.settings.user.email}"
-    
+
     if [ ! -f "$ssh_key" ]; then
-      echo "Generating SSH Key for $email..."
+      log_info "Generating SSH Key for $email..."
       $DRY_RUN_CMD mkdir -p "$HOME/.ssh"
       $DRY_RUN_CMD chmod 700 "$HOME/.ssh"
       $DRY_RUN_CMD ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -C "$email" -f "$ssh_key" -N ""
-      
-      echo "SSH Key generated at $ssh_key"
+      log_info "SSH Key generated at $ssh_key"
     fi
   '';
 }

@@ -1,10 +1,11 @@
-{ config, pkgs, cfg, lib, ... }:
+{ config, pkgs, cfg, lib, sys, ... }:
 
 {
   imports = [
     ./modules/cores
     ./modules/devps
     ./modules/desktops
+    ./modules/libs
   ];
   config = {
     home.username = cfg.home.user;
@@ -39,21 +40,24 @@
     };
 
     # --- debug: show sops secret paths at activation ---
-    home.activation.debugSopsPaths = lib.hm.dag.entryAfter ["writeBoundary"] ''
-      echo "[DEBUG] sops secret paths:"
-      echo "[DEBUG]   home-passwd: ${config.sops.secrets.home-passwd.path}"
-      echo "[DEBUG]   proxy-url: ${config.sops.secrets.proxy-url.path}"
-      echo "[DEBUG]   llm-dashscope-apikey: ${config.sops.secrets.llm-dashscope-apikey.path}"
-      echo "[DEBUG]   llm-deepseek-apikey: ${config.sops.secrets.llm-deepseek-apikey.path}"
-      echo "[DEBUG]   env-secrets template: ${config.sops.templates."env-secrets".path}"
-      for p in ${config.sops.secrets.home-passwd.path} ${config.sops.secrets.proxy-url.path} ${config.sops.secrets.llm-dashscope-apikey.path} ${config.sops.secrets.llm-deepseek-apikey.path}; do
-        if [ -f "$p" ]; then
-          echo "[DEBUG]   $p EXISTS"
-        else
-          echo "[DEBUG]   $p MISSING!"
-        fi
-      done
-    '';
+    home.activation.debugSopsPaths = sys.task.activation {
+      name = "debugSopsPaths";
+      script = ''
+        log_debug "sops secret paths:"
+        log_debug "  home-passwd: ${config.sops.secrets.home-passwd.path}"
+        log_debug "  proxy-url: ${config.sops.secrets.proxy-url.path}"
+        log_debug "  llm-dashscope-apikey: ${config.sops.secrets.llm-dashscope-apikey.path}"
+        log_debug "  llm-deepseek-apikey: ${config.sops.secrets.llm-deepseek-apikey.path}"
+        log_debug "  env-secrets template: ${config.sops.templates."env-secrets".path}"
+        for p in ${config.sops.secrets.home-passwd.path} ${config.sops.secrets.proxy-url.path} ${config.sops.secrets.llm-dashscope-apikey.path} ${config.sops.secrets.llm-deepseek-apikey.path}; do
+          if [ -f "$p" ]; then
+            log_debug "  $p EXISTS"
+          else
+            log_warn "  $p MISSING!"
+          fi
+        done
+      '';
+    };
 
     # --- source sops env template in shell ---
     programs.zsh.initContent = lib.mkAfter ''

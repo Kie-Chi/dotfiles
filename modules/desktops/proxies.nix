@@ -1,4 +1,4 @@
-{ config, pkgs, cfg, lib, ... }:
+{ config, pkgs, cfg, lib, sys, ... }:
 
 let
   proxyStatus = cfg.proxy.status or "manual";
@@ -29,10 +29,14 @@ in
     '';
   };
 
-  xdg.configFile."mihomo/config.yaml" = lib.mkIf (proxyStatus != "none") {
-    source = config.sops.templates."mihomo-config".path;
-    force = true;
-  };
+  home.activation.deployMihomoConfig = lib.mkIf (proxyStatus != "none") (sys.task.activation {
+    name = "deployMihomoConfig";
+    script = ''
+      TARGET="$HOME/.config/mihomo/config.yaml"
+      ${sys.cmds.mkdir} -p "$(dirname "$TARGET")"
+      esudo ${sys.cmds.install} -m 0644 "${config.sops.templates."mihomo-config".path}" "$TARGET"
+    '';
+  });
 
   xdg.configFile."proxychains/proxychains.conf" = lib.mkIf (proxyStatus != "none") {
     text = ''

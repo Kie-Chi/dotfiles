@@ -1,4 +1,4 @@
-{ pkgs, config, lib, ... }:
+{ pkgs, config, lib, sys, ... }:
 
 let
   rimeIceRepo = pkgs.fetchFromGitHub {
@@ -10,17 +10,20 @@ let
 in
 {
 
-  home.activation.installRimeIce = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    RIME_DIR="$HOME/Library/Rime"    
-    mkdir -p "$RIME_DIR"
-    ${pkgs.rsync}/bin/rsync -av --chmod=u+w "${rimeIceRepo}/" "$RIME_DIR/"
+  home.activation.installRimeIce = sys.task.activation {
+    name = "installRimeIce";
+    script = ''
+      RIME_DIR="$HOME/Library/Rime"
+      mkdir -p "$RIME_DIR"
+      ${pkgs.rsync}/bin/rsync -av --chmod=u+w "${rimeIceRepo}/" "$RIME_DIR/"
 
-    if /usr/bin/pgrep -x "Squirrel" > /dev/null; then
-      echo "Reloading Squirrel..."
-      rm -rf "$RIME_DIR/build"
-      /Library/Input\ Methods/Squirrel.app/Contents/MacOS/Squirrel --reload
-    fi
-  '';
+      if ${sys.cmds.pgrep} -x "Squirrel" > /dev/null; then
+        echo "Reloading Squirrel..."
+        rm -rf "$RIME_DIR/build"
+        /Library/Input\ Methods/Squirrel.app/Contents/MacOS/Squirrel --reload
+      fi
+    '';
+  };
 
   home.file."squirrel-custom" = {
     target = "Library/Rime/squirrel.custom.yaml";
