@@ -4,6 +4,7 @@
 import os
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -22,19 +23,24 @@ from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.widgets import Frame
 from prompt_toolkit import prompt as pt_prompt
 
+from key import (
+    AGE_KEY_DIR, AGE_KEY_FILE, SOPS_YAML, SECRETS_FILE, SECRETS_DIR,
+    run_cmd as key_run_cmd, console as key_console,
+    read_sops_yaml_keys, write_sops_yaml_keys,
+    get_current_device_public_key, get_device_label, set_device_label,
+    run_sops_updatekeys, git_commit_sops_files, key_import,
+)
+
 
 # ==========================================
-# PATHS
+# PATHS (shared with key.py)
 # ==========================================
 
 BASE_DIR = Path(__file__).resolve().parent
 HOME_DIR = Path.home()
 CONFIG_FILE = BASE_DIR / "config.nix"
-SECRETS_DIR = BASE_DIR / "secrets"
-SECRETS_FILE = SECRETS_DIR / "secrets.yaml"
-SOPS_YAML = BASE_DIR / ".sops.yaml"
-AGE_KEY_DIR = HOME_DIR / "Library" / "Application Support" / "sops" / "age"
-AGE_KEY_FILE = AGE_KEY_DIR / "keys.txt"
+
+# SOPS paths imported from key.py: AGE_KEY_DIR, AGE_KEY_FILE, SOPS_YAML, SECRETS_DIR, SECRETS_FILE
 
 console = Console()
 
@@ -121,25 +127,45 @@ ALL_FIELDS = CONFIG_FIELDS + SECRET_FIELDS
 
 
 # ==========================================
-# CRYPTO — age key + sops
+# CRYPTO — age key + sops (delegated to key.py)
 # ==========================================
 
 def run_cmd(cmd: List[str], stdin_data: Optional[str] = None, check: bool = True) -> str:
-    result = subprocess.run(cmd, input=stdin_data, capture_output=True, text=True, check=check)
+    env = os.environ.copy()
+    if AGE_KEY_FILE.exists():
+        env["SOPS_AGE_KEY_FILE"] = str(AGE_KEY_FILE)
+    result = subprocess.run(cmd, input=stdin_data, capture_output=True, text=True, check=check, env=env)
     return result.stdout.strip()
 
 
 def setup_age_key() -> str:
+    """Ensure the current device has an age key. Detects SSH rotation mismatches."""
     AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
 
     if AGE_KEY_FILE.exists():
-        try:
-            public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
-            if public_key:
-                return public_key
-        except subprocess.CalledProcessError:
-            pass
+        current_pub = get_current_device_public_key()
+        if current_pub:
+            keys = read_sops_yaml_keys()
+            if current_pub in keys.values():
+                return current_pub
 
+            # Key exists but not in .sops.yaml — detect SSH rotation
+            ssh_key = HOME_DIR / ".ssh" / "id_ed25519"
+            if ssh_key.exists():
+                try:
+                    ssh_pub_input = ssh_key.with_suffix(".pub").read_text()
+                    ssh_derived_pub = run_cmd(["ssh-to-age"], stdin_data=ssh_pub_input)
+                    if ssh_derived_pub == current_pub:
+                        console.print("[yellow]Your age key was derived from SSH and doesn't match .sops.yaml.[/yellow]")
+                        console.print("[yellow]This usually means your SSH key was rotated on a new device.[/yellow]")
+                except subprocess.CalledProcessError:
+                    pass
+
+            console.print("[yellow]Age key exists but is not in .sops.yaml for this device.[/yellow]")
+            console.print("[yellow]It will be added during save.[/yellow]")
+            return current_pub
+
+    # No age key file — try SSH derivation or generate new
     ssh_key = HOME_DIR / ".ssh" / "id_ed25519"
     if ssh_key.exists():
         try:
@@ -158,70 +184,6 @@ def setup_age_key() -> str:
     public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
     AGE_KEY_FILE.chmod(0o600)
     return public_key
-
-
-def import_age_key_from_file(path: str) -> Optional[str]:
-    """Import an existing age key file. Returns public key on success."""
-    src = Path(path)
-    if not src.exists():
-        console.print(f"[red]File not found: {src}[/red]")
-        return None
-    try:
-        content = src.read_text().strip()
-        if not content.startswith("AGE-SECRET-KEY"):
-            console.print("[red]File does not appear to be an age key (missing AGE-SECRET-KEY prefix)[/red]")
-            return None
-        AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
-        AGE_KEY_FILE.write_text(content + "\n")
-        AGE_KEY_FILE.chmod(0o600)
-        public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
-        if public_key:
-            console.print(f"[green]Age key imported: {public_key[:20]}...[/green]")
-            return public_key
-    except Exception as e:
-        console.print(f"[red]Failed to import age key: {e}[/red]")
-    return None
-
-
-def import_ssh_key_and_derive(ssh_path: str) -> Optional[str]:
-    """Import an SSH private key and derive age key from it. Returns public key on success."""
-    src = Path(ssh_path)
-    if not src.exists():
-        console.print(f"[red]File not found: {src}[/red]")
-        return None
-    try:
-        AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
-        with open(AGE_KEY_FILE, "w") as f:
-            run_cmd(["ssh-to-age", "-private-key", "-i", str(src)])
-        pub_path = src.with_suffix(".pub")
-        if pub_path.exists():
-            pub_input = pub_path.read_text()
-        else:
-            console.print(f"[yellow]No public key found at {pub_path}, enter it manually:[/yellow]")
-            pub_input = pt_prompt("SSH public key: ")
-        public_key = run_cmd(["ssh-to-age"], stdin_data=pub_input)
-        if public_key:
-            AGE_KEY_FILE.chmod(0o600)
-            console.print(f"[green]Age key derived from SSH: {public_key[:20]}...[/green]")
-            return public_key
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Failed to derive age key from SSH: {e}[/red]")
-    return None
-
-
-def write_sops_yaml(public_key: str) -> None:
-    content = f"""keys:
-  # Public age keys - managed by setup.py
-  # Add new device keys here, then run: sops updatekeys {SECRETS_FILE}
-  - &user_chi {public_key}
-
-creation_rules:
-  - path_regex: secrets/secrets\\.yaml$
-    key_groups:
-      - age:
-          - *user_chi
-"""
-    SOPS_YAML.write_text(content)
 
 
 # ==========================================
@@ -313,34 +275,27 @@ def write_secrets_yaml(values: dict) -> None:
             d = d.setdefault(part, {})
         d[parts[-1]] = values.get(f.path, "")
 
-    with open(SECRETS_FILE, "w") as fh:
-        yaml.dump(data, fh, default_flow_style=False, allow_unicode=True)
-
+    # Write to temp file first, encrypt, then atomic rename
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".yaml", dir=str(SECRETS_DIR))
     try:
-        run_cmd(["sops", "--encrypt", "--in-place", str(SECRETS_FILE)])
-    except subprocess.CalledProcessError:
-        console.print("[red]sops encryption failed — secrets.yaml remains unencrypted![/red]")
-        console.print("[yellow]Make sure .sops.yaml has correct age public key[/yellow]")
+        with os.fdopen(tmp_fd, 'w') as fh:
+            yaml.dump(data, fh, default_flow_style=False, allow_unicode=True)
 
-
-def git_commit_sops_files() -> None:
-    """Commit .sops.yaml and encrypted secrets.yaml to git."""
-    if not (BASE_DIR / ".git").exists():
-        return
-    files_to_commit = [str(SOPS_YAML), str(SECRETS_FILE)]
-    committed = []
-    for f in files_to_commit:
         try:
-            run_cmd(["git", "-C", str(BASE_DIR), "diff", "--quiet", f], check=False)
+            run_cmd(["sops", "--encrypt", "--in-place", tmp_path])
+            os.replace(tmp_path, str(SECRETS_FILE))
         except subprocess.CalledProcessError:
-            run_cmd(["git", "-C", str(BASE_DIR), "add", f], check=False)
-            committed.append(Path(f).name)
-    if committed:
-        msg = f"chore: update sops config ({', '.join(committed)})"
-        run_cmd(["git", "-C", str(BASE_DIR), "commit", "-m", msg], check=False)
-        console.print(f"[green]{', '.join(committed)} committed[/green]")
-    else:
-        console.print("[dim]sops files: no changes to commit[/dim]")
+            console.print("[red]sops encryption failed[/red]")
+            console.print("[red]ABORTING: secrets.yaml will NOT be written unencrypted.[/red]")
+            os.unlink(tmp_path)
+            raise RuntimeError("sops encryption failed — refusing to leave secrets unencrypted")
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
+
+
+# git_commit_sops_files is imported from key.py
 
 
 # ==========================================
@@ -378,9 +333,7 @@ def init_values() -> dict:
 
 def handle_decrypt_failure() -> dict:
     """Layered guidance when sops decryption fails on a new device.
-    Offers: import age key → import SSH key → proceed with empty secrets.
-    Returns decrypted secrets dict if key import succeeds, empty dict otherwise.
-    """
+    Delegates to key_import() interactive mode from key.py."""
     console.print(Panel(
         "[bold red]sops decryption failed[/bold red]\n\n"
         "This usually means you're on a [bold]new device[/bold] and the age key\n"
@@ -388,57 +341,17 @@ def handle_decrypt_failure() -> dict:
         "To restore your existing secrets, you need a key from another device.",
         title="New Device Detected", border_style="red"))
 
-    while True:
-        console.print("\n[bold]Options:[/bold]")
-        console.print("  [cyan]1[/cyan]  Import age key file (copy from another machine)")
-        console.print("  [cyan]2[/cyan]  Import SSH key and derive age key (copy id_ed25519)")
-        console.print("  [cyan]3[/cyan]  Proceed with empty secrets (re-enter all values manually)")
-        console.print("  [cyan]q[/cyan]  Quit")
-        try:
-            choice = pt_prompt("Choose [1/2/3/q]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            return {}
+    pub = key_import()  # interactive mode — offers import SSH/age/generate
+    if pub:
+        secrets, ok = read_secrets_yaml()
+        if ok:
+            console.print("[bold green]Decryption successful! Existing secrets restored.[/bold green]")
+            return secrets
+        else:
+            console.print("[yellow]Key imported but decryption still failed. Try another key.[/yellow]")
 
-        if choice == "q":
-            return {}
-        elif choice == "1":
-            default_path = "~/Library/Application Support/sops/age/keys.txt"
-            hint = "e.g. /Volumes/MyUSB/keys.txt for a USB drive"
-            try:
-                path = pt_prompt(f"Path to age key file [{default_path}]  ({hint}): ").strip()
-            except (EOFError, KeyboardInterrupt):
-                continue
-            if not path:
-                path = default_path
-            path = Path(path).expanduser()
-            pub = import_age_key_from_file(str(path))
-            if pub:
-                secrets, ok = read_secrets_yaml()
-                if ok:
-                    console.print("[bold green]Decryption successful! Existing secrets restored.[/bold green]")
-                    return secrets
-                else:
-                    console.print("[yellow]Key imported but decryption still failed. Try another key.[/yellow]")
-        elif choice == "2":
-            default_ssh = "~/.ssh/id_ed25519"
-            try:
-                path = pt_prompt(f"Path to SSH private key [{default_ssh}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                continue
-            if not path:
-                path = default_ssh
-            path = Path(path).expanduser()
-            pub = import_ssh_key_and_derive(str(path))
-            if pub:
-                secrets, ok = read_secrets_yaml()
-                if ok:
-                    console.print("[bold green]Decryption successful! Existing secrets restored.[/bold green]")
-                    return secrets
-                else:
-                    console.print("[yellow]Key derived but decryption still failed. SSH key may not match.[/yellow]")
-        elif choice == "3":
-            console.print("[yellow]Proceeding with empty secrets — you must re-enter all values in the menuconfig UI.[/yellow]")
-            return {}
+    console.print("[yellow]Proceeding with empty secrets — you must re-enter all values in the menuconfig UI.[/yellow]")
+    return {}
 
 
 def get_visible_fields(values: dict) -> list:
@@ -721,9 +634,20 @@ def save_all(values: dict) -> None:
         public_key = setup_age_key()
         progress.update(t1, completed=True, description=f"Age key: [green]{public_key[:20]}...[/green]")
 
-        t2 = progress.add_task("Writing .sops.yaml...", total=None)
-        write_sops_yaml(public_key)
-        progress.update(t2, completed=True, description="[green].sops.yaml written[/green]")
+        t2 = progress.add_task("Updating .sops.yaml...", total=None)
+        keys = read_sops_yaml_keys()
+        label = get_device_label()
+        keys[label] = public_key
+        # Ensure recovery key exists
+        if "recovery" not in keys:
+            from key import key_add_recovery
+            write_sops_yaml_keys(keys)
+            progress.update(t2, completed=True, description="[green].sops.yaml written[/green]")
+            progress.add_task("Generating recovery key...", total=None)
+            key_add_recovery()
+        else:
+            write_sops_yaml_keys(keys)
+            progress.update(t2, completed=True, description="[green].sops.yaml written[/green]")
 
         t3 = progress.add_task("Writing config.nix...", total=None)
         write_config_nix(values)
@@ -733,9 +657,13 @@ def save_all(values: dict) -> None:
         write_secrets_yaml(values)
         progress.update(t4, completed=True, description="[green]secrets.yaml encrypted[/green]")
 
-        t5 = progress.add_task("Committing sops files...", total=None)
-        git_commit_sops_files()
+        t5 = progress.add_task("Re-encrypting secrets with updated keys...", total=None)
+        run_sops_updatekeys()
         progress.update(t5, completed=True)
+
+        t6 = progress.add_task("Committing sops files...", total=None)
+        git_commit_sops_files()
+        progress.update(t6, completed=True)
 
 
 # ==========================================
