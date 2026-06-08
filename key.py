@@ -15,6 +15,13 @@ from typing import Dict, List, Optional
 from rich.console import Console
 from rich.table import Table
 from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit.application import Application
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout, Window, HSplit, FormattedTextControl
+from prompt_toolkit.layout.controls import BufferControl
+from prompt_toolkit.styles import Style as PtStyle
+from prompt_toolkit.widgets import Frame
 
 # ==========================================
 # PATHS
@@ -492,6 +499,67 @@ def scan_usb_key_files() -> List[Path]:
     return candidates
 
 
+def _select_menu(items: list, title: str = "Select") -> Optional[tuple]:
+    """Arrow-key navigation menu using prompt_toolkit Application.
+    items: list of (display_text, action_type, data)
+    Returns (action_type, data) on Enter, None on Esc/q."""
+
+    class MenuState:
+        cursor = 0
+        result = None
+
+    state = MenuState()
+
+    def render():
+        lines = [("class:title", f"  {title}\n")]
+        for i, (text, action, data) in enumerate(items):
+            if i == state.cursor:
+                lines.append(("class:cursor", f"  ► {text}\n"))
+            else:
+                lines.append(("class:normal", f"    {text}\n"))
+        lines.append(("class:bottom", "\n  Enter: confirm  │  Esc/q: cancel  │  ↑↓: navigate"))
+        return lines
+
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _(event):
+        if state.cursor > 0:
+            state.cursor -= 1
+        event.app.invalidate()
+
+    @kb.add("down")
+    def _(event):
+        if state.cursor < len(items) - 1:
+            state.cursor += 1
+        event.app.invalidate()
+
+    @kb.add("enter")
+    def _(event):
+        _, action, data = items[state.cursor]
+        state.result = (action, data)
+        event.app.exit()
+
+    @kb.add("escape")
+    @kb.add("q")
+    def _(event):
+        state.result = None
+        event.app.exit()
+
+    content = FormattedTextControl(render)
+    layout = Layout(Window(content=content))
+    style = PtStyle.from_dict({
+        "title": "#ansicyan bold",
+        "cursor": "bg:#ansicyan #ansiblack bold",
+        "normal": "",
+        "bottom": "#ansigray",
+    })
+
+    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
+    app.run()
+    return state.result
+
+
 def key_import(age_path: Optional[str] = None, ssh_path: Optional[str] = None,
                generate: bool = False, label: Optional[str] = None) -> Optional[str]:
     """Import a key for the current device. Returns public key on success."""
@@ -538,80 +606,46 @@ def key_import(age_path: Optional[str] = None, ssh_path: Optional[str] = None,
         if pub:
             console.print(f"[green]New age key generated: {pub[:20]}...[/green]")
     else:
-        # Interactive mode with USB scan
+        # Interactive mode — arrow-key navigation menu
         usb_files = scan_usb_key_files()
 
-        console.print("[bold]Import age key for this device:[/bold]")
+        # Build menu items
+        items = []  # list of (display_text, action_type)
+        for f in usb_files:
+            tag = "[yellow]USB[/yellow]" if f.parent.name == "recovery" else "[yellow]USB[/yellow]"
+            items.append((f"  {tag} {f}", "usb", str(f)))
+        items.append(("  Import age key file (specify path)", "age_manual", ""))
+        items.append(("  Import SSH key and derive age key", "ssh_manual", ""))
+        items.append(("  Generate new age key", "generate", ""))
+        items.append(("  Quit", "quit", ""))
 
-        if usb_files:
-            console.print(f"\n[cyan]Found {len(usb_files)} key file(s) on mounted USB drives:[/cyan]")
-            for i, f in enumerate(usb_files, 1):
-                marker = "[yellow]recovery/[/yellow]" if f.parent.name == "recovery" else ""
-                console.print(f"  [cyan]{i}[/cyan]  {marker}{f}")
-            console.print(f"  [cyan]{len(usb_files) + 1}[/cyan]  Import age key file (specify path manually)")
-            console.print(f"  [cyan]{len(usb_files) + 2}[/cyan]  Import SSH key and derive age key")
-            console.print(f"  [cyan]{len(usb_files) + 3}[/cyan]  Generate new age key (fresh device)")
+        result = _select_menu(items, title="Import age key for this device")
+        if result is None or result[0] == "quit":
+            return None
+
+        action, data = result
+        if action == "usb":
+            return key_import(age_path=data, label=label)
+        elif action == "age_manual":
+            default_path = "~/Library/Application Support/sops/age/keys.txt"
             try:
-                choice = pt_prompt(f"Choose [1-{len(usb_files) + 3}]: ").strip()
+                path = pt_prompt(f"Path to age key file [{default_path}]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 return None
-
-            idx = int(choice) if choice.isdigit() else 0
-            if 1 <= idx <= len(usb_files):
-                return key_import(age_path=str(usb_files[idx - 1]), label=label)
-            elif idx == len(usb_files) + 1:
-                default_path = "~/Library/Application Support/sops/age/keys.txt"
-                try:
-                    path = pt_prompt(f"Path to age key file [{default_path}]: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    return None
-                if not path:
-                    path = default_path
-                return key_import(age_path=path, label=label)
-            elif idx == len(usb_files) + 2:
-                default_ssh = "~/.ssh/id_ed25519"
-                try:
-                    path = pt_prompt(f"Path to SSH private key [{default_ssh}]: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    return None
-                if not path:
-                    path = default_ssh
-                return key_import(ssh_path=path, label=label)
-            elif idx == len(usb_files) + 3:
-                return key_import(generate=True, label=label)
-            else:
-                return None
-        else:
-            console.print("  [cyan]1[/cyan]  Import age key file (copy from another machine)")
-            console.print("  [cyan]2[/cyan]  Import SSH key and derive age key")
-            console.print("  [cyan]3[/cyan]  Generate new age key (fresh device)")
+            if not path:
+                path = default_path
+            return key_import(age_path=path, label=label)
+        elif action == "ssh_manual":
+            default_ssh = "~/.ssh/id_ed25519"
             try:
-                choice = pt_prompt("Choose [1/2/3]: ").strip()
+                path = pt_prompt(f"Path to SSH private key [{default_ssh}]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 return None
-
-            if choice == "1":
-                default_path = "~/Library/Application Support/sops/age/keys.txt"
-                try:
-                    path = pt_prompt(f"Path to age key file [{default_path}]: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    return None
-                if not path:
-                    path = default_path
-                return key_import(age_path=path, label=label)
-            elif choice == "2":
-                default_ssh = "~/.ssh/id_ed25519"
-                try:
-                    path = pt_prompt(f"Path to SSH private key [{default_ssh}]: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    return None
-                if not path:
-                    path = default_ssh
-                return key_import(ssh_path=path, label=label)
-            elif choice == "3":
-                return key_import(generate=True, label=label)
-            else:
-                return None
+            if not path:
+                path = default_ssh
+            return key_import(ssh_path=path, label=label)
+        elif action == "generate":
+            return key_import(generate=True, label=label)
 
     if not pub:
         console.print("[red]Key import failed.[/red]")
