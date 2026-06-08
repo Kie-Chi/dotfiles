@@ -466,34 +466,38 @@ _dtf() {
                         local key_cmd="${words[3]}"
                         case "$key_cmd" in
                             a|add)
-                                if (( CURRENT == 4 )); then
-                                    _message "Age public key (age1...)"
-                                elif (( CURRENT >= 5 )); then
-                                    _values 'options' '-l:Label for this key'
-                                fi
+                                _arguments \
+                                    '1:Age public key (age1...):' \
+                                    '-l:Label for this key:'
                                 ;;
                             rm|remove)
-                                if (( CURRENT == 4 )); then
-                                    local -a labels
-                                    labels=(${(f)"$(grep '&\S' "${DOTFILES_DIR:-${HOME}/.dotfiles}/.sops.yaml" 2>/dev/null | sed 's/.*&\(\S\+\).*/\1/')"})
-                                    _describe -t labels 'key labels' labels
-                                elif (( CURRENT >= 5 )); then
-                                    _values 'options' '-f:Allow removing current device key'
-                                fi
+                                local -a labels
+                                labels=(${(f)"$(grep '&\S' "${DOTFILES_DIR:-${HOME}/.dotfiles}/.sops.yaml" 2>/dev/null | sed 's/.*&\(\S\+\).*/\1/')"})
+                                _arguments \
+                                    '1:Key label:_describe "key labels" labels' \
+                                    '-f:Allow removing current device key'
                                 ;;
                             ex|export)
-                                _values 'options' '-F:Export format(age,ssh)' '-o:Output file path'
+                                _arguments \
+                                    '-F:Export format:(age ssh)' \
+                                    '-o:Output file:_files'
                                 ;;
                             rotate)
-                                _values 'options' '-r:Rotate recovery key instead'
+                                _arguments \
+                                    '-r:Rotate recovery key instead'
                                 ;;
                             im|import)
-                                _values 'options' '-a:Path to age key file' '-s:Path to SSH private key' '-g:Generate new key' '-l:Device label'
+                                _arguments \
+                                    '-a:Path to age key file:_files' \
+                                    '-s:Path to SSH private key:_files' \
+                                    '-g:Generate a new age key' \
+                                    '-l:Device label:'
                                 ;;
                             ar|add-recovery)
                                 ;;
                             rr|recover-recovery)
-                                _values 'options' '-o:Save decrypted key to file'
+                                _arguments \
+                                    '-o:Output file:_files'
                                 ;;
                         esac
                     fi
