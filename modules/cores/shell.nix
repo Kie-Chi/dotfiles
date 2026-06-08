@@ -1,4 +1,4 @@
-{ pkgs, lib, config, secrets, ... }:
+{ pkgs, lib, config, cfg, ... }:
 
 {
   programs.zsh = {
@@ -42,11 +42,11 @@
     sessionVariables = {
       LANG = "en_US.UTF-8";
       EDITOR = "code";
-      DOTFILES_DIR = secrets.dotfiles.path;
+      DOTFILES_DIR = cfg.dotfiles.path;
     };
 
     shellAliases = {
-      zshconf = "nvim ${secrets.dotfiles.path}/modules/cores/shell.nix";
+      zshconf = "nvim ${cfg.dotfiles.path}/modules/cores/shell.nix";
       omzconf = "nvim ~/.oh-my-zsh";
 
       ll = "ls -alh";

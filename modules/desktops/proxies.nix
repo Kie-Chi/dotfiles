@@ -1,14 +1,15 @@
-{ config, pkgs, secrets, lib, ... }:
+{ config, pkgs, cfg, lib, ... }:
 
 let
-  proxyStatus = secrets.proxy.status or "manual";
+  proxyStatus = cfg.proxy.status or "manual";
 in
 {
-  xdg.configFile."mihomo/config.yaml" = lib.mkIf (proxyStatus != "none") {
-    text = ''
+  # --- sops template: mihomo config with encrypted proxy URL ---
+  sops.templates."mihomo-config" = lib.mkIf (proxyStatus != "none") {
+    content = ''
       ${builtins.readFile ../../files/proxies/mihomo.yaml}
       tun:
-        enable: ${secrets.proxy.tun or "true"}
+        enable: ${cfg.proxy.tun or "true"}
         stack: gvisor
         auto-route: true
         auto-detect-interface: true
@@ -18,7 +19,7 @@ in
       proxy-providers:
         my-sub:
           type: http
-          url: "${secrets.proxy.url}"
+          url: ${config.sops.placeholder.proxy-url}
           path: ./sub.yaml
           interval: 3600
           health-check:
@@ -27,18 +28,24 @@ in
             interval: 300
     '';
   };
+
+  xdg.configFile."mihomo/config.yaml" = lib.mkIf (proxyStatus != "none") {
+    source = config.sops.templates."mihomo-config".path;
+    force = true;
+  };
+
   xdg.configFile."proxychains/proxychains.conf" = lib.mkIf (proxyStatus != "none") {
     text = ''
       strict_chain
       proxy_dns
       remote_dns_subnet 224
-      
+
       [ProxyList]
       socks5 127.0.0.1 20122
     '';
   };
 
   programs.zsh.shellAliases = {
-    proxy = "proxychains4 -f ${secrets.home.dir}/.config/proxychains/proxychains.conf";
+    proxy = "proxychains4 -f ${cfg.home.dir}/.config/proxychains/proxychains.conf";
   };
 }

@@ -12,5 +12,6 @@
     ./proxies.nix
     ./wallpaper.nix
     ./squirrel.nix
+    ./raycast-ai.nix
   ];
 }

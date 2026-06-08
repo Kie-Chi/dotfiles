@@ -1,6 +1,7 @@
-{ pkgs, secrets, ... }: {
+{ pkgs, cfg, ... }:
+{
   system.stateVersion = 6;
-  system.primaryUser = secrets.home.user;
+  system.primaryUser = cfg.home.user;
   nixpkgs.config.allowUnfree = true;
   nix.enable = false;
   system.defaults = {

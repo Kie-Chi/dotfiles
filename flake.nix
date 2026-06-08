@@ -9,47 +9,75 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    sops-nix.url = "github:Mic92/sops-nix";
   };
 
 
-  outputs = { self, nixpkgs, home-manager, darwin, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, darwin, sops-nix, ... }@inputs:
     let
       system = "aarch64-darwin";
       envHome = builtins.getEnv "HOME";
-      userSecretsPath = envHome + "/.config/dotfiles/secrets.nix";
-      systemSecretsPath = "/etc/dotfiles/secrets.nix";
+      userConfigPath = envHome + "/.config/dotfiles/config.nix";
+      systemConfigPath = "/etc/dotfiles/config.nix";
 
-      secrets = 
-        if builtins.pathExists userSecretsPath then 
-          builtins.trace "DEBUG: Found secrets at USER path: ${userSecretsPath}" (import userSecretsPath)
-        else if builtins.pathExists systemSecretsPath then 
-          builtins.trace "DEBUG: Found secrets at SYSTEM path: ${systemSecretsPath}" (import systemSecretsPath)
-        else 
-          builtins.trace "DEBUG: No secrets.nix found! Using empty set." {};
-      debugSecrets = builtins.trace "DEBUG: Secrets Content: ${builtins.toJSON secrets}" secrets;
-      user = secrets.home.user;
+      cfg =
+        if builtins.pathExists userConfigPath then
+          builtins.trace "DEBUG: Found config at USER path: ${userConfigPath}" (import userConfigPath)
+        else if builtins.pathExists systemConfigPath then
+          builtins.trace "DEBUG: Found config at SYSTEM path: ${systemConfigPath}" (import systemConfigPath)
+        else
+          builtins.trace "DEBUG: No config.nix found! Using empty set." {};
+      debugCfg = builtins.trace "DEBUG: Config Content: ${builtins.toJSON cfg}" cfg;
+      user = cfg.home.user;
+      ageKeyPath = "/Users/${user}/Library/Application Support/sops/age/keys.txt";
+      debugAgeKey = builtins.trace "DEBUG: sops age key path: ${ageKeyPath}" ageKeyPath;
     in
     {
       darwinConfigurations."MacBook-Air" = darwin.lib.darwinSystem {
         inherit system;
-        modules = [ 
+        modules = [
+          sops-nix.darwinModules.sops
           ./modules/darwin/default.nix
           home-manager.darwinModules.home-manager
           {
-            system.stateVersion = 6;          
-            nixpkgs.config.allowUnfree = true;
-            nix.enable = false;
-            system.primaryUser = user;
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.users."${user}" = import ./home.nix;
-            home-manager.backupFileExtension = "backup"; 
+            home-manager.backupFileExtension = "backup";
             home-manager.extraSpecialArgs = {
-                secrets = debugSecrets;
+              cfg = debugCfg;
             };
-	          _module.args.secrets = debugSecrets;
+            _module.args.cfg = debugCfg;
+            home-manager.sharedModules = [
+              sops-nix.homeManagerModules.sops
+              {
+                sops.age.keyFile = debugAgeKey;
+                sops.age.generateKey = false;
+              }
+            ];
           }
         ];
+      };
+
+      # --- devShell for setup environment ---
+      devShells.${system}.default = nixpkgs.legacyPackages.${system}.mkShell {
+        packages = with nixpkgs.legacyPackages.${system}; [
+          jq
+          sops
+          age
+          ssh-to-age
+          python3
+          python3Packages.rich
+          python3Packages.prompt-toolkit
+          python3Packages.pyyaml
+          git
+          curl
+          gnupg
+        ];
+        shellHook = ''
+          echo "[DEBUG] devShell: setup environment ready"
+          echo "[DEBUG] Available tools: jq, sops, age, ssh-to-age, python3, rich, prompt_toolkit"
+        '';
       };
     };
 }

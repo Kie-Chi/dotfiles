@@ -1,10 +1,10 @@
-{ config, pkgs, secrets, lib, ... }:
+{ config, pkgs, cfg, lib, ... }:
 
 let
-  user = secrets.home.user;
+  user = cfg.home.user;
   mihomoBin = "/opt/homebrew/bin/mihomo";
-  configDir = "/Users/${secrets.home.user}/.config/mihomo";
-  proxyStatus = secrets.proxy.status or "manual";
+  configDir = "/Users/${cfg.home.user}/.config/mihomo";
+  proxyStatus = cfg.proxy.status or "manual";
 in
 {
   homebrew.brews = lib.optionals (proxyStatus != "none") [ "mihomo" ];

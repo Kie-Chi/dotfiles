@@ -1,4 +1,4 @@
-{ pkgs, secrets, lib, ... }:
+{ pkgs, cfg, lib, ... }:
 
 let
   dracula-colors = pkgs.fetchurl {
@@ -13,7 +13,7 @@ in
     noto-fonts-color-emoji
   ];
 
-  home-manager.users."${secrets.home.user}" = {
+  home-manager.users."${cfg.home.user}" = {
     home.file."iterm2-dracula-profile" = {
       target = "Library/Application Support/iTerm2/DynamicProfiles/Dracula.json";
       text = builtins.toJSON {
