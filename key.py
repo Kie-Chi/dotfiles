@@ -7,6 +7,7 @@ Provides CLI subcommands: list, status, add, remove, export, import, rotate, add
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -457,6 +458,40 @@ def key_export(format: str = "age", output: Optional[str] = None) -> None:
     console.print("[yellow]WARNING: Private keys are sensitive. Transfer securely (USB, scp, encrypted channel).[/yellow]")
 
 
+def scan_usb_key_files() -> List[Path]:
+    """Scan mounted USB drives for .age/.age.txt files.
+    Priority: recovery/ subdirectory first, then root-level files.
+    macOS: /Volumes, Linux: /media/$USER + /mnt."""
+    candidates = []
+    mount_dirs = []
+
+    if sys.platform == "darwin":
+        mount_dirs = [Path("/Volumes")]
+    else:
+        mount_dirs = [Path(f"/media/{os.getenv('USER', '')}"), Path("/mnt")]
+
+    for mount_dir in mount_dirs:
+        if not mount_dir.exists():
+            continue
+        for volume in mount_dir.iterdir():
+            if not volume.is_dir():
+                continue
+
+            # Priority 1: recovery/ subdirectory
+            recovery_dir = volume / "recovery"
+            if recovery_dir.exists() and recovery_dir.is_dir():
+                for f in sorted(recovery_dir.iterdir()):
+                    if f.is_file() and (f.name.endswith(".age") or f.name.endswith(".age.txt")):
+                        candidates.append(f)
+
+            # Priority 2: root-level .age/.age.txt files
+            for f in sorted(volume.iterdir()):
+                if f.is_file() and (f.name.endswith(".age") or f.name.endswith(".age.txt")):
+                    candidates.append(f)
+
+    return candidates
+
+
 def key_import(age_path: Optional[str] = None, ssh_path: Optional[str] = None,
                generate: bool = False, label: Optional[str] = None) -> Optional[str]:
     """Import a key for the current device. Returns public key on success."""
@@ -503,38 +538,80 @@ def key_import(age_path: Optional[str] = None, ssh_path: Optional[str] = None,
         if pub:
             console.print(f"[green]New age key generated: {pub[:20]}...[/green]")
     else:
-        # Interactive mode
-        console.print("[bold]Import age key for this device:[/bold]")
-        console.print("  [cyan]1[/cyan]  Import age key file (copy from another machine)")
-        console.print("  [cyan]2[/cyan]  Import SSH key and derive age key")
-        console.print("  [cyan]3[/cyan]  Generate new age key (fresh device)")
-        try:
-            choice = pt_prompt("Choose [1/2/3]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            return None
+        # Interactive mode with USB scan
+        usb_files = scan_usb_key_files()
 
-        if choice == "1":
-            default_path = "~/Library/Application Support/sops/age/keys.txt"
+        console.print("[bold]Import age key for this device:[/bold]")
+
+        if usb_files:
+            console.print(f"\n[cyan]Found {len(usb_files)} key file(s) on mounted USB drives:[/cyan]")
+            for i, f in enumerate(usb_files, 1):
+                marker = "[yellow]recovery/[/yellow]" if f.parent.name == "recovery" else ""
+                console.print(f"  [cyan]{i}[/cyan]  {marker}{f}")
+            console.print(f"  [cyan]{len(usb_files) + 1}[/cyan]  Import age key file (specify path manually)")
+            console.print(f"  [cyan]{len(usb_files) + 2}[/cyan]  Import SSH key and derive age key")
+            console.print(f"  [cyan]{len(usb_files) + 3}[/cyan]  Generate new age key (fresh device)")
             try:
-                path = pt_prompt(f"Path to age key file [{default_path}]: ").strip()
+                choice = pt_prompt(f"Choose [1-{len(usb_files) + 3}]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 return None
-            if not path:
-                path = default_path
-            return key_import(age_path=path, label=label)
-        elif choice == "2":
-            default_ssh = "~/.ssh/id_ed25519"
-            try:
-                path = pt_prompt(f"Path to SSH private key [{default_ssh}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
+
+            idx = int(choice) if choice.isdigit() else 0
+            if 1 <= idx <= len(usb_files):
+                return key_import(age_path=str(usb_files[idx - 1]), label=label)
+            elif idx == len(usb_files) + 1:
+                default_path = "~/Library/Application Support/sops/age/keys.txt"
+                try:
+                    path = pt_prompt(f"Path to age key file [{default_path}]: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    return None
+                if not path:
+                    path = default_path
+                return key_import(age_path=path, label=label)
+            elif idx == len(usb_files) + 2:
+                default_ssh = "~/.ssh/id_ed25519"
+                try:
+                    path = pt_prompt(f"Path to SSH private key [{default_ssh}]: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    return None
+                if not path:
+                    path = default_ssh
+                return key_import(ssh_path=path, label=label)
+            elif idx == len(usb_files) + 3:
+                return key_import(generate=True, label=label)
+            else:
                 return None
-            if not path:
-                path = default_ssh
-            return key_import(ssh_path=path, label=label)
-        elif choice == "3":
-            return key_import(generate=True, label=label)
         else:
-            return None
+            console.print("  [cyan]1[/cyan]  Import age key file (copy from another machine)")
+            console.print("  [cyan]2[/cyan]  Import SSH key and derive age key")
+            console.print("  [cyan]3[/cyan]  Generate new age key (fresh device)")
+            try:
+                choice = pt_prompt("Choose [1/2/3]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                return None
+
+            if choice == "1":
+                default_path = "~/Library/Application Support/sops/age/keys.txt"
+                try:
+                    path = pt_prompt(f"Path to age key file [{default_path}]: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    return None
+                if not path:
+                    path = default_path
+                return key_import(age_path=path, label=label)
+            elif choice == "2":
+                default_ssh = "~/.ssh/id_ed25519"
+                try:
+                    path = pt_prompt(f"Path to SSH private key [{default_ssh}]: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    return None
+                if not path:
+                    path = default_ssh
+                return key_import(ssh_path=path, label=label)
+            elif choice == "3":
+                return key_import(generate=True, label=label)
+            else:
+                return None
 
     if not pub:
         console.print("[red]Key import failed.[/red]")

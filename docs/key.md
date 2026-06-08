@@ -40,27 +40,33 @@ creation_rules:
 
 在新设备上克隆 dotfiles 后，sops 无法解密 `secrets.yaml`。有两种方式：
 
-**方式 A — 从旧设备复制密钥：**
+**方式 A — 从旧设备复制密钥（最推荐）：**
 
-1. 在旧设备上导出密钥：
+1. 在旧设备上导出密钥到 USB 的 `recovery/` 目录：
    ```bash
-   dtf key export --output /Volumes/USB/age-key.txt
+   dtf key ex -o /Volumes/USB/recovery/key.age
    ```
-2. 在新设备上导入：
+2. 在新设备上插入 USB，运行：
    ```bash
-   dtf key import --age /Volumes/USB/age-key.txt --label new_macbook
+   dtf key im    # 交互模式——自动扫描 USB，列出找到的密钥文件让你选择
+   ```
+   `dtf key im` 会自动扫描所有已挂载的 USB（macOS: `/Volumes`，Linux: `/media/$USER` + `/mnt`），优先在 `recovery/` 子目录查找 `.age` / `.age.txt` 文件。选择后无需手动输入路径。
+
+   也可以直接指定路径：
+   ```bash
+   dtf key im -a /Volumes/USB/recovery/key.age -l new_macbook
    ```
 
 **方式 B — 从 SSH 密钥派生（如果旧设备也用 SSH 派生）：**
 
 ```bash
-dtf key import --ssh ~/.ssh/id_ed25519 --label new_macbook
+dtf key im -s ~/.ssh/id_ed25519 -l new_macbook
 ```
 
 **方式 C — 全新密钥 + 重新输入所有秘密：**
 
 ```bash
-dtf key import --generate --label new_macbook
+dtf key im -g -l new_macbook
 dtf config   # 重新填写所有秘密值
 ```
 
@@ -135,14 +141,33 @@ dtf key recover-recovery --output /tmp/recovery.txt   # 保存到文件
 ### 场景 6：导出密钥用于传输
 
 ```bash
-dtf key export                  # 输出 age 私钥到 stdout
-dtf key export --output key.txt # 保存到文件
-dtf key export --format ssh     # 导出 SSH 私钥（仅适用于 SSH 派生的设备）
+dtf key ex                  # 输出 age 私钥到 stdout
+dtf key ex -o key.txt       # 保存到文件
+dtf key ex -F ssh           # 导出 SSH 私钥（仅适用于 SSH 派生的设备）
 ```
 
-私钥是敏感数据，请使用安全传输方式（USB、scp、加密信道）。
+推荐导出到 USB 的 `recovery/` 目录，这样新设备 `dtf key im` 时会自动识别：
+```bash
+dtf key ex -o /Volumes/USB/recovery/macbook_air.age
+```
+
+私钥是敏感数据，请使用安全传输方式（物理 USB 比网络传输更安全）。
 
 ## 内部机制
+
+### USB 自动扫描
+
+`dtf key im`（交互模式）会自动扫描已挂载的 USB 驱动器寻找密钥文件：
+- macOS: `/Volumes` 下所有挂载点
+- Linux: `/media/$USER` + `/mnt`
+
+扫描策略：
+1. **优先**：每个挂载点的 `recovery/` 子目录下的 `.age` / `.age.txt` 文件
+2. **其次**：挂载点根目录下的 `.age` / `.age.txt` 文件
+
+找到的文件会按优先级列出，用户直接选择编号即可导入，无需手动输入路径。
+
+推荐约定：在 USB 上创建 `recovery/` 目录存放密钥文件，`dtf key ex -o /Volumes/USB/recovery/key.age`。
 
 ### SOPS_AGE_KEY_FILE
 
