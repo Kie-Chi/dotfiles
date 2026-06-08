@@ -21,7 +21,7 @@ DOTFILES_DIR="${DOTFILES_DIR:-${HOME}/.dotfiles}"
 SOPS_SECRET_FILE="${DOTFILES_DIR}/secrets/secrets.yaml"
 # Read password from sops-encrypted secrets (requires age key)
 if [ -f "$SOPS_SECRET_FILE" ] && command -v sops >/dev/null 2>&1; then
-    USER_PASSWD=$(sops -d --extract '["home"]["passwd"]' "$SOPS_SECRET_FILE" 2>/dev/null)
+    USER_PASSWD=$(sops -d --extract '["home"]["passwd"]' "$SOPS_SECRET_FILE" 2>/dev/null || true)
     if [ -z "$USER_PASSWD" ]; then
         echo -e "${YELLOW}[warn] sops decryption failed — age key may not be set up yet. Manual sudo password required.${NC}"
     fi
@@ -80,6 +80,8 @@ usage() {
     echo -e "  ${GREEN}dif, diff${NC}             Show the git difference of the dotfiles repository."
     echo -e "  ${GREEN}git [args...]${NC}   Execute git commands in the dotfiles directory."
     echo -e "  ${GREEN}gc, clean${NC}       Run Nix garbage collection to clean old generations."
+    echo -e "  ${GREEN}k, key [SUBCMD]${NC}  Manage age keys for sops encryption."
+    echo -e "    Subcommands: list, status, add, remove, export, import, rotate, add-recovery, recover-recovery"
     echo -e "  ${GREEN}h, help${NC}         Show this help message."
     echo
 }
@@ -253,6 +255,15 @@ case "$1" in
         nix-store --optimise
         brew cleanup
         echo -e "${GREEN}--> Cleanup finished.${NC}"
+        ;;
+
+    k|key)
+        shift
+        if [ -z "$IN_NIX_SHELL" ]; then
+            exec nix develop "$DOTFILES_DIR" --command python3 "$DOTFILES_DIR/key.py" "$@"
+        else
+            exec python3 "$DOTFILES_DIR/key.py" "$@"
+        fi
         ;;
 
     h|help|-h|--help)
