@@ -18,7 +18,19 @@ if [ -f "$USER_CONFIG" ]; then
     DOTFILES_DIR=$(grep -w "dotfiles.path" "$USER_CONFIG" | sed -n 's/.*dotfiles.path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
 fi
 DOTFILES_DIR="${DOTFILES_DIR:-${HOME}/.dotfiles}"
-USER_PASSWD="${USER_PASSWD:-}"
+SOPS_SECRET_FILE="${DOTFILES_DIR}/secrets/secrets.yaml"
+# Read password from sops-encrypted secrets (requires age key)
+if [ -f "$SOPS_SECRET_FILE" ] && command -v sops >/dev/null 2>&1; then
+    USER_PASSWD=$(sops -d --extract '["home"]["passwd"]' "$SOPS_SECRET_FILE" 2>/dev/null)
+    if [ -z "$USER_PASSWD" ]; then
+        echo -e "${YELLOW}[warn] sops decryption failed — age key may not be set up yet. Manual sudo password required.${NC}"
+    fi
+else
+    USER_PASSWD="${USER_PASSWD:-}"
+    if [ -n "$SOPS_SECRET_FILE" ] && [ ! -f "$SOPS_SECRET_FILE" ]; then
+        echo -e "${YELLOW}[warn] secrets file not found at $SOPS_SECRET_FILE. Manual sudo password required.${NC}"
+    fi
+fi
 SETUP_SCRIPT="${DOTFILES_DIR}/setup.sh"
 FLAKE_TARGET=".#MacBook-Air"
 SYSTEM_PROFILE="/nix/var/nix/profiles/system"

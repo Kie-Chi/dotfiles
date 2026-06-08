@@ -160,6 +160,55 @@ def setup_age_key() -> str:
     return public_key
 
 
+def import_age_key_from_file(path: str) -> Optional[str]:
+    """Import an existing age key file. Returns public key on success."""
+    src = Path(path)
+    if not src.exists():
+        console.print(f"[red]File not found: {src}[/red]")
+        return None
+    try:
+        content = src.read_text().strip()
+        if not content.startswith("AGE-SECRET-KEY"):
+            console.print("[red]File does not appear to be an age key (missing AGE-SECRET-KEY prefix)[/red]")
+            return None
+        AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
+        AGE_KEY_FILE.write_text(content + "\n")
+        AGE_KEY_FILE.chmod(0o600)
+        public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
+        if public_key:
+            console.print(f"[green]Age key imported: {public_key[:20]}...[/green]")
+            return public_key
+    except Exception as e:
+        console.print(f"[red]Failed to import age key: {e}[/red]")
+    return None
+
+
+def import_ssh_key_and_derive(ssh_path: str) -> Optional[str]:
+    """Import an SSH private key and derive age key from it. Returns public key on success."""
+    src = Path(ssh_path)
+    if not src.exists():
+        console.print(f"[red]File not found: {src}[/red]")
+        return None
+    try:
+        AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
+        with open(AGE_KEY_FILE, "w") as f:
+            run_cmd(["ssh-to-age", "-private-key", "-i", str(src)])
+        pub_path = src.with_suffix(".pub")
+        if pub_path.exists():
+            pub_input = pub_path.read_text()
+        else:
+            console.print(f"[yellow]No public key found at {pub_path}, enter it manually:[/yellow]")
+            pub_input = pt_prompt("SSH public key: ")
+        public_key = run_cmd(["ssh-to-age"], stdin_data=pub_input)
+        if public_key:
+            AGE_KEY_FILE.chmod(0o600)
+            console.print(f"[green]Age key derived from SSH: {public_key[:20]}...[/green]")
+            return public_key
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Failed to derive age key from SSH: {e}[/red]")
+    return None
+
+
 def write_sops_yaml(public_key: str) -> None:
     content = f"""keys:
   # Public age keys - managed by setup.py
@@ -215,22 +264,28 @@ def write_config_nix(values: dict) -> None:
     symlink.symlink_to(CONFIG_FILE)
 
 
-def read_secrets_yaml() -> dict:
+def read_secrets_yaml() -> tuple:
+    """Read secrets from sops-encrypted YAML.
+    Returns (values_dict, decrypt_success_bool).
+    """
     values = {}
     if not SECRETS_FILE.exists():
-        return values
+        return values, False
     # Try sops decryption first, fallback to plain YAML for unencrypted files
     data = None
+    decrypt_ok = False
     try:
         plain = run_cmd(["sops", "--decrypt", str(SECRETS_FILE)])
         data = yaml.safe_load(plain)
+        decrypt_ok = True
     except subprocess.CalledProcessError:
         try:
             data = yaml.safe_load(SECRETS_FILE.read_text())
+            decrypt_ok = False  # plain YAML = not encrypted = new device can't use sops-nix
         except Exception:
             pass
     if data is None:
-        return values
+        return values, False
     for f in SECRET_FIELDS:
         if not f.yaml_path:
             continue
@@ -244,7 +299,7 @@ def read_secrets_yaml() -> dict:
                 values[f.path] = str(val)
         except (KeyError, TypeError):
             pass
-    return values
+    return values, decrypt_ok
 
 
 def write_secrets_yaml(values: dict) -> None:
@@ -268,18 +323,24 @@ def write_secrets_yaml(values: dict) -> None:
         console.print("[yellow]Make sure .sops.yaml has correct age public key[/yellow]")
 
 
-def git_commit_sops_yaml() -> None:
+def git_commit_sops_files() -> None:
+    """Commit .sops.yaml and encrypted secrets.yaml to git."""
     if not (BASE_DIR / ".git").exists():
         return
-    try:
-        run_cmd(["git", "-C", str(BASE_DIR), "diff", "--quiet", str(SOPS_YAML)], check=False)
-        console.print("[dim].sops.yaml: no changes to commit[/dim]")
-        return
-    except subprocess.CalledProcessError:
-        pass
-    run_cmd(["git", "-C", str(BASE_DIR), "add", str(SOPS_YAML)], check=False)
-    run_cmd(["git", "-C", str(BASE_DIR), "commit", "-m", "chore: update .sops.yaml with age key"], check=False)
-    console.print("[green].sops.yaml committed[/green]")
+    files_to_commit = [str(SOPS_YAML), str(SECRETS_FILE)]
+    committed = []
+    for f in files_to_commit:
+        try:
+            run_cmd(["git", "-C", str(BASE_DIR), "diff", "--quiet", f], check=False)
+        except subprocess.CalledProcessError:
+            run_cmd(["git", "-C", str(BASE_DIR), "add", f], check=False)
+            committed.append(Path(f).name)
+    if committed:
+        msg = f"chore: update sops config ({', '.join(committed)})"
+        run_cmd(["git", "-C", str(BASE_DIR), "commit", "-m", msg], check=False)
+        console.print(f"[green]{', '.join(committed)} committed[/green]")
+    else:
+        console.print("[dim]sops files: no changes to commit[/dim]")
 
 
 # ==========================================
@@ -301,7 +362,7 @@ class AppState:
 
 def init_values() -> dict:
     existing_config = read_config_nix()
-    existing_secrets = read_secrets_yaml()
+    existing_secrets, _ = read_secrets_yaml()
     values = {}
     for f in ALL_FIELDS:
         if f.condition and not f.condition(values):
@@ -313,6 +374,71 @@ def init_values() -> dict:
         else:
             values[f.path] = f.default_fn()
     return values
+
+
+def handle_decrypt_failure() -> dict:
+    """Layered guidance when sops decryption fails on a new device.
+    Offers: import age key → import SSH key → proceed with empty secrets.
+    Returns decrypted secrets dict if key import succeeds, empty dict otherwise.
+    """
+    console.print(Panel(
+        "[bold red]sops decryption failed[/bold red]\n\n"
+        "This usually means you're on a [bold]new device[/bold] and the age key\n"
+        "doesn't match the one that encrypted secrets.yaml.\n\n"
+        "To restore your existing secrets, you need a key from another device.",
+        title="New Device Detected", border_style="red"))
+
+    while True:
+        console.print("\n[bold]Options:[/bold]")
+        console.print("  [cyan]1[/cyan]  Import age key file (copy from another machine)")
+        console.print("  [cyan]2[/cyan]  Import SSH key and derive age key (copy id_ed25519)")
+        console.print("  [cyan]3[/cyan]  Proceed with empty secrets (re-enter all values manually)")
+        console.print("  [cyan]q[/cyan]  Quit")
+        try:
+            choice = pt_prompt("Choose [1/2/3/q]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return {}
+
+        if choice == "q":
+            return {}
+        elif choice == "1":
+            default_path = "~/Library/Application Support/sops/age/keys.txt"
+            hint = "e.g. /Volumes/MyUSB/keys.txt for a USB drive"
+            try:
+                path = pt_prompt(f"Path to age key file [{default_path}]  ({hint}): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                continue
+            if not path:
+                path = default_path
+            path = Path(path).expanduser()
+            pub = import_age_key_from_file(str(path))
+            if pub:
+                secrets, ok = read_secrets_yaml()
+                if ok:
+                    console.print("[bold green]Decryption successful! Existing secrets restored.[/bold green]")
+                    return secrets
+                else:
+                    console.print("[yellow]Key imported but decryption still failed. Try another key.[/yellow]")
+        elif choice == "2":
+            default_ssh = "~/.ssh/id_ed25519"
+            try:
+                path = pt_prompt(f"Path to SSH private key [{default_ssh}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                continue
+            if not path:
+                path = default_ssh
+            path = Path(path).expanduser()
+            pub = import_ssh_key_and_derive(str(path))
+            if pub:
+                secrets, ok = read_secrets_yaml()
+                if ok:
+                    console.print("[bold green]Decryption successful! Existing secrets restored.[/bold green]")
+                    return secrets
+                else:
+                    console.print("[yellow]Key derived but decryption still failed. SSH key may not match.[/yellow]")
+        elif choice == "3":
+            console.print("[yellow]Proceeding with empty secrets — you must re-enter all values in the menuconfig UI.[/yellow]")
+            return {}
 
 
 def get_visible_fields(values: dict) -> list:
@@ -607,8 +733,8 @@ def save_all(values: dict) -> None:
         write_secrets_yaml(values)
         progress.update(t4, completed=True, description="[green]secrets.yaml encrypted[/green]")
 
-        t5 = progress.add_task("Committing .sops.yaml...", total=None)
-        git_commit_sops_yaml()
+        t5 = progress.add_task("Committing sops files...", total=None)
+        git_commit_sops_files()
         progress.update(t5, completed=True)
 
 
@@ -617,7 +743,31 @@ def save_all(values: dict) -> None:
 # ==========================================
 
 def main():
-    old_values = init_values()
+    existing_config = read_config_nix()
+    existing_secrets, decrypt_ok = read_secrets_yaml()
+
+    # Layered guidance for new device: if decryption failed, try key import before menuconfig
+    if not decrypt_ok and SECRETS_FILE.exists():
+        restored_secrets = handle_decrypt_failure()
+        if not restored_secrets and SECRETS_FILE.exists():
+            # User chose to proceed with empty secrets — they'll re-enter in menuconfig
+            pass
+        elif restored_secrets:
+            existing_secrets = restored_secrets
+
+    # Build initial values from config + (possibly restored) secrets
+    values = {}
+    for f in ALL_FIELDS:
+        if f.condition and not f.condition(values):
+            continue
+        if f.dest == "config" and f.path in existing_config:
+            values[f.path] = existing_config[f.path]
+        elif f.dest == "secret" and f.path in existing_secrets:
+            values[f.path] = existing_secrets[f.path]
+        else:
+            values[f.path] = f.default_fn()
+    old_values = dict(values)
+
     new_values = menuconfig_loop(old_values)
 
     if new_values is None:
