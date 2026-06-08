@@ -501,7 +501,10 @@ def scan_usb_key_files() -> List[Path]:
 
 def _select_menu(items: list, title: str = "Select") -> Optional[tuple]:
     """Arrow-key navigation menu using prompt_toolkit Application.
-    items: list of (display_text, action_type, data)
+    items: list of (fragments, action_type, data)
+    fragments: list of (style_suffix, text) tuples for styled display segments
+      style_suffix is appended to "class:" base (cursor/normal) for each line
+      e.g. ("", "plain text") or ("usb", "tag text") for special styling
     Returns (action_type, data) on Enter, None on Esc/q."""
 
     class MenuState:
@@ -512,11 +515,16 @@ def _select_menu(items: list, title: str = "Select") -> Optional[tuple]:
 
     def render():
         lines = [("class:title", f"  {title}\n")]
-        for i, (text, action, data) in enumerate(items):
-            if i == state.cursor:
-                lines.append(("class:cursor", f"  ► {text}\n"))
-            else:
-                lines.append(("class:normal", f"    {text}\n"))
+        for i, (fragments, action, data) in enumerate(items):
+            base = "class:cursor" if i == state.cursor else "class:normal"
+            prefix = "  ► " if i == state.cursor else "    "
+            lines.append((base, prefix))
+            for style_suffix, text in fragments:
+                if style_suffix:
+                    lines.append((f"class:{style_suffix}", text))
+                else:
+                    lines.append((base, text))
+            lines.append((base, "\n"))
         lines.append(("class:bottom", "\n  Enter: confirm  │  Esc/q: cancel  │  ↑↓: navigate"))
         return lines
 
@@ -552,6 +560,7 @@ def _select_menu(items: list, title: str = "Select") -> Optional[tuple]:
         "title": "#ansicyan bold",
         "cursor": "bg:#ansicyan #ansiblack bold",
         "normal": "",
+        "usb": "#ansiyellow bold",
         "bottom": "#ansigray",
     })
 
@@ -609,15 +618,17 @@ def key_import(age_path: Optional[str] = None, ssh_path: Optional[str] = None,
         # Interactive mode — arrow-key navigation menu
         usb_files = scan_usb_key_files()
 
-        # Build menu items
-        items = []  # list of (display_text, action_type)
+        # Build menu items — each item is (fragments, action_type, data)
+        # fragments: list of (style_suffix, text) for styled display segments
+        items = []
         for f in usb_files:
-            tag = "[yellow]USB[/yellow]" if f.parent.name == "recovery" else "[yellow]USB[/yellow]"
-            items.append((f"  {tag} {f}", "usb", str(f)))
-        items.append(("  Import age key file (specify path)", "age_manual", ""))
-        items.append(("  Import SSH key and derive age key", "ssh_manual", ""))
-        items.append(("  Generate new age key", "generate", ""))
-        items.append(("  Quit", "quit", ""))
+            tag_text = "USB " if f.parent.name == "recovery" else "USB "
+            path_text = str(f)
+            items.append(([("usb", tag_text), ("", path_text)], "usb", str(f)))
+        items.append(([("", "Import age key file (specify path)")], "age_manual", ""))
+        items.append(([("", "Import SSH key and derive age key")], "ssh_manual", ""))
+        items.append(([("", "Generate new age key")], "generate", ""))
+        items.append(([("", "Quit")], "quit", ""))
 
         result = _select_menu(items, title="Import age key for this device")
         if result is None or result[0] == "quit":
