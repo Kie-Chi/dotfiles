@@ -1,0 +1,7 @@
+{ ... }:
+{
+    imports = [
+        ./sys.nix
+        ./bins
+    ];
+}
