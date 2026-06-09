@@ -23,5 +23,5 @@ let
 in
 {
   home.packages = packagedScripts;
-  home.file.".config/cc/prompt".source = ../../files/cc/prompt;
+  home.file.".config/ccli/prompt".source = ../../files/ccli/prompt;
 }

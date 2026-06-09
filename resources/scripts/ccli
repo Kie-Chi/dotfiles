@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-# cc - Claude Code wrapper with system prompt and skip-permissions
+# ccli - Claude Code wrapper with system prompt and skip-permissions
 #
 # Reads system prompt from:
-#   1. CC_SYSTEM_PROMPT env var
-#   2. ~/.config/cc/prompt file
+#   1. CCLI_SYSTEM_PROMPT env var
+#   2. ~/.config/ccli/prompt file
 #   3. Falls back to no --system-prompt flag
 #
 # Always passes --dangerously-skip-permissions.
@@ -14,10 +14,10 @@
 
 # Resolve system prompt
 system_prompt=""
-if [ -n "$CC_SYSTEM_PROMPT" ]; then
-    system_prompt="$CC_SYSTEM_PROMPT"
-elif [ -f "$HOME/.config/cc/prompt" ]; then
-    system_prompt=$(cat "$HOME/.config/cc/prompt")
+if [ -n "$CCLI_SYSTEM_PROMPT" ]; then
+    system_prompt="$CCLI_SYSTEM_PROMPT"
+elif [ -f "$HOME/.config/ccli/prompt" ]; then
+    system_prompt=$(cat "$HOME/.config/ccli/prompt")
 fi
 
 # Build the command
