@@ -22,6 +22,6 @@ let
 
 in
 {
-  # home.packages = packagedScripts ++ packagedHelpers;
   home.packages = packagedScripts;
+  home.file.".config/cc/prompt".source = ../../files/cc/prompt;
 }
