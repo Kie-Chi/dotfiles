@@ -35,6 +35,11 @@ install_nix() {
 
     msg_success "Nix installation complete."
     msg_warn "You may need to re-login or restart your shell for Nix to be available."
+
+    # Source Nix profile in this process so subsequent function calls can use nix
+    if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+        . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+    fi
 }
 
 main() {
