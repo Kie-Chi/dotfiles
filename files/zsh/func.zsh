@@ -501,40 +501,44 @@ _dtf() {
                         _describe -t key_commands 'dtf key subcommands' key_commands
                     elif (( CURRENT >= 4 )); then
                         local key_cmd="${words[3]}"
+                        # Strip dtf + key + key_cmd so inner _arguments
+                        # only sees the subcommand's own arguments/options
+                        words=("dtf-k-${key_cmd}" "${(@)words[4,-1]}")
+                        (( CURRENT -= 2 ))
                         case "$key_cmd" in
                             a|add)
                                 _arguments \
                                     '1:Age public key (age1...):' \
-                                    '-l:Label for this key:'
+                                    {-l,--label}'[Label for this key]:'
                                 ;;
                             rm|remove)
                                 local -a labels
                                 labels=(${(f)"$(grep '&\S' "${DOTFILES_DIR:-${HOME}/.dotfiles}/.sops.yaml" 2>/dev/null | sed 's/.*&\(\S\+\).*/\1/')"})
                                 _arguments \
                                     '1:Key label:_describe "key labels" labels' \
-                                    '-f:Allow removing current device key'
+                                    {-f,--force}'[Allow removing current device key]'
                                 ;;
                             ex|export)
                                 _arguments \
-                                    '-F:Export format:(age ssh)' \
-                                    '-o:Output file:_files'
+                                    {-F,--format}'[Export format]:format:(age ssh)' \
+                                    {-o,--output}'[Output file]:file:_files'
                                 ;;
                             rotate)
                                 _arguments \
-                                    '-r:Rotate recovery key instead'
+                                    {-r,--recovery}'[Rotate recovery key instead]'
                                 ;;
                             im|import)
                                 _arguments \
-                                    '-a:Path to age key file:_files' \
-                                    '-s:Path to SSH private key:_files' \
-                                    '-g:Generate a new age key' \
-                                    '-l:Device label:'
+                                    {-a,--age}'[Path to age key file]:file:_files' \
+                                    {-s,--ssh}'[Path to SSH private key]:file:_files' \
+                                    {-g,--generate}'[Generate a new age key]' \
+                                    {-l,--label}'[Device label]:'
                                 ;;
                             ar|add-recovery)
                                 ;;
                             rr|recover-recovery)
                                 _arguments \
-                                    '-o:Output file:_files'
+                                    {-o,--output}'[Output file]:file:_files'
                                 ;;
                             sr|seal-recovery)
                                 _arguments \
