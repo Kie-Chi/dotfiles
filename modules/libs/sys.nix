@@ -1,17 +1,12 @@
-{ pkgs, lib, ... }:
+{ pkgs, lib, config, ... }:
 
 let
-  sys = rec {
-    platform = {
-      pkgManager =
-        if builtins.pathExists "/usr/bin/apt" then "apt"
-        else if builtins.pathExists "/usr/bin/dnf" then "dnf"
-        else if builtins.pathExists "/usr/bin/pacman" then "pacman"
-        else if builtins.pathExists "/usr/bin/zypper" then "zypper"
-        else "unknown";
-    };
+  sopsHomePasswdPath = config.sops.secrets.home-passwd.path;
+  hasSopsSecrets = config.sops.secrets != {};
 
+  sys = rec {
     cmds = {
+      # Linux system tools (outside Nix sandbox)
       sudo = "/usr/bin/sudo";
       sh = "/bin/sh";
       apt = "/usr/bin/apt";
@@ -28,20 +23,20 @@ let
       cmp = "/usr/bin/cmp";
       mktemp = "/usr/bin/mktemp";
       rm = "/usr/bin/rm";
+      mkdir = "/usr/bin/mkdir";
       curl = "${pkgs.curl}/bin/curl";
       ufw = "/usr/sbin/ufw";
     };
 
     initSudoPwd = ''
-      SECRET_FILE="$HOME/.config/dotfiles/secrets.nix"
       SUDO_PWD=""
-      if [ -f "$SECRET_FILE" ]; then
-        SUDO_PWD=$(${pkgs.gnugrep}/bin/grep -w "home\.passwd" "$SECRET_FILE" | sed -n "s/.*home\.passwd[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1)
-      fi
     '';
 
     esudoFn = ''
       esudo() {
+        if [ -z "''${SUDO_PWD:-}" ] && [ -f "${sopsHomePasswdPath}" ]; then
+          SUDO_PWD=$(cat "${sopsHomePasswdPath}")
+        fi
         if [ -n "''${SUDO_PWD:-}" ]; then
           printf '%s\n' "$SUDO_PWD" | ${cmds.sudo} -S "$@"
         else
@@ -69,6 +64,28 @@ let
       log_info()  { _log info  "$@"; }
       log_warn()  { _log warn  "$@"; }
       log_error() { _log error "$@"; }
+    '';
+
+    sopsDecrypt = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      _LOG_CTX="sopsDecrypt"
+      # sops-nix on Linux uses systemd services for decryption;
+      # the secrets are automatically decrypted by sops-nix during activation.
+      # Read sudo password from decrypted secret
+      if [ -f "${sopsHomePasswdPath}" ]; then
+        SUDO_PWD=$(cat "${sopsHomePasswdPath}")
+      fi
+    '';
+
+    userBoundary = lib.hm.dag.entryAfter [ "writeBoundary" "sopsDecrypt" ] ''
+      _LOG_CTX="userBoundary"
+      ${lib.optionalString hasSopsSecrets ''
+        if [ -f "${sopsHomePasswdPath}" ]; then
+          log_info "sops secrets available"
+        else
+          log_warn "sops secrets unavailable — esudo will require manual password"
+        fi
+      ''}
+      log_info "user script boundary ready"
     '';
 
     pkg = rec {
@@ -244,7 +261,8 @@ let
         TMP_FILE="$(${cmds.mktemp})"
         cp "${source}" "$TMP_FILE"
         if [ ! -f "${target}" ] || ! ${cmds.cmp} -s "$TMP_FILE" "${target}"; then
-          esudo ${cmds.install} -D -m ${mode} -o ${owner} -g ${group} "$TMP_FILE" "${target}"
+          esudo ${cmds.mkdir} -p "$(dirname "${target}")"
+          esudo ${cmds.install} -m ${mode} -o ${owner} -g ${group} "$TMP_FILE" "${target}"
           ${postDeploy}
         fi
         ${cmds.rm} -f "$TMP_FILE"
@@ -268,7 +286,7 @@ let
         };
 
       activation = {
-        after ? [ "writeBoundary" ],
+        after ? [ "userBoundary" ],
         pre ? "",
         name,
         format,
@@ -283,7 +301,7 @@ let
         sys.task.root {
           inherit after name;
           script = ''
-            ${lib.optionalString (message != null) "echo \"${message}\""}
+            ${lib.optionalString (message != null) "log_info \"${message}\""}
             ${pre}
             ${deploy {
               inherit name format data target owner group mode post;
@@ -293,14 +311,17 @@ let
     };
 
     # Global init activation - runs before writeBoundary
+    # Defines log functions, esudo (which dynamically reads sops secret when available),
+    # and pkg management functions.
+    # Secret decryption happens in sopsDecrypt (after writeBoundary), before userBoundary.
     initActivation = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
       # === Global function definitions ===
-      # Sudo with password support
-      ${initSudoPwd}
-      ${esudoFn}
-
       # Logging functions
       ${logFn}
+
+      # Sudo with password support (dynamic: reads from sops-decrypted file)
+      ${initSudoPwd}
+      ${esudoFn}
 
       # Package management functions
       ${pkg.detectManagerFn}
@@ -312,7 +333,7 @@ let
 
     task = rec {
       activation = {
-        after ? [ "writeBoundary" ],
+        after ? [ "userBoundary" ],
         asRoot ? false,
         guardDryRun ? true,
         name ? "activation",
@@ -323,12 +344,7 @@ let
       }:
         lib.hm.dag.entryAfter after ''
           _LOG_CTX="${name}"
-          ${lib.optionalString asRoot ''
-            if [ -z "''${SUDO_PWD:-}" ]; then
-              ${initSudoPwd}
-            fi
-          ''}
-          ${lib.optionalString (message != null) "echo \"${message}\""}
+          ${lib.optionalString (message != null) "log_info \"${message}\""}
           ${pre}
           ${lib.optionalString guardDryRun ''
             if [ -z "$DRY_RUN_CMD" ]; then
@@ -347,7 +363,7 @@ let
     };
 
     mkActivation = {
-      after ? [ "writeBoundary" ],
+      after ? [ "userBoundary" ],
       asRoot ? false,
       guardDryRun ? true,
       name ? "activation",
@@ -355,11 +371,6 @@ let
     }:
       lib.hm.dag.entryAfter after ''
         _LOG_CTX="${name}"
-        ${lib.optionalString asRoot ''
-          if [ -z "''${SUDO_PWD:-}" ]; then
-            ${initSudoPwd}
-          fi
-        ''}
         ${lib.optionalString guardDryRun ''
           if [ -z "$DRY_RUN_CMD" ]; then
         ''}
@@ -378,5 +389,9 @@ let
 in
 {
   _module.args.sys = sys;
-  home.activation.sysInit = sys.initActivation;
+  home.activation = {
+    sysInit = sys.initActivation;
+    sopsDecrypt = sys.sopsDecrypt;
+    userBoundary = sys.userBoundary;
+  };
 }
