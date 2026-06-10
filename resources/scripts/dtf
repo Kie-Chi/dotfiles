@@ -75,7 +75,7 @@ usage() {
     echo -e "  ${GREEN}u, update${NC}       Update flake inputs (nixpkgs, etc.)."
     echo -e "  ${GREEN}r, rollback [N|list]${NC} Rollback to generation N, list generations, or go to previous."
     echo -e "  ${GREEN}e, edit${NC}         Open the dotfiles directory in your default editor."
-    echo -e "  ${GREEN}p, push [msg] [remote]${NC}   Commit and push changes with an optional message and remote (default: origin)."
+    echo -e "  ${GREEN}p, push [msg] [remote]${NC}   Commit and push changes to all remotes, or a specified one."
     echo -e "  ${GREEN}st, status${NC}      Show the git status of the dotfiles repository."
     echo -e "  ${GREEN}dif, diff${NC}             Show the git difference of the dotfiles repository."
     echo -e "  ${GREEN}git [args...]${NC}   Execute git commands in the dotfiles directory."
@@ -160,81 +160,54 @@ case "$1" in
 
     p|push)
         commit_msg="${2:-"chore: update configuration"}"
-        remote="${3}"
+        specified_remote="${3}"
         current_branch=$(git branch --show-current)
 
-        # Auto-detect remote and branch if not specified
-        if [ -z "$remote" ]; then
-            # Priority 1: Use upstream if configured (most accurate)
-            upstream_branch=$(git rev-parse --abbrev-ref @{u} 2>/dev/null || echo "")
-            if [ -n "$upstream_branch" ]; then
-                remote="${upstream_branch%%/*}"
-                remote_branch="$upstream_branch"
-            else
-                # Priority 2: Find matching branch in any remote
-                # Prefer 'origin' if it exists, otherwise use first matching remote
-                remote=""
-                remote_branch=""
-
-                # Check origin first (most common case)
-                if git rev-parse --verify "origin/$current_branch" >/dev/null 2>&1; then
-                    remote="origin"
-                    remote_branch="origin/$current_branch"
-                else
-                    # Iterate through all remotes to find matching branch
-                    for r in $(git remote); do
-                        if git rev-parse --verify "$r/$current_branch" >/dev/null 2>&1; then
-                            remote="$r"
-                            remote_branch="$r/$current_branch"
-                            break
-                        fi
-                    done
-                fi
-
-                # Priority 3: No remote branch found, use origin as default
-                if [ -z "$remote" ]; then
-                    # Check if origin exists, otherwise use first remote
-                    if git remote | grep -q "^origin$"; then
-                        remote="origin"
-                    else
-                        remote=$(git remote | head -n1)
-                    fi
-                    remote_branch="$current_branch"
-                fi
-            fi
+# Determine which remotes to push to
+        if [ -z "$specified_remote" ]; then
+            remotes=$(git remote)
         else
-            # Remote specified, check if remote branch exists
-            if git rev-parse --verify "$remote/$current_branch" >/dev/null 2>&1; then
-                remote_branch="$remote/$current_branch"
-            else
-                # Remote branch doesn't exist, push to remote with same branch name
-                remote_branch="$current_branch"
-            fi
+            remotes="$specified_remote"
         fi
 
+        # Commit if there are uncommitted changes
+        committed=false
         if ! git diff-index --quiet HEAD --; then
-            # Has uncommitted changes, stage and commit them
             git add .
-            echo -e "${CYAN}--> Committing and pushing changes to ${remote_branch}...${NC}"
+            echo -e "${CYAN}--> Committing changes...${NC}"
             git commit -m "$commit_msg"
-            git push "$remote" "$current_branch"
-            echo -e "${GREEN}--> Changes pushed successfully!${NC}"
-        else
-            # No staged changes, check if local branch is ahead of remote
-            if git rev-parse --verify "$remote_branch" >/dev/null 2>&1; then
-                local_commits=$(git rev-list --count "${remote_branch}..HEAD" 2>/dev/null || echo "0")
-                if [ "$local_commits" -gt 0 ]; then
-                    echo -e "${CYAN}--> Pushing $local_commits local commit(s) to ${remote_branch}...${NC}"
-                    git push "$remote" "$current_branch"
-                    echo -e "${GREEN}--> Changes pushed successfully!${NC}"
+            committed=true
+        fi
+
+        # Push to each remote
+        failed=0
+        for remote in $remotes; do
+            if git rev-parse --verify "$remote/$current_branch" >/dev/null 2>&1; then
+                local_commits=$(git rev-list --count "${remote}/${current_branch}..HEAD" 2>/dev/null || echo "0")
+                if [ "$local_commits" -gt 0 ] || [ "$committed" = true ]; then
+                    echo -e "${CYAN}--> Pushing to ${remote}/${current_branch}...${NC}"
+                    if git push "$remote" "$current_branch"; then
+                        echo -e "${GREEN}--> Pushed to ${remote} successfully.${NC}"
+                    else
+                        echo -e "${RED}--> Failed to push to ${remote}.${NC}"
+                        failed=$((failed + 1))
+                    fi
                 else
-                    echo -e "${YELLOW}--> Nothing to push. Local branch is up to date with ${remote_branch}.${NC}"
+                    echo -e "${YELLOW}--> Already up to date with ${remote}/${current_branch}.${NC}"
                 fi
             else
                 echo -e "${CYAN}--> Creating new branch on ${remote}/${current_branch}...${NC}"
-                git push -u "$remote" "$current_branch"
-                echo -e "${GREEN}--> Branch pushed successfully!${NC}"
+                if git push -u "$remote" "$current_branch"; then
+                    echo -e "${GREEN}--> Branch pushed to ${remote} successfully.${NC}"
+                else
+                    echo -e "${RED}--> Failed to push to ${remote}.${NC}"
+                    failed=$((failed + 1))
+                fi
             fi
+        done
+
+        if [ "$failed" -gt 0 ]; then
+            echo -e "${RED}--> ${failed} remote(s) failed.${NC}"
         fi
         ;;
 
