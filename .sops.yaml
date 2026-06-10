@@ -1,7 +1,7 @@
 keys:
   # Device keys - managed by dtf key commands
   - &linux_desktop age1gery7k4gpckp770x04ya43jkunl2ealt70tc7h6x7rmpams4j4kqk7732t
-  - &recovery age1kjr29kl3xkh658x9n436ahvtfj322ufjl9s60tw2csyrutqr9v7sft7cer
+  - &recovery age1vl3afgp8tfc3hvj7708sgept9wflqvl89zjwps98ut2wxs7j5fmq8s29ca
 
 creation_rules:
   - path_regex: secrets/secrets\.yaml$
