@@ -377,7 +377,7 @@ def key_list() -> None:
 
     table = Table(title="Age Keys in .sops.yaml")
     table.add_column("Label", style="cyan")
-    table.add_column("Public Key (truncated)", style="white")
+    table.add_column("Public Key", style="white")
     table.add_column("Status")
 
     for label, pubkey in keys.items():
