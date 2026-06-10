@@ -6,14 +6,25 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRES_SCRIPT="$BASE_DIR/requires.sh"
 
 # ==========================================
-# STEP 1: Ensure Nix is installed
+# STEP 1: Ensure Nix is available
 # ==========================================
+
+# Source Nix profile if not already in PATH (fresh install scenario)
+if ! command -v nix >/dev/null 2>&1; then
+    if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+        . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+    fi
+fi
 
 if ! command -v nix >/dev/null 2>&1; then
     echo "[INFO] Nix not found. Installing..."
     if [ -f "$REQUIRES_SCRIPT" ]; then
         chmod +x "$REQUIRES_SCRIPT"
         "$REQUIRES_SCRIPT"
+        # Source Nix profile again after fresh install
+        if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+            . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+        fi
     else
         echo "[ERROR] requires.sh not found and Nix is not installed!"
         exit 1

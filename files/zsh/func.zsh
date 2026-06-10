@@ -34,6 +34,41 @@ copypath() {
 # Alias it if you want
 alias cpd='copypath'
 
+copyfile() {
+  # Copy file content to clipboard
+  local file="$1"
+
+  if [ -z "$file" ]; then
+    print "copyfile: no file specified" >&2
+    return 1
+  fi
+
+  if [ ! -f "$file" ]; then
+    print "copyfile: $file not found" >&2
+    return 1
+  fi
+
+  # Detect OS and use appropriate clipboard command
+  if [[ "$OSTYPE" == darwin* ]]; then
+    cat "$file" | pbcopy
+  else
+    if command -v xclip > /dev/null; then
+      cat "$file" | xclip -selection clipboard
+    elif command -v xsel > /dev/null; then
+      cat "$file" | xsel --clipboard --input
+    elif command -v copyq > /dev/null; then
+      copyq copy "$(cat "$file")"
+    else
+      print "copyfile: no clipboard tool found (xclip/xsel/copyq)" >&2
+      return 1
+    fi
+  fi
+
+  echo "Copied file content to clipboard: $file"
+}
+
+alias cpf='copyfile'
+
 
 mkcd() {
     mkdir -p "$1" && cd "$1"
