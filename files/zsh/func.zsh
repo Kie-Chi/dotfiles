@@ -418,6 +418,8 @@ _dtf() {
                 'gc:Alias for clean'
                 'h:Alias for help'
                 'help:Show the help message'
+                'k:Alias for key'
+                'key:Manage age keys for sops encryption'
                 'p:Alias for push'
                 'push:Commit and push changes with an optional message'
                 'r:Alias for rollback'
@@ -437,6 +439,69 @@ _dtf() {
             ;;
         args)
             case $line[1] in
+                k|key)
+                    if (( CURRENT == 3 )); then
+                        local -a key_commands
+                        key_commands=(
+                            'ls:Alias for list'
+                            'list:Show keys in .sops.yaml + current device status'
+                            'st:Alias for status'
+                            'status:Check key status and decryptability'
+                            'a:Alias for add'
+                            'add:Add a device key to .sops.yaml'
+                            'rm:Alias for remove'
+                            'remove:Remove a device key from .sops.yaml'
+                            'ex:Alias for export'
+                            'export:Export current device key for transfer'
+                            'im:Alias for import'
+                            'import:Import a key for current device'
+                            'rotate:Rotate current device age key'
+                            'ar:Alias for add-recovery'
+                            'add-recovery:Generate a recovery key'
+                            'rr:Alias for recover-recovery'
+                            'recover-recovery:Decrypt stored recovery key'
+                        )
+                        _describe -t key_commands 'dtf key subcommands' key_commands
+                    elif (( CURRENT >= 4 )); then
+                        local key_cmd="${words[3]}"
+                        case "$key_cmd" in
+                            a|add)
+                                _arguments \
+                                    '1:Age public key (age1...):' \
+                                    '-l:Label for this key:'
+                                ;;
+                            rm|remove)
+                                local -a labels
+                                labels=(${(f)"$(grep '&\S' "${DOTFILES_DIR:-${HOME}/.dotfiles}/.sops.yaml" 2>/dev/null | sed 's/.*&\(\S\+\).*/\1/')"})
+                                _arguments \
+                                    '1:Key label:_describe "key labels" labels' \
+                                    '-f:Allow removing current device key'
+                                ;;
+                            ex|export)
+                                _arguments \
+                                    '-F:Export format:(age ssh)' \
+                                    '-o:Output file:_files'
+                                ;;
+                            rotate)
+                                _arguments \
+                                    '-r:Rotate recovery key instead'
+                                ;;
+                            im|import)
+                                _arguments \
+                                    '-a:Path to age key file:_files' \
+                                    '-s:Path to SSH private key:_files' \
+                                    '-g:Generate a new age key' \
+                                    '-l:Device label:'
+                                ;;
+                            ar|add-recovery)
+                                ;;
+                            rr|recover-recovery)
+                                _arguments \
+                                    '-o:Output file:_files'
+                                ;;
+                        esac
+                    fi
+                    ;;
                 p|push)
                     if (( CURRENT == 3 )); then
                         # Second argument: commit message
