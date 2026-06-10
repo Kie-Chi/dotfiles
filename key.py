@@ -53,6 +53,18 @@ def run_cmd(cmd: List[str], stdin_data: Optional[str] = None, check: bool = True
     return result.stdout.strip()
 
 
+def _is_sops_encrypted(path: Path) -> bool:
+    """Check whether a YAML file contains sops metadata."""
+    try:
+        with open(path) as f:
+            for line in f:
+                if line.startswith("sops:"):
+                    return True
+    except (OSError, UnicodeDecodeError):
+        return False
+    return False
+
+
 def sanitize_label(name: str) -> str:
     return re.sub(r'[^a-z0-9_]', '_', name.lower())
 
@@ -122,29 +134,52 @@ def run_sops_updatekeys() -> None:
     if not SECRETS_FILE.exists():
         console.print("[yellow]No secrets file to updatekeys.[/yellow]")
         return
+    if not _is_sops_encrypted(SECRETS_FILE):
+        console.print("[yellow]secrets.yaml is not sops-encrypted.[/yellow]")
+        console.print("To use sops-nix, secrets.yaml must be encrypted with your device keys.")
+        try:
+            answer = pt_prompt("Encrypt secrets.yaml now? [Y/n]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer in ("n", "no"):
+            console.print("[dim]Skipping updatekeys — secrets.yaml remains unencrypted.[/dim]")
+            return
+        console.print("[cyan]Encrypting secrets.yaml...[/cyan]")
+        run_cmd(["sops", "--encrypt", "--in-place", str(SECRETS_FILE)])
     run_cmd(["sops", "updatekeys", "--yes", str(SECRETS_FILE)])
     console.print("[green]Secrets re-encrypted with updated key list.[/green]")
 
 
-def git_commit_sops_files() -> None:
+def git_commit_sops_files(operation: str = "") -> None:
     if not (BASE_DIR / ".git").exists():
         return
+
+    label = get_device_label()
+    scope = f"sops/{operation}" if operation else "sops"
+
+    # Stage sops files and detect which ones actually changed
     files = [str(SOPS_YAML), str(SECRETS_FILE), str(RECOVERY_KEY_FILE)]
-    committed = []
+    changed = []
+
     for f in files:
         if not Path(f).exists():
             continue
-        try:
-            run_cmd(["git", "-C", str(BASE_DIR), "diff", "--quiet", f], check=False)
-        except subprocess.CalledProcessError:
-            run_cmd(["git", "-C", str(BASE_DIR), "add", f], check=False)
-            committed.append(Path(f).name)
-    if committed:
-        msg = f"chore: update sops keys ({', '.join(committed)})"
-        run_cmd(["git", "-C", str(BASE_DIR), "commit", "-m", msg], check=False)
-        console.print(f"[green]{', '.join(committed)} committed[/green]")
-    else:
+        run_cmd(["git", "-C", str(BASE_DIR), "add", f], check=False)
+        rc = subprocess.run(
+            ["git", "-C", str(BASE_DIR), "diff", "--cached", "--quiet", "--", f],
+            capture_output=True, text=True, check=False,
+        ).returncode
+        if rc == 1:
+            changed.append(f)
+
+    if not changed:
         console.print("[dim]sops files: no changes to commit[/dim]")
+        return
+
+    names = [Path(f).name for f in changed]
+    msg = f"chore({scope}): update keys on {label} ({', '.join(names)})"
+    run_cmd(["git", "-C", str(BASE_DIR), "commit", "-m", msg, "--"] + changed, check=False)
+    console.print(f"[green]{', '.join(names)} committed[/green]")
 
 
 # ==========================================
@@ -226,11 +261,86 @@ def key_add_recovery() -> None:
     if SECRETS_FILE.exists():
         run_sops_updatekeys()
 
-    git_commit_sops_files()
+    git_commit_sops_files("add_recovery")
     console.print(f"[green]Recovery key generated and added to .sops.yaml.[/green]")
     console.print(f"[dim]Recovery public key: {recovery_pub[:30]}...[/dim]")
     console.print("[cyan]Recovery private key is stored encrypted at secrets/recovery-key.age[/cyan]")
     console.print("[yellow]IMPORTANT: Also save the recovery key offline (USB/paper/password manager) as ultimate backup.[/yellow]")
+
+
+def key_seal_recovery(priv_path: Optional[str] = None) -> None:
+    """Encrypt a recovery private key into secrets/recovery-key.age.
+
+    If priv_path is given, read from that file.
+    Otherwise, try to read from the current AGE_KEY_FILE (when device key IS the recovery key).
+    """
+    keys = read_sops_yaml_keys()
+    if "recovery" not in keys:
+        console.print("[red]No recovery key in .sops.yaml. Run 'dtf key add-recovery' first.[/red]")
+        return
+
+    if RECOVERY_KEY_FILE.exists():
+        console.print("[yellow]recovery-key.age already exists. Re-encrypting with updated key list...[/yellow]")
+        # Re-encrypt existing file with current keys instead of creating new
+        reencrypt_recovery_key(keys)
+        return
+
+    # Get recovery private key content
+    if priv_path:
+        src = Path(priv_path).expanduser()
+        if not src.exists():
+            console.print(f"[red]File not found: {src}[/red]")
+            return
+        recovery_priv = src.read_text().strip()
+    else:
+        # Read from current device key (if it IS the recovery key)
+        current_pub = get_current_device_public_key()
+        if not current_pub:
+            console.print("[red]No current device key.[/red]")
+            console.print("[yellow]Provide recovery private key path: dtf key seal-recovery <path>[/yellow]")
+            return
+        if current_pub != keys["recovery"]:
+            console.print("[red]Current device key is not the recovery key.[/red]")
+            console.print("[yellow]Provide recovery private key path: dtf key seal-recovery <path>[/yellow]")
+            return
+        recovery_priv = AGE_KEY_FILE.read_text().strip()
+
+    # Validate: derive public key and verify matches recovery pub in .sops.yaml
+    priv_lines = [l for l in recovery_priv.split("\n") if l.startswith("AGE-SECRET-KEY")]
+    if not priv_lines:
+        console.print("[red]Provided key does not contain AGE-SECRET-KEY.[/red]")
+        return
+
+    priv_line = priv_lines[0]
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', dir=str(SECRETS_DIR), delete=False) as tmp:
+        tmp.write(priv_line + "\n")
+        tmp_path = tmp.name
+    try:
+        os.chmod(tmp_path, 0o600)
+        derived_pub = run_cmd(["age-keygen", "-y", tmp_path])
+    finally:
+        os.unlink(tmp_path)
+
+    if derived_pub != keys["recovery"]:
+        console.print("[red]Derived public key does not match recovery key in .sops.yaml.[/red]")
+        console.print(f"[dim]Expected: {keys['recovery'][:30]}...[/dim]")
+        console.print(f"[dim]Got:      {derived_pub[:30]}...[/dim]")
+        return
+
+    # Encrypt with all keys from .sops.yaml
+    recipients = list(keys.values())
+    encrypt_args = ["age", "--encrypt"]
+    for pub in recipients:
+        encrypt_args.extend(["-r", pub])
+    encrypt_args.extend(["-o", str(RECOVERY_KEY_FILE)])
+
+    run_cmd(encrypt_args, stdin_data=priv_line + "\n")
+
+    if SECRETS_FILE.exists():
+        run_sops_updatekeys()
+    git_commit_sops_files("seal_recovery")
+    console.print("[green]Recovery private key sealed into secrets/recovery-key.age[/green]")
+    console.print("[dim]Encrypted for all device keys in .sops.yaml[/dim]")
 
 
 def key_recover_recovery(output: Optional[str] = None) -> None:
@@ -392,7 +502,7 @@ def key_add(pubkey: str, label: Optional[str] = None) -> None:
             console.print("[yellow]sops updatekeys failed — secrets may not be re-encrypted for the new key yet.[/yellow]")
             console.print("[yellow]Verify the key is valid and run 'sops updatekeys --yes secrets/secrets.yaml' manually.[/yellow]")
 
-    git_commit_sops_files()
+    git_commit_sops_files("add")
     console.print(f"[green]Key '{label}' added.[/green]")
 
 
@@ -425,7 +535,7 @@ def key_remove(label: str, force: bool = False) -> None:
     reencrypt_recovery_key(keys)
 
     run_sops_updatekeys()
-    git_commit_sops_files()
+    git_commit_sops_files("remove")
     console.print(f"[green]Key '{label}' ({removed_pub[:24]}...) removed.[/green]")
     console.print("[yellow]That device will NO LONGER be able to decrypt secrets.[/yellow]")
 
@@ -684,10 +794,51 @@ def key_import(age_path: Optional[str] = None, ssh_path: Optional[str] = None,
 
     if SECRETS_FILE.exists():
         run_sops_updatekeys()
-    git_commit_sops_files()
+    git_commit_sops_files("import")
 
     console.print(f"[green]Key imported and added to .sops.yaml as '{current_label}'.[/green]")
     console.print(f"[green]Public key: {pub}[/green]")
+
+    # Warn if recovery public key exists but recovery-key.age is missing
+    if "recovery" in keys and not RECOVERY_KEY_FILE.exists():
+        console.print("[bold yellow]WARNING: Recovery key is in .sops.yaml but secrets/recovery-key.age is missing.[/bold yellow]")
+        console.print("[yellow]Without recovery-key.age, you cannot export (dtf key rr) the recovery private key from this device.[/yellow]")
+        console.print("[yellow]The recovery private key will also be lost after key rotation.[/yellow]")
+
+    # Warn if device key overlaps with recovery key
+    keys = read_sops_yaml_keys()
+    if "recovery" in keys and pub == keys["recovery"]:
+        console.print("[bold yellow]WARNING: Your device key is the same as the recovery key.[/bold yellow]")
+        console.print("The recovery key should be kept separate for offline backup.")
+        console.print("It is recommended to rotate your device key to generate an independent one.")
+
+        # Seal recovery key before rotation if recovery-key.age doesn't exist
+        if not RECOVERY_KEY_FILE.exists():
+            console.print("[cyan]The recovery private key needs to be sealed into secrets/recovery-key.age.[/cyan]")
+            console.print("[dim]Sealing encrypts the recovery private key with all device public keys[/dim]")
+            console.print("[dim]so it can be safely stored in the git repo and decrypted on any enrolled device.[/dim]")
+            console.print("[yellow]If you skip sealing now, the recovery private key will be permanently lost after rotation,[/yellow]")
+            console.print("[yellow]and you will never be able to export it again (dtf key rr).[/yellow]")
+            try:
+                answer = pt_prompt("Seal recovery key into recovery-key.age? [Y/n]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = ""
+            if answer in ("n", "no"):
+                console.print("[yellow]Skipping seal. The recovery private key will be lost after key rotation![/yellow]")
+                console.print("[yellow]Run 'dtf key seal-recovery' manually before rotating if you want to preserve it.[/yellow]")
+            else:
+                key_seal_recovery()
+
+        try:
+            answer = pt_prompt("Rotate device key now? [Y/n]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer not in ("n", "no"):
+            key_rotate()
+            new_pub = get_current_device_public_key()
+            console.print(f"[green]Device key rotated. New public key: {new_pub}[/green]")
+            return new_pub
+
     return pub
 
 
@@ -746,7 +897,7 @@ def key_rotate(recovery: bool = False) -> None:
         keys.pop("recovery_new")
         write_sops_yaml_keys(keys)
         run_sops_updatekeys()
-        git_commit_sops_files()
+        git_commit_sops_files("rotate_recovery")
 
         console.print(f"[green]Recovery key rotated. New: {new_recovery_pub[:30]}...[/green]")
         console.print("[yellow]IMPORTANT: Save the new recovery key offline (USB/paper/password manager).[/yellow]")
@@ -811,7 +962,7 @@ def key_rotate(recovery: bool = False) -> None:
     if os.path.exists(tmp_path):
         os.unlink(tmp_path)
 
-    git_commit_sops_files()
+    git_commit_sops_files("rotate")
 
     console.print(f"[green]Key rotation complete for '{label}'.[/green]")
     console.print(f"[green]New public key: {new_pub}[/green]")
@@ -851,6 +1002,8 @@ def main():
     p_import.add_argument("-l", "--label", help="Device label")
 
     sub.add_parser("add-recovery", aliases=["ar"], help="Generate a recovery key")
+    p_seal = sub.add_parser("seal-recovery", aliases=["sr"], help="Encrypt recovery private key into recovery-key.age")
+    p_seal.add_argument("priv_path", nargs="?", default=None, help="Path to recovery private key file (omit if current device key IS the recovery key)")
     p_recover = sub.add_parser("recover-recovery", aliases=["rr"], help="Decrypt stored recovery key")
     p_recover.add_argument("-o", "--output", help="Save decrypted recovery key to file")
 
@@ -865,6 +1018,7 @@ def main():
         "rotate": lambda: key_rotate(args.recovery),
         "import": lambda: key_import(args.age, args.ssh, args.generate, args.label), "im": lambda: key_import(args.age, args.ssh, args.generate, args.label),
         "add-recovery": lambda: key_add_recovery(), "ar": lambda: key_add_recovery(),
+        "seal-recovery": lambda: key_seal_recovery(args.priv_path), "sr": lambda: key_seal_recovery(args.priv_path),
         "recover-recovery": lambda: key_recover_recovery(args.output), "rr": lambda: key_recover_recovery(args.output),
     }
     dispatch[args.command]()

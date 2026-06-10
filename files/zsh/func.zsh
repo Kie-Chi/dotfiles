@@ -463,7 +463,7 @@ _dtf() {
                 'st:Alias for status'
                 'status:Show the git status of the dotfiles repository'
                 'd:Alias for diff'
-                'dif:Alias for dif'
+                'dif:Alias for diff'
                 'diff:Show the git difference of the dotfiles repository'
                 'git:Execute git commands in the dotfiles directory'
                 'sync:Pull latest changes from git and then apply'
@@ -495,6 +495,8 @@ _dtf() {
                             'add-recovery:Generate a recovery key'
                             'rr:Alias for recover-recovery'
                             'recover-recovery:Decrypt stored recovery key'
+                            'sr:Alias for seal-recovery'
+                            'seal-recovery:Encrypt recovery private key into recovery-key.age'
                         )
                         _describe -t key_commands 'dtf key subcommands' key_commands
                     elif (( CURRENT >= 4 )); then
@@ -533,6 +535,10 @@ _dtf() {
                             rr|recover-recovery)
                                 _arguments \
                                     '-o:Output file:_files'
+                                ;;
+                            sr|seal-recovery)
+                                _arguments \
+                                    '1:Path to recovery private key:_files'
                                 ;;
                         esac
                     fi
