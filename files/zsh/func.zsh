@@ -456,7 +456,7 @@ _dtf() {
                 'k:Alias for key'
                 'key:Manage age keys for sops encryption'
                 'p:Alias for push'
-                'push:Commit and push changes with an optional message'
+                'push:Commit and push changes to all remotes, or a specified one'
                 'r:Alias for rollback'
                 'rollback:Rollback to a previous configuration generation'
                 's:Alias for sync'
@@ -549,16 +549,14 @@ _dtf() {
                     ;;
                 p|push)
                     if (( CURRENT == 3 )); then
-                        # Second argument: commit message
-                        _message "Commit message (optional)"
+                        _message "Commit message (default: chore: update configuration)"
                     elif (( CURRENT == 4 )); then
-                        # Third argument: remote name
                         local -a remotes
                         remotes=($(git -C "${DOTFILES_DIR:-${HOME}/.dotfiles}" remote 2>/dev/null))
                         if [[ ${#remotes[@]} -gt 0 ]]; then
-                            _describe -t remotes 'git remotes' remotes
+                            _describe -t remotes 'remote (omit to push all)' remotes
                         else
-                            _message "Remote name (default: origin)"
+                            _message "Remote name (omit to push all)"
                         fi
                     fi
                     ;;
