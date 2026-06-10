@@ -4,6 +4,10 @@ let
   sopsHomePasswdPath = config.sops.secrets.home-passwd.path;
   hasSopsSecrets = config.sops.secrets != {};
 
+  sopsDecryptScript = if hasSopsSecrets then
+    toString (builtins.head config.systemd.user.services.sops-nix.Service.ExecStart)
+  else null;
+
   sys = rec {
     cmds = {
       # Linux system tools (outside Nix sandbox)
@@ -68,8 +72,12 @@ let
 
     sopsDecrypt = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       _LOG_CTX="sopsDecrypt"
-      # sops-nix on Linux uses systemd services for decryption;
-      # the secrets are automatically decrypted by sops-nix during activation.
+      ${lib.optionalString (sopsDecryptScript != null) ''
+        if [ -x "${sopsDecryptScript}" ]; then
+          log_info "Decrypting sops secrets..."
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" "${sopsDecryptScript}" || log_warn "sops-nix decryption failed — secrets may be unavailable"
+        fi
+      ''}
       # Read sudo password from decrypted secret
       if [ -f "${sopsHomePasswdPath}" ]; then
         SUDO_PWD=$(cat "${sopsHomePasswdPath}")
