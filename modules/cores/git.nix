@@ -1,12 +1,12 @@
-{ pkgs, lib, secrets, config, ... }:
+{ pkgs, cfg, lib, ... }:
 
 {
   programs.git = {
     enable = true;
     settings = {
       user = {
-        name = secrets.git.name or "Somebody";
-        email = secrets.git.email or "example@email.com";
+        name = cfg.git.name or "Somebody";
+        email = cfg.git.email or "example@email.com";
       };
 
       alias = {
@@ -30,7 +30,7 @@
       core = {
         editor = "vim";
       };
-      
+
     };
   };
 }

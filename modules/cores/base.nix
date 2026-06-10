@@ -6,43 +6,47 @@
 #
 ###################################
 
-{ pkgs, config, secrets, lib, sys, ... }:
+{ pkgs, config, cfg, lib, sys, ... }:
 
 let
   nixCustomConfig = {
-    trusted-users = "root ${secrets.home.user}";
+    trusted-users = "root ${cfg.home.user}";
   };
 in
 {
     home.packages = with pkgs; [
     # base
-    git 
+    git
+    git-lfs
     tmux
-    systemd
+    git-filter-repo
 
     # crypt
     git-crypt
     gnupg
+    sops
+    age
 
     # network
-    curl 
+    curl
     wget
     wireshark
     rclone
 
     # system
-    btop 
+    btop
     htop
-    
+    ncdu
+
     # tools
     unzip
     jq
+    javaPackages.compiler.openjdk21
 
     # opt
     ripgrep
     bat
     tree
-    chsrc
     neovim-remote
   ];
 

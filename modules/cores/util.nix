@@ -3,8 +3,6 @@
 let
   dotfilesSrc = lib.cleanSource ../../.;
   scriptsPath = dotfilesSrc + "/resources/scripts";
-  helpersPath = dotfilesSrc + "/resources/helpers";
-
 
   packageScriptsFromDir = dirPath:
     let dirContents = builtins.readDir dirPath;
@@ -18,9 +16,9 @@ let
       )
       dirContents;
   packagedScripts = packageScriptsFromDir scriptsPath;
-  packagedHelpers = packageScriptsFromDir helpersPath;
 
 in
 {
-  home.packages = packagedScripts ++ packagedHelpers;
+  home.packages = packagedScripts;
+  home.file.".config/ccli/prompt".source = ../../files/ccli/prompt;
 }

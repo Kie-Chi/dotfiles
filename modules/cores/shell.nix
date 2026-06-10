@@ -1,12 +1,15 @@
-{ pkgs, lib, config, secrets, isDesktop, ... }:
+{ pkgs, lib, config, cfg, sys, ... }:
 
+let
+  isDesktop = (cfg.home.option or "desktop") == "desktop";
+in
 {
   programs.zsh = {
     enable = true;
     autosuggestion.enable = true;
     syntaxHighlighting.enable = true;
     historySubstringSearch.enable = true;
-    
+
     oh-my-zsh = {
       enable = true;
       plugins = [ "git" "sudo" "docker" "web-search" "z" "command-not-found" "colored-man-pages" "history" "pip" "python" "golang" ];
@@ -42,7 +45,7 @@
     sessionVariables = {
       LANG = "en_US.UTF-8";
       EDITOR = if isDesktop then "code" else "nvim";
-      DOTFILES_DIR = secrets.dotfiles.path;
+      DOTFILES_DIR = cfg.dotfiles.path;
     } // lib.optionalAttrs isDesktop {
       XMODIFIERS = "@im=fcitx";
       GTK_IM_MODULE = "fcitx";
@@ -51,24 +54,22 @@
     };
 
     shellAliases = {
-      zshconf = "nvim ${secrets.dotfiles.path}/modules/cores/shell.nix";
+      zshconf = "nvim ${cfg.dotfiles.path}/modules/cores/shell.nix";
       omzconf = "nvim ~/.oh-my-zsh";
-      
+
       ll = "ls -alh";
       ".." = "cd ..";
       "..." = "cd ../..";
       myip = "ip -c -br a";
-      ports = "sudo ss -nultp";
+      ports = "esudo ss -nultp";
       py = "python3";
       rcat = "command cat";
       grep = "rg";
-      
     };
-
 
     initContent = ''
       [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
-      
+
       ${builtins.readFile ../../files/zsh/opt.zsh}
       ${builtins.readFile ../../files/zsh/func.zsh}
 
@@ -90,17 +91,19 @@
 
   home.file.".p10k.zsh".source = ../../files/zsh/p10k.zsh;
 
-  home.activation.setZshAsDefault = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    zsh_path="${config.home.profileDirectory}/bin/zsh"
-    if [ "$SHELL" != "$zsh_path" ]; then
-      echo "Setting Zsh as default shell..."
-      if ! grep -q "$zsh_path" /etc/shells; then
-        echo "Adding $zsh_path to /etc/shells"
-        echo "$zsh_path" | /usr/bin/sudo tee -a /etc/shells > /dev/null
+  home.activation.setZshAsDefault = sys.task.activation {
+    name = "setZshAsDefault";
+    asRoot = true;
+    script = ''
+      zsh_path="${config.home.profileDirectory}/bin/zsh"
+      if [ "$SHELL" != "$zsh_path" ]; then
+        log_info "Setting Zsh as default shell..."
+        if ! ${sys.cmds.grep} -q "$zsh_path" /etc/shells; then
+          echo "$zsh_path" | esudo tee -a /etc/shells > /dev/null
+        fi
+        esudo chsh -s "$zsh_path" ${cfg.home.user}
+        log_info "Default shell changed to Zsh. Please relogin."
       fi
-      /usr/bin/sudo chsh -s "$zsh_path" ${secrets.home.user}
-      echo "Default shell changed to Zsh. Please relogin."
-    fi
-  '';
-
+    '';
+  };
 }
