@@ -12,6 +12,7 @@ from typing import Callable, List, Optional
 import yaml
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
@@ -280,24 +281,39 @@ def write_secrets_yaml(values: dict) -> None:
             d = d.setdefault(part, {})
         d[parts[-1]] = values.get(f.path, "")
 
-    # Write to temp file first, encrypt, then atomic rename
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".yaml", dir=str(SECRETS_DIR))
+    backup = SECRETS_FILE.with_suffix(".yaml.bak")
+    had_existing = SECRETS_FILE.exists()
+
+    # Backup existing encrypted secrets before any modification
+    if had_existing:
+        os.replace(str(SECRETS_FILE), str(backup))
+
     try:
-        with os.fdopen(tmp_fd, 'w') as fh:
+        # Write unencrypted data to the real path (matches .sops.yaml path_regex)
+        with open(SECRETS_FILE, "w") as fh:
             yaml.dump(data, fh, default_flow_style=False, allow_unicode=True)
 
-        try:
-            run_cmd(["sops", "--encrypt", "--in-place", tmp_path])
-            os.replace(tmp_path, str(SECRETS_FILE))
-        except subprocess.CalledProcessError:
-            console.print("[red]sops encryption failed[/red]")
-            console.print("[red]ABORTING: secrets.yaml will NOT be written unencrypted.[/red]")
-            os.unlink(tmp_path)
-            raise RuntimeError("sops encryption failed — refusing to leave secrets unencrypted")
+        # Encrypt in-place; filename matches creation rules so sops can find config
+        keys = read_sops_yaml_keys()
+        age_recipients = ",".join(keys.values())
+        run_cmd(["sops", "--encrypt", "--in-place", "--age", age_recipients, str(SECRETS_FILE)])
     except Exception:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        raise
+        # Encryption failed — rollback to backup immediately
+        console.print("[red]sops encryption failed[/red]")
+        console.print("[red]ABORTING: secrets.yaml will NOT be written unencrypted.[/red]")
+        if had_existing and backup.exists():
+            os.replace(str(backup), str(SECRETS_FILE))
+            console.print("[green]Rolled back to previous encrypted secrets.yaml[/green]")
+        else:
+            # No backup means secrets.yaml didn't exist before — remove the unencrypted file
+            if SECRETS_FILE.exists():
+                os.unlink(str(SECRETS_FILE))
+            console.print("[yellow]No previous secrets.yaml to restore — unencrypted file removed.[/yellow]")
+        raise RuntimeError("sops encryption failed — refusing to leave secrets unencrypted")
+
+    # Success — discard backup
+    if backup.exists():
+        os.unlink(str(backup))
 
 
 # git_commit_sops_files is imported from key.py
@@ -667,7 +683,7 @@ def save_all(values: dict) -> None:
         progress.update(t5, completed=True)
 
         t6 = progress.add_task("Committing sops files...", total=None)
-        git_commit_sops_files()
+        git_commit_sops_files("setup")
         progress.update(t6, completed=True)
 
 
@@ -729,6 +745,7 @@ def main():
         answer = pt_prompt("? Apply configuration now (dtf apply)? [y/N]: ")
         if answer.lower().startswith("y"):
             console.print("[cyan]Running dtf apply...[/cyan]")
+            os.chmod(str(dtf_script), 0o755)
             result = subprocess.run(
                 [str(dtf_script), "apply"],
                 cwd=str(BASE_DIR),
