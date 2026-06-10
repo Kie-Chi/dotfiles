@@ -1,0 +1,12 @@
+keys:
+  # Device keys - managed by dtf key commands
+  # Add your Linux device age public key here after running: dtf key add
+  - &linux_desktop age1_________REPLACE_WITH_YOUR_PUBLIC_KEY_________
+  - &recovery age1kjr29kl3xkh658x9n436ahvtfj322ufjl9s60tw2csyrutqr9v7sft7cer
+
+creation_rules:
+  - path_regex: secrets/secrets\.yaml$
+    key_groups:
+      - age:
+          - *linux_desktop
+          - *recovery
