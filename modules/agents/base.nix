@@ -1,17 +1,13 @@
-{ pkgs, config, lib, secrets, isDesktop, sys, ... }:
+{ pkgs, config, lib, cfg, ... }:
 
 let
   npmPrefix = "$HOME/.npm-global";
 in
 {
   home.sessionVariables = {
-    # Agent API keys
-    API_KEY = secrets.agent.apikey;
-    DASHSCOPE_API_KEY = secrets.agent.apikey;
-
-    # Anthropic proxy configuration
+    # Agent API keys (from sops env-secrets template, sourced in shell)
+    # These are also set via sops.templates."env-secrets" in home.nix
     ANTHROPIC_BASE_URL = "https://dashscope.aliyuncs.com/apps/anthropic";
-    ANTHROPIC_API_KEY = secrets.agent.apikey;
     ANTHROPIC_MODEL = "glm-5.1";
 
     # NPM global configuration (for agent npm tools: codegraph)
@@ -28,7 +24,7 @@ in
     # Agent CLIs
     claude-code
     codex
-  ] ++ lib.optionals isDesktop [
+  ] ++ lib.optionals ((cfg.home.option or "desktop") == "desktop") [
     # Agent IDE (desktop only)
     code-cursor
   ];

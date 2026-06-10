@@ -1,12 +1,13 @@
-{ pkgs, lib, isDesktop, sys, ... }:
+{ pkgs, lib, cfg, sys, ... }:
 
-let 
+let
+  isDesktop = (cfg.home.option or "desktop") == "desktop";
   systempkgs = [
     # systempkgs both desktop and server use
   ] ++ lib.optionals isDesktop [
-    { 
-      pkg = "wechat"; 
-      url = "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb"; 
+    {
+      pkg = "wechat";
+      url = "https://dldir1v6.qq.com/weixin/Universal/Linux/WeChatLinux_x86_64.deb";
       install = ''
         pkg_install_files "$target"
       '';
@@ -33,7 +34,7 @@ in
     name = "network-pkgs";
     pre = ''
       MISSING_NET_PKGS=""
-      log_debug "configured platform.pkgManager='${sys.platform.pkgManager}'"
+      log_debug "starting network package installation"
     '';
     script = ''
       PKG_MANAGER="$(detect_pkg_manager)"

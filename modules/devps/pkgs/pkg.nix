@@ -1,13 +1,7 @@
-###################################
-#
-#
-#   SYSTEM PACKAGES FOR MYSYSTEM
-#
-#
-###################################
-{ lib, sys, isDesktop, ... }:
+{ lib, sys, cfg, ... }:
 
-let 
+let
+  isDesktop = (cfg.home.option or "desktop") == "desktop";
   systempkgs = [
     "cifs-utils"
     "openssh-server"
@@ -23,7 +17,7 @@ in
       RAW_PKGS=(${pkgStrings})
       MISSING_PKGS=""
       CURRENT_KERNEL="$(uname -r)"
-      log_debug "configured platform.pkgManager='${sys.platform.pkgManager}'"
+      log_debug "starting system package installation"
     '';
     script = ''
       PKG_MANAGER="$(detect_pkg_manager)"

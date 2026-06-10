@@ -1,4 +1,4 @@
-{ pkgs, config, sys, nixGLDefault, ... }:
+{ pkgs, config, sys, cfg, nixGLDefault, ... }:
 
 let
   xresourceDesktop = pkgs.runCommand "xresource-desktop" {} ''
@@ -22,7 +22,7 @@ in
     steam-run
     (writeShellScriptBin "waydroid-helper" ''
       exec ${pkgs.steam-run}/bin/steam-run ${waydroid-helper}/bin/waydroid-helper "$@"
-    '')    
+    '')
     waydroid-nftables
     kdePackages.okular
     pavucontrol
@@ -32,8 +32,8 @@ in
           --add-flags "--no-sandbox" \
           --add-flags "--disable-gpu-sandbox" \
           --set XDG_CURRENT_DESKTOP "niri" \
-          --prefix PATH : ${pkgs.lib.makeBinPath [ 
-            pkgs.xdg-utils 
+          --prefix PATH : ${pkgs.lib.makeBinPath [
+            pkgs.xdg-utils
             pkgs.google-chrome
           ]}
       '';
@@ -50,8 +50,8 @@ in
   ];
 
   xresources.properties = {
-    # 144 (1.5倍), 168 (1.75倍), 192 (2倍)
-    "Xft.dpi" = 144; 
+    # 144 (1.5x), 168 (1.75x), 192 (2x)
+    "Xft.dpi" = 144;
   };
   xsession.enable = true;
 
@@ -78,7 +78,7 @@ in
       name = "WeChat";
       comment = "WeChat Desktop App";
       exec = "usr/bin/wechat";
-      icon = "wechat"; 
+      icon = "wechat";
       terminal = false;
       categories = [ "Utility" ];
     };
@@ -92,11 +92,13 @@ in
     categories = [ "System" ];
   };
 
-  home.activation.installWayDroid = sys.task.root {
+  home.activation.installWayDroid = sys.task.activation {
+    name = "installWayDroid";
+    asRoot = true;
     script = ''
       ${sys.cmds.curl} -fsSL https://repo.waydro.id > /tmp/waydroid.sh
       if pkg_installed "waydroid"; then
-        echo "Package 'waydroid' is already installed."
+        log_info "Package 'waydroid' is already installed."
       else
         esudo bash /tmp/waydroid.sh
         esudo ${sys.cmds.apt} install -y waydroid

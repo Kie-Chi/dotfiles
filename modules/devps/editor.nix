@@ -1,5 +1,8 @@
-{ pkgs, lib, isDesktop, ... }:
+{ pkgs, lib, cfg, ... }:
 
+let
+  isDesktop = (cfg.home.option or "desktop") == "desktop";
+in
 {
   programs.vscode = lib.mkIf isDesktop {
     enable = true;

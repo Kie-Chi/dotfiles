@@ -24,7 +24,7 @@ in
         "DISPLAY=:0"
         "XAUTHORITY=%h/.Xauthority"
       ];
-      
+
       Restart = "always";
       RestartSec = 5;
     };
@@ -57,7 +57,9 @@ in
 
   home.file.".screen".source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/.mac_screen";
 
-  home.activation.setupSunshineInput = sys.task.root {
+  home.activation.setupSunshineInput = sys.task.activation {
+    name = "setupSunshineInput";
+    asRoot = true;
     message = "Setting up Sunshine uinput permissions...";
     script = ''
       ${sys.deploy {
@@ -79,7 +81,7 @@ in
         mode = "0644";
       }}
 
-      if ! id -nG "${config.home.username}" | grep -qw input; then
+      if ! id -nG "${config.home.username}" | ${sys.cmds.grep} -qw input; then
         esudo ${sys.cmds.usermod} -aG input ${config.home.username}
       fi
 

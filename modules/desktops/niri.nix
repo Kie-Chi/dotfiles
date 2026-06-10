@@ -1,5 +1,5 @@
 # {...}:{}
-{ config, pkgs, lib, secrets, sys, niri-scratchpad-flake, nixGLDefault, ... }:
+{ config, pkgs, lib, cfg, sys, niri-scratchpad-flake, nixGLDefault, ... }:
 
 let
   wallpaperPath = ../../resources/images/background.jpg;

@@ -1,6 +1,6 @@
-{ lib, secrets, ... }:
+{ lib, cfg, ... }:
 let
-  desktop = secrets.home.desktop or "all";
+  desktop = cfg.home.desktop or "all";
 in
 {
   imports = [
