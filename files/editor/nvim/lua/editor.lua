@@ -28,8 +28,11 @@ vim.opt.smartcase = true
 vim.opt.completeopt = "menu,menuone,noselect"
 vim.opt.signcolumn = "yes"
 vim.opt.termguicolors = true
+vim.opt.clipboard = 'unnamedplus'
 
-if vim.env.TERM == 'wezterm' then
+-- OSC 52 clipboard for terminals that support it
+local term = vim.env.TERM or ''
+if term == 'wezterm' or term == 'xterm-kitty' or vim.env.TMUX ~= nil then
   local osc52 = require('vim.ui.clipboard.osc52')
   vim.g.clipboard = {
     name = 'OSC 52',
@@ -67,10 +70,6 @@ vim.g.mapleader = ' '
 vim.keymap.set('n', '<Leader>n', '<Cmd>noh<CR>')
 vim.keymap.set('n', '<Leader><Leader>', '<Cmd>ccl<CR>')
 vim.keymap.set('n', '<Leader>b', '<Cmd>buf#<CR>')
--- clipboard
-vim.keymap.set({'n', 'v'}, '<Leader>y', '"+y')
-vim.keymap.set({'n', 'v'}, '<Leader>p', '"+p')
-vim.keymap.set({'n', 'v'}, '<Leader>P', '"+P')
 
 vim.keymap.set({'n', 'v'}, 'j', 'gj')
 vim.keymap.set({'n', 'v'}, 'k', 'gk')
