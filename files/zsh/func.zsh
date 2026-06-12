@@ -113,6 +113,55 @@ function cat() {
 }
 alias c='cat'
 
+# Resolve user-level commands to absolute paths before invoking real sudo,
+# so that binaries outside the secure_path (e.g. ~/.local/bin/rtk,
+# ~/.nix-profile/bin/dtf) remain accessible under sudo.
+sudo() {
+    local -a new_args=()
+    local state=flags  # flags | skip | cmd_next | cmd
+
+    for arg in "$@"; do
+        case "$state" in
+            skip)   # argument of a flag that takes a value (e.g. -u root)
+                new_args+=("$arg")
+                state=flags
+                ;;
+            cmd_next)  # first arg after -- separator = the command
+                local resolved
+                resolved="$(whence -p "$arg")"
+                new_args+=("${resolved:-$arg}")
+                state=cmd
+                ;;
+            cmd)    # remaining command arguments — pass through
+                new_args+=("$arg")
+                ;;
+            flags)
+                case "$arg" in
+                    -[uUgCrt])  # flags that consume the next argument
+                        new_args+=("$arg")
+                        state=skip
+                        ;;
+                    --)         # end-of-options marker
+                        new_args+=("$arg")
+                        state=cmd_next
+                        ;;
+                    -*)         # standalone flags (-E, -i, -s, -n, etc.)
+                        new_args+=("$arg")
+                        ;;
+                    *)          # first non-flag argument = the command
+                        local resolved
+                        resolved="$(whence -p "$arg")"
+                        new_args+=("${resolved:-$arg}")
+                        state=cmd
+                        ;;
+                esac
+                ;;
+        esac
+    done
+
+    command sudo "${new_args[@]}"
+}
+
 
 # ==========================================
 # PM Wrapper
@@ -429,162 +478,23 @@ _pm() {
 }
 compdef _pm pm
 
+# ==========================================
+# dtf Completion (typer dynamic + git bridge)
+# ==========================================
+
 _dtf() {
-    local context state state_descr line
-    typeset -A opt_args
+    # Git bridge: delegate 'dtf git <args>' to standard git completion
+    if [[ "${words[2]}" == "git" ]]; then
+        local service=git
+        words=(git "${(@)words[3,-1]}")
+        CURRENT=$(( CURRENT - 2 ))
+        _git
+        return
+    fi
 
-    _arguments -C \
-        '(-e)-e[Enable debug mode]' \
-        '1:Command:->cmds' \
-        '*:Arguments:->args'
-
-    case $state in
-        cmds)
-            local -a commands
-            commands=(
-                'a:Alias for apply'
-                'apply:Apply the Home Manager configuration'
-                'switch:Alias for apply'
-                'c:Alias for config'
-                'config:Run the setup script to configure secrets'
-                'clean:Run Nix garbage collection to clean old generations'
-                'e:Alias for edit'
-                'edit:Open the dotfiles directory in your default editor'
-                'gc:Alias for clean'
-                'h:Alias for help'
-                'help:Show the help message'
-                'k:Alias for key'
-                'key:Manage age keys for sops encryption'
-                'p:Alias for push'
-                'push:Commit and push changes to all remotes, or a specified one'
-                'r:Alias for rollback'
-                'rollback:Rollback to a previous configuration generation'
-                's:Alias for sync'
-                'st:Alias for status'
-                'status:Show the git status of the dotfiles repository'
-                'd:Alias for diff'
-                'dif:Alias for diff'
-                'diff:Show the git difference of the dotfiles repository'
-                'git:Execute git commands in the dotfiles directory'
-                'sync:Pull latest changes from git and then apply'
-                'u:Alias for update'
-                'update:Update flake inputs (nixpkgs, etc.)'
-            )
-            _describe -t commands 'dtf commands' commands
-            ;;
-        args)
-            case $line[1] in
-                k|key)
-                    if (( CURRENT == 3 )); then
-                        local -a key_commands
-                        key_commands=(
-                            'ls:Alias for list'
-                            'list:Show keys in .sops.yaml + current device status'
-                            'st:Alias for status'
-                            'status:Check key status and decryptability'
-                            'a:Alias for add'
-                            'add:Add a device key to .sops.yaml'
-                            'rm:Alias for remove'
-                            'remove:Remove a device key from .sops.yaml'
-                            'ex:Alias for export'
-                            'export:Export current device key for transfer'
-                            'im:Alias for import'
-                            'import:Import a key for current device'
-                            'rotate:Rotate current device age key'
-                            'ar:Alias for add-recovery'
-                            'add-recovery:Generate a recovery key'
-                            'rr:Alias for recover-recovery'
-                            'recover-recovery:Decrypt stored recovery key'
-                            'sr:Alias for seal-recovery'
-                            'seal-recovery:Encrypt recovery private key into recovery-key.age'
-                        )
-                        _describe -t key_commands 'dtf key subcommands' key_commands
-                    elif (( CURRENT >= 4 )); then
-                        local key_cmd="${words[3]}"
-                        # Strip dtf + key + key_cmd so inner _arguments
-                        # only sees the subcommand's own arguments/options
-                        words=("dtf-k-${key_cmd}" "${(@)words[4,-1]}")
-                        (( CURRENT -= 2 ))
-                        case "$key_cmd" in
-                            a|add)
-                                _arguments \
-                                    '1:Age public key (age1...):' \
-                                    {-l,--label}'[Label for this key]:'
-                                ;;
-                            rm|remove)
-                                local -a labels
-                                labels=(${(f)"$(grep '&\S' "${DOTFILES_DIR:-${HOME}/.dotfiles}/.sops.yaml" 2>/dev/null | sed 's/.*&\(\S\+\).*/\1/')"})
-                                _arguments \
-                                    '1:Key label:_describe "key labels" labels' \
-                                    {-f,--force}'[Allow removing current device key]'
-                                ;;
-                            ex|export)
-                                _arguments \
-                                    {-F,--format}'[Export format]:format:(age ssh)' \
-                                    {-o,--output}'[Output file]:file:_files'
-                                ;;
-                            rotate)
-                                _arguments \
-                                    {-r,--recovery}'[Rotate recovery key instead]'
-                                ;;
-                            im|import)
-                                _arguments \
-                                    {-a,--age}'[Path to age key file]:file:_files' \
-                                    {-s,--ssh}'[Path to SSH private key]:file:_files' \
-                                    {-g,--generate}'[Generate a new age key]' \
-                                    {-l,--label}'[Device label]:'
-                                ;;
-                            ar|add-recovery)
-                                ;;
-                            rr|recover-recovery)
-                                _arguments \
-                                    {-o,--output}'[Output file]:file:_files'
-                                ;;
-                            sr|seal-recovery)
-                                _arguments \
-                                    '1:Path to recovery private key:_files'
-                                ;;
-                        esac
-                    fi
-                    ;;
-                p|push)
-                    if (( CURRENT == 3 )); then
-                        _message "Commit message (default: chore: update configuration)"
-                    elif (( CURRENT == 4 )); then
-                        local -a remotes
-                        remotes=($(git -C "${DOTFILES_DIR:-${HOME}/.dotfiles}" remote 2>/dev/null))
-                        if [[ ${#remotes[@]} -gt 0 ]]; then
-                            _describe -t remotes 'remote (omit to push all)' remotes
-                        else
-                            _message "Remote name (omit to push all)"
-                        fi
-                    fi
-                    ;;
-                r|rollback)
-                    # For rollback, we can suggest the 'list' command or a number.
-                    local -a rollback_opts
-                    rollback_opts=(
-                        "list:List all available generations"
-                    )
-                    _describe -t options 'rollback options' rollback_opts
-                    _message "or enter a specific generation number"
-                    ;;                
-                git)
-                    local offset=${words[(i)git]}
-                    
-                    if (( offset <= ${#words} )); then
-                        words=("${(@)words[offset,-1]}")
-                        (( CURRENT = CURRENT - offset + 1 ))
-                        local service="git"
-                        _normal
-                    fi
-                    ;;
-                *)
-                    # All other commands do not take arguments, so we complete nothing.
-                    ;;
-            esac
-            ;;
-    esac
+    # Dynamic completion via typer/Click
+    (( ! $+commands[dtf] )) && return 1
+    eval "$(env _TYPER_COMPLETE_ARGS="${words[1,$CURRENT]}" _DTF_COMPLETE=complete_zsh dtf)"
 }
 
 compdef _dtf dtf

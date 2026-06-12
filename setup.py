@@ -24,13 +24,14 @@ from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.widgets import Frame
 from prompt_toolkit import prompt as pt_prompt
 
-from key import (
+from dtf.key import (
     AGE_KEY_DIR, AGE_KEY_FILE, SOPS_YAML, SECRETS_FILE, SECRETS_DIR,
     run_cmd as key_run_cmd, console as key_console,
     read_sops_yaml_keys, write_sops_yaml_keys,
     get_current_device_public_key, get_device_label, set_device_label,
     run_sops_updatekeys, git_commit_sops_files, key_import,
 )
+from dtf.utils import RECOVERY_KEY_FILE
 
 
 # ==========================================
@@ -661,7 +662,7 @@ def save_all(values: dict) -> None:
         keys[label] = public_key
         # Ensure recovery key exists
         if "recovery" not in keys:
-            from key import key_add_recovery
+            from dtf.key import key_add_recovery
             write_sops_yaml_keys(keys)
             progress.update(t2, completed=True, description="[green].sops.yaml written[/green]")
             progress.add_task("Generating recovery key...", total=None)
@@ -740,22 +741,12 @@ def main():
     console.print(Panel("[bold green]All files saved successfully![/bold green]", border_style="green"))
 
     # Ask if user wants to apply immediately
-    dtf_script = BASE_DIR / "resources" / "scripts" / "dtf"
     try:
         answer = pt_prompt("? Apply configuration now (dtf apply)? [y/N]: ")
         if answer.lower().startswith("y"):
             console.print("[cyan]Running dtf apply...[/cyan]")
-            os.chmod(str(dtf_script), 0o755)
-            result = subprocess.run(
-                [str(dtf_script), "apply"],
-                cwd=str(BASE_DIR),
-                check=False,
-            )
-            if result.returncode == 0:
-                console.print("[bold green]Configuration applied successfully![/bold green]")
-            else:
-                console.print(f"[red]dtf apply failed (exit code {result.returncode})[/red]")
-                console.print("[yellow]You can run 'dtf apply' manually later.[/yellow]")
+            from dtf.main import cmd_apply
+            cmd_apply()
     except (EOFError, KeyboardInterrupt):
         pass
 
