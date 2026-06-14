@@ -67,16 +67,18 @@
           age
           ssh-to-age
           python3
+          python3Packages.typer
           python3Packages.rich
           python3Packages.prompt-toolkit
           python3Packages.pyyaml
           git
           curl
           gnupg
-        ];
+        ] ++ [ inputs.home-manager.packages.${system}.default ];
         shellHook = ''
+          export PYTHONPATH="${toString ./.}/resources/scripts:$PYTHONPATH"
           echo "[DEBUG] devShell: setup environment ready"
-          echo "[DEBUG] Available tools: jq, sops, age, ssh-to-age, python3, rich, prompt_toolkit"
+          echo "[DEBUG] Available tools: jq, sops, age, ssh-to-age, python3, typer, rich, prompt_toolkit, home-manager"
         '';
       };
     };
