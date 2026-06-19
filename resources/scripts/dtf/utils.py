@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 # ==========================================
 # PATHS
@@ -120,18 +121,33 @@ def _get_sudo_passwd() -> str | None:
     return None
 
 
-def esudo(*args: str) -> None:
-    """sudo with automatic password injection from sops. Runs interactively."""
+def backup_sensitive_file(filepath: Path) -> Optional[Path]:
+    """Create a .bak copy of a sensitive file before overwriting it.
+    Returns the backup path, or None if the source doesn't exist."""
+    if not filepath.exists():
+        return None
+    bak = filepath.with_suffix(filepath.suffix + ".bak")
+    try:
+        bak.write_bytes(filepath.read_bytes())
+        return bak
+    except OSError:
+        return None
+
+
+def esudo(*args: str, capture: bool = False) -> None:
+    """sudo with automatic password injection from sops.
+    capture=False: stream output live (default, for long-running commands).
+    capture=True:  capture output for return-value inspection."""
     passwd = _get_sudo_passwd()
     if passwd:
         # Try password-based sudo first
         result = subprocess.run(
             ["sudo", "-S", *args],
             input=passwd, text=True,
-            capture_output=True,
+            capture_output=capture,
         )
         if result.returncode == 0:
-            if result.stdout:
+            if capture and result.stdout:
                 print(result.stdout)
             return
         # Fall through to interactive sudo
@@ -165,12 +181,12 @@ def ensure_config_links() -> None:
     """Link config.nix to /etc/dotfiles if not already linked."""
     if not SYSTEM_CONFIG.exists() or not os.path.islink(str(SYSTEM_CONFIG)):
         print(f"{CYAN}--> Linking config.nix to /etc/dotfiles...{NC}")
-        esudo("mkdir", "-p", "/etc/dotfiles")
-        esudo("ln", "-sf", str(USER_CONFIG), str(SYSTEM_CONFIG))
+        esudo("mkdir", "-p", "/etc/dotfiles", capture=True)
+        esudo("ln", "-sf", str(USER_CONFIG), str(SYSTEM_CONFIG), capture=True)
 
 
 def clean_config_links() -> None:
     """Remove /etc/dotfiles symlink."""
     if SYSTEM_CONFIG.exists() and os.path.islink(str(SYSTEM_CONFIG)):
         print(f"{CYAN}--> Cleaning up config link...{NC}")
-        esudo("rm", "-f", str(SYSTEM_CONFIG))
+        esudo("rm", "-f", str(SYSTEM_CONFIG), capture=True)
