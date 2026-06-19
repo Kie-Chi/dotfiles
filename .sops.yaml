@@ -1,6 +1,6 @@
 keys:
   # Device keys - managed by dtf key commands
-  - &macbook_air age1tc5l2g0mqrznxsh4wctf2a2hhxfg45p7k0gkwkd98gv2rxhsnvwsckmaev
+  - &macbook_air age100a8gf8lxg20cghenkaw9hjr48a364ngvpvuh962pwv55yzmkucslusvh6
   - &recovery age1kjr29kl3xkh658x9n436ahvtfj322ufjl9s60tw2csyrutqr9v7sft7cer
 
 creation_rules:
