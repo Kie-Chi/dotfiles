@@ -7,7 +7,7 @@ in
   # --- sops template: mihomo config with encrypted proxy URL ---
   sops.templates."mihomo-config" = lib.mkIf (proxyStatus != "none") {
     content = ''
-      ${builtins.readFile ../../files/proxies/mihomo.yaml}
+      ${builtins.readFile ../../files/proxies/mihomo_tailscale.yaml}
       tun:
         enable: ${cfg.proxy.tun or "true"}
         stack: gvisor
@@ -15,6 +15,9 @@ in
         auto-detect-interface: true
         dns-hijack:
           - "any:53"
+        route-exclude-address:
+          - 100.64.0.0/10
+          - 192.168.255.0/24
 
       proxy-providers:
         my-sub:

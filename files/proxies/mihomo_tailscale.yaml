@@ -1,0 +1,189 @@
+mode: rule
+mixed-port: 20122
+external-controller: 127.0.0.1:9090
+allow-lan: true
+bind-address: '*'
+log-level: info
+ipv6: true
+unified-delay: true
+
+
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '+.lan'
+    - '+.local'
+    - '+.arpa'
+    - '+.ts.net'
+    - 'time.*.com'
+    - 'ntp.*.com'
+    - 'localhost.ptlogin2.qq.com'
+    - 'localhost.sec.qq.com'
+    - 'localhost.work.weixin.qq.com'
+    - '*.msftncsi.com'
+    - 'www.msftconnecttest.com'
+    - '+.fl0wer.cn'
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  proxy-server-nameserver:
+    - 223.5.5.5
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  nameserver-policy:
+    '+.ts.net':
+      - 100.100.100.100
+
+proxies:
+  - name: BeiJingRouter
+    type: socks5
+    server: 100.101.31.4
+    port: 10808
+    username: user
+    password: password
+    udp: true
+
+proxy-groups:
+  - name: MyRouter
+    type: select
+    proxies:
+      - BeiJingRouter
+      - DIRECT
+    url: https://www.google.com/generate_204
+    interval: 300
+    timeout: 3000
+  
+  - name: 手动选择
+    type: select
+    use: [my-sub]
+
+  - name: 全局直连
+    type: select
+    proxies:
+      - DIRECT
+
+  - name: 广告过滤
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+
+rule-providers:
+  direct:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: domain
+    url: https://fastly.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/direct.txt
+    path: ./ruleset/loyalsoldier/direct.yaml
+
+  cncidr:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: ipcidr
+    url: https://fastly.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/cncidr.txt
+    path: ./ruleset/loyalsoldier/cncidr.yaml
+
+  lancidr:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: ipcidr
+    url: https://fastly.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/lancidr.txt
+    path: ./ruleset/loyalsoldier/lancidr.yaml
+
+  private:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: domain
+    url: https://fastly.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/private.txt
+    path: ./ruleset/loyalsoldier/private.yaml
+
+  gfw:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: domain
+    url: https://fastly.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/gfw.txt
+    path: ./ruleset/loyalsoldier/gfw.yaml
+
+  proxy:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: domain
+    url: https://fastly.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/proxy.txt
+    path: ./ruleset/loyalsoldier/proxy.yaml
+
+  telegramcidr:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: ipcidr
+    url: https://fastly.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/telegramcidr.txt
+    path: ./ruleset/loyalsoldier/telegramcidr.yaml
+
+  openai:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: classical
+    url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/OpenAI/OpenAI.yaml
+    path: ./ruleset/blackmatrix7/openai.yaml
+
+  claude:
+    type: http
+    format: yaml
+    interval: 86400
+    behavior: classical
+    url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Claude/Claude.yaml
+    path: ./ruleset/blackmatrix7/claude.yaml
+
+rules:
+  # 1. Tailscale 与北京内网，必须直连，交给系统 Tailscale 路由
+  - IP-CIDR,100.64.0.0/10,全局直连,no-resolve
+  - IP-CIDR,192.168.255.0/24,全局直连,no-resolve
+  - DOMAIN-SUFFIX,ts.net,全局直连
+
+  # 2. 局域网与私有地址直连
+  - RULE-SET,private,全局直连
+  - RULE-SET,lancidr,全局直连,no-resolve
+  - GEOIP,LAN,全局直连,no-resolve
+
+  # 3. 国内流量直连
+  - DOMAIN-SUFFIX,buaa.edu.cn,全局直连
+  - DOMAIN-SUFFIX,cn,全局直连
+  - RULE-SET,direct,全局直连
+  - RULE-SET,cncidr,全局直连,no-resolve
+  - GEOIP,CN,全局直连,no-resolve
+
+  # 4. 需要送回路由器的翻墙流量
+  - RULE-SET,openai,MyRouter
+  - RULE-SET,claude,MyRouter
+  - DOMAIN-KEYWORD,openai,MyRouter
+  - DOMAIN-KEYWORD,chatgpt,MyRouter
+  - DOMAIN-KEYWORD,claude,MyRouter
+  - DOMAIN-KEYWORD,cursor,MyRouter
+  - DOMAIN-KEYWORD,google,MyRouter
+  - DOMAIN-SUFFIX,google.com,MyRouter
+  - DOMAIN-SUFFIX,googleapis.com,MyRouter
+  - DOMAIN-SUFFIX,gstatic.com,MyRouter
+  - DOMAIN-SUFFIX,googleusercontent.com,MyRouter
+  - DOMAIN-SUFFIX,blob.core.windows.net,MyRouter
+  - RULE-SET,telegramcidr,MyRouter,no-resolve
+  - RULE-SET,gfw,MyRouter
+  - RULE-SET,proxy,MyRouter
+
+  # 5. 其他所有流量全部本地直连
+  - MATCH,全局直连
