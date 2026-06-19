@@ -7,13 +7,17 @@ log-level: info
 ipv6: true
 unified-delay: true
 
-
 dns:
   enable: true
-  listen: 0.0.0.0:1053
+  listen: :53
   ipv6: true
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  prefer-h3: false
+  respect-rules: false
+  use-hosts: false
+  use-system-hosts: false
   fake-ip-filter:
     - '+.lan'
     - '+.local'
@@ -162,7 +166,7 @@ rules:
   - GEOIP,LAN,全局直连,no-resolve
 
   # 3. 国内流量直连
-  - DOMAIN-SUFFIX,buaa.edu.cn,全局直连
+  - DOMAIN-SUFFIX,buaa.edu.cn,MyRouter
   - DOMAIN-SUFFIX,cn,全局直连
   - RULE-SET,direct,全局直连
   - RULE-SET,cncidr,全局直连,no-resolve
@@ -181,9 +185,6 @@ rules:
   - DOMAIN-SUFFIX,gstatic.com,MyRouter
   - DOMAIN-SUFFIX,googleusercontent.com,MyRouter
   - DOMAIN-SUFFIX,blob.core.windows.net,MyRouter
-  - RULE-SET,telegramcidr,MyRouter,no-resolve
-  - RULE-SET,gfw,MyRouter
-  - RULE-SET,proxy,MyRouter
 
   # 5. 其他所有流量全部本地直连
   - MATCH,全局直连

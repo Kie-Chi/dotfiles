@@ -10,11 +10,16 @@ in
       ${builtins.readFile ../../files/proxies/mihomo_tailscale.yaml}
       tun:
         enable: ${cfg.proxy.tun or "true"}
-        stack: gvisor
+        stack: mixed
         auto-route: true
+        strict-route: false
         auto-detect-interface: true
         dns-hijack:
           - "any:53"
+        external-controller-cors:
+          allow-private-network: true
+          allow-origins:
+            - '*'
         route-exclude-address:
           - 100.64.0.0/10
           - 192.168.255.0/24
