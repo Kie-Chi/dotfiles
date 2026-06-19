@@ -124,13 +124,13 @@ def _rollback_darwin(target: Optional[str] = None):
     profile = str(SYSTEM_PROFILE)
     if target is None:
         print(f"{CYAN}--> Rolling back to the previous generation...{NC}")
-        esudo("-H", "nix-env", "-p", profile, "--rollback")
+        esudo("-H", "nix-env", "-p", profile, "--rollback", capture=True)
         print(f"{CYAN}--> Re-activating previous configuration...{NC}")
-        esudo("-H", profile + "/activate")
+        esudo("-H", profile + "/activate", capture=False)
         print(f"{GREEN}--> Rollback complete.{NC}")
     elif target == "list":
         print(f"{CYAN}--> Current System Generations:{NC}")
-        esudo("-H", "nix-env", "-p", profile, "--list-generations")
+        esudo("-H", "nix-env", "-p", profile, "--list-generations", capture=True)
     else:
         try:
             gen_num = int(target)
@@ -138,9 +138,9 @@ def _rollback_darwin(target: Optional[str] = None):
             print(f"{RED}Error: Invalid argument for rollback. Must be a number or 'list'.{NC}")
             raise typer.Exit(code=1)
         print(f"{CYAN}--> Switching system profile to generation {gen_num}...{NC}")
-        esudo("-H", "nix-env", "-p", profile, "--set-generation", str(gen_num))
+        esudo("-H", "nix-env", "-p", profile, "--set-generation", str(gen_num), capture=True)
         print(f"{CYAN}--> Activating configuration {gen_num}...{NC}")
-        esudo("-H", profile + "/activate")
+        esudo("-H", profile + "/activate", capture=False)
         print(f"{GREEN}--> Switched to generation {gen_num} successfully.{NC}")
 
 
@@ -180,11 +180,11 @@ def cmd_push(
     remote: str = typer.Argument(None, help="Remote name (omit to push all)", shell_complete=complete_git_remotes),
 ):
     """Commit and push changes to all remotes, or a specified one."""
-    current_branch = run_cmd(["git", "branch", "--show-current"], check=False)
+    current_branch = run_cmd(["git", "branch", "--show-current"], check=False, capture=True)
 
     # Determine which remotes to push to
     if remote is None:
-        remotes_raw = run_cmd(["git", "remote"], check=False)
+        remotes_raw = run_cmd(["git", "remote"], check=False, capture=True)
         remotes = remotes_raw.split() if remotes_raw else []
     else:
         remotes = [remote]
@@ -211,7 +211,7 @@ def cmd_push(
         if verify.returncode == 0:
             local_commits = run_cmd(
                 ["git", "rev-list", "--count", f"{r}/{current_branch}..HEAD"],
-                check=False,
+                check=False, capture=True,
             )
             local_commits = int(local_commits) if local_commits and local_commits.isdigit() else 0
             if local_commits > 0 or committed:
@@ -273,7 +273,7 @@ def cmd_clean():
     """Run Nix garbage collection to clean old generations."""
     print(f"{CYAN}--> Cleaning up old Nix generations...{NC}")
     if PLATFORM == "darwin":
-        esudo("-H", "nix-collect-garbage", "-d")
+        esudo("-H", "nix-collect-garbage", "-d", capture=False)
         subprocess.run(["nix-collect-garbage", "-d"])
         subprocess.run(["nix-store", "--optimise"])
         subprocess.run(["brew", "cleanup"])

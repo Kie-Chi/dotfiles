@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 import typer
 from click.shell_completion import CompletionItem
 from rich.console import Console
+from rich.prompt import Confirm
 from rich.table import Table
 from prompt_toolkit import prompt as pt_prompt
 from prompt_toolkit.application import Application
@@ -24,7 +25,7 @@ from prompt_toolkit.widgets import Frame
 from dtf.utils import (
     DOTFILES_DIR, HOME_DIR, AGE_KEY_DIR, AGE_KEY_FILE,
     SOPS_YAML, SECRETS_DIR, SECRETS_FILE, RECOVERY_KEY_FILE,
-    DEVICE_LABEL_FILE, run_cmd, is_debug,
+    DEVICE_LABEL_FILE, run_cmd, is_debug, backup_sensitive_file,
     CYAN, GREEN, YELLOW, RED, NC,
 )
 
@@ -86,7 +87,7 @@ def confirm(prompt_text: str) -> bool:
     if _yes_flag:
         console.print(f"[dim]{prompt_text} → auto-yes[/dim]")
         return True
-    return typer.confirm(f"{prompt_text} [y/N]", default=False)
+    return Confirm.ask(prompt_text, console=console, default=False)
 
 # ==========================================
 # SOPS YAML I/O
@@ -108,6 +109,7 @@ def read_sops_yaml_keys() -> Dict[str, str]:
 
 def write_sops_yaml_keys(keys: Dict[str, str]) -> None:
     """Write .sops.yaml with labeled keys and creation rules."""
+    backup_sensitive_file(SOPS_YAML)
     lines = ["keys:\n"]
     lines.append("  # Device keys - managed by dtf key commands\n")
     for label, pubkey in keys.items():
@@ -128,7 +130,7 @@ def write_sops_yaml_keys(keys: Dict[str, str]) -> None:
 def get_device_label() -> str:
     if DEVICE_LABEL_FILE.exists():
         return DEVICE_LABEL_FILE.read_text().strip()
-    hostname = run_cmd(["hostname", "-s"], check=False)
+    hostname = run_cmd(["hostname", "-s"], check=False, capture=True)
     return sanitize_label(hostname) if hostname else "unknown"
 
 
@@ -144,7 +146,7 @@ def get_current_device_public_key() -> Optional[str]:
     if not AGE_KEY_FILE.exists():
         return None
     try:
-        return run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
+        return run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)], capture=True)
     except subprocess.CalledProcessError:
         return None
 
@@ -160,8 +162,10 @@ def run_sops_updatekeys() -> None:
             console.print("[dim]Skipping updatekeys — secrets.yaml remains unencrypted.[/dim]")
             return
         console.print("[cyan]Encrypting secrets.yaml...[/cyan]")
-        run_cmd(["sops", "--encrypt", "--in-place", str(SECRETS_FILE)])
-    run_cmd(["sops", "updatekeys", "--yes", str(SECRETS_FILE)])
+        backup_sensitive_file(SECRETS_FILE)
+        run_cmd(["sops", "--encrypt", "--in-place", str(SECRETS_FILE)], capture=True)
+    backup_sensitive_file(SECRETS_FILE)
+    run_cmd(["sops", "updatekeys", "--yes", str(SECRETS_FILE)], capture=True)
     console.print("[green]Secrets re-encrypted with updated key list.[/green]")
 
 
@@ -178,7 +182,7 @@ def git_commit_sops_files(operation: str = "") -> None:
     for f in files:
         if not Path(f).exists():
             continue
-        run_cmd(["git", "add", f], check=False)
+        run_cmd(["git", "add", f], check=False, capture=True)
         rc = subprocess.run(
             ["git", "diff", "--cached", "--quiet", "--", f],
             capture_output=True, text=True, check=False,
@@ -196,7 +200,7 @@ def git_commit_sops_files(operation: str = "") -> None:
     if not confirm(f"Commit {', '.join(names)} to git?"):
         console.print("[yellow]Changes not committed. Run 'dtf git add . && dtf git commit' manually.[/yellow]")
         return
-    run_cmd(["git", "commit", "-m", msg, "--"] + changed, check=False)
+    run_cmd(["git", "commit", "-m", msg, "--"] + changed, check=False, capture=True)
     console.print(f"[green]{', '.join(names)} committed[/green]")
 
 # ==========================================
@@ -212,7 +216,7 @@ def _reencrypt_recovery_key_with(keys: Dict[str, str]) -> None:
     if not current_pub:
         raise RuntimeError("No current device key")
 
-    recovery_priv = run_cmd(["age", "--decrypt", "-i", str(AGE_KEY_FILE), str(RECOVERY_KEY_FILE)])
+    recovery_priv = run_cmd(["age", "--decrypt", "-i", str(AGE_KEY_FILE), str(RECOVERY_KEY_FILE)], capture=True)
 
     recipients = list(keys.values())
     encrypt_args = ["age", "--encrypt"]
@@ -222,7 +226,8 @@ def _reencrypt_recovery_key_with(keys: Dict[str, str]) -> None:
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".age", dir=str(SECRETS_DIR))
     try:
         os.close(tmp_fd)
-        run_cmd(encrypt_args + ["-o", tmp_path], stdin_data=recovery_priv)
+        run_cmd(encrypt_args + ["-o", tmp_path], stdin_data=recovery_priv, capture=True)
+        backup_sensitive_file(RECOVERY_KEY_FILE)
         os.replace(tmp_path, str(RECOVERY_KEY_FILE))
     except Exception:
         if os.path.exists(tmp_path):
@@ -407,7 +412,7 @@ def key_status() -> None:
     can_decrypt = False
     if SECRETS_FILE.exists() and current_pub and current_pub in keys.values():
         try:
-            run_cmd(["sops", "--decrypt", str(SECRETS_FILE)], check=True)
+            run_cmd(["sops", "--decrypt", str(SECRETS_FILE)], check=True, capture=True)
             can_decrypt = True
         except subprocess.CalledProcessError:
             can_decrypt = False
@@ -448,7 +453,7 @@ def key_add(pubkey: str, label: Optional[str] = None) -> None:
         return
 
     try:
-        run_cmd(["age", "--encrypt", "-r", pubkey, "-o", "/dev/null"], stdin_data="test")
+        run_cmd(["age", "--encrypt", "-r", pubkey, "-o", "/dev/null"], stdin_data="test", capture=True)
     except subprocess.CalledProcessError:
         console.print("[red]Key rejected by age — not a valid recipient.[/red]")
         return
@@ -552,6 +557,13 @@ def key_import(
     """Import a key for the current device. Returns public key on success."""
     pub = None
 
+    # If AGE_KEY_FILE already exists, confirm overwrite and backup before any write path
+    if AGE_KEY_FILE.exists() and (age_path or ssh_path or generate):
+        if not confirm(f"AGE_KEY_FILE already exists at {AGE_KEY_FILE}. Overwrite?"):
+            console.print("[yellow]Import cancelled.[/yellow]")
+            return None
+        backup_sensitive_file(AGE_KEY_FILE)
+
     if age_path:
         src = Path(age_path).expanduser()
         if not src.exists():
@@ -564,7 +576,7 @@ def key_import(
         AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
         AGE_KEY_FILE.write_text(content + "\n")
         AGE_KEY_FILE.chmod(0o600)
-        pub = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
+        pub = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)], capture=True)
         if pub:
             console.print(f"[green]Age key imported: {pub[:20]}...[/green]")
     elif ssh_path:
@@ -573,23 +585,23 @@ def key_import(
             console.print(f"[red]File not found: {src}[/red]")
             return None
         AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
-        with open(AGE_KEY_FILE, "w") as f:
-            run_cmd(["ssh-to-age", "-private-key", "-i", str(src)])
+        result = run_cmd(["ssh-to-age", "-private-key", "-i", str(src)], capture=True)
+        AGE_KEY_FILE.write_text(result + "\n")
         pub_path = src.with_suffix(".pub")
         if pub_path.exists():
             pub_input = pub_path.read_text()
         else:
             console.print(f"[yellow]No public key found at {pub_path}, enter it manually:[/yellow]")
             pub_input = pt_prompt("SSH public key: ")
-        pub = run_cmd(["ssh-to-age"], stdin_data=pub_input)
+        pub = run_cmd(["ssh-to-age"], stdin_data=pub_input, capture=True)
         if pub:
             AGE_KEY_FILE.chmod(0o600)
             console.print(f"[green]Age key derived from SSH: {pub[:20]}...[/green]")
     elif generate:
         AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
-        run_cmd(["age-keygen", "-o", str(AGE_KEY_FILE)])
+        run_cmd(["age-keygen", "-o", str(AGE_KEY_FILE)], capture=True)
         AGE_KEY_FILE.chmod(0o600)
-        pub = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
+        pub = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)], capture=True)
         if pub:
             console.print(f"[green]New age key generated: {pub[:20]}...[/green]")
     else:
@@ -701,7 +713,7 @@ def key_add_recovery() -> None:
         console.print("[yellow]Recovery key already exists. Use 'dtf key rotate --recovery' to replace it.[/yellow]")
         return
 
-    recovery_priv = run_cmd(["age-keygen"])
+    recovery_priv = run_cmd(["age-keygen"], capture=True)
     priv_line = [l for l in recovery_priv.split("\n") if l.startswith("AGE-SECRET-KEY")][0]
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', dir=str(SECRETS_DIR), delete=False) as tmp:
@@ -709,7 +721,7 @@ def key_add_recovery() -> None:
         tmp_path = tmp.name
     try:
         os.chmod(tmp_path, 0o600)
-        recovery_pub = run_cmd(["age-keygen", "-y", tmp_path])
+        recovery_pub = run_cmd(["age-keygen", "-y", tmp_path], capture=True)
     finally:
         pass  # keep temp file for encryption step
 
@@ -720,7 +732,7 @@ def key_add_recovery() -> None:
     encrypt_args.extend(["-o", str(RECOVERY_KEY_FILE), tmp_path])
 
     try:
-        run_cmd(encrypt_args)
+        run_cmd(encrypt_args, capture=True)
     finally:
         os.unlink(tmp_path)
 
@@ -778,7 +790,7 @@ def key_seal_recovery(priv_path: Optional[str] = None) -> None:
         tmp_path = tmp.name
     try:
         os.chmod(tmp_path, 0o600)
-        derived_pub = run_cmd(["age-keygen", "-y", tmp_path])
+        derived_pub = run_cmd(["age-keygen", "-y", tmp_path], capture=True)
     finally:
         os.unlink(tmp_path)
 
@@ -794,7 +806,7 @@ def key_seal_recovery(priv_path: Optional[str] = None) -> None:
         encrypt_args.extend(["-r", pub])
     encrypt_args.extend(["-o", str(RECOVERY_KEY_FILE)])
 
-    run_cmd(encrypt_args, stdin_data=priv_line + "\n")
+    run_cmd(encrypt_args, stdin_data=priv_line + "\n", capture=True)
 
     if SECRETS_FILE.exists():
         run_sops_updatekeys()
@@ -814,7 +826,7 @@ def key_recover_recovery(output: Optional[str] = None) -> None:
         console.print("[red]No age key on this device to decrypt recovery key.[/red]")
         return
 
-    decrypted = run_cmd(["age", "--decrypt", "-i", str(AGE_KEY_FILE), str(RECOVERY_KEY_FILE)])
+    decrypted = run_cmd(["age", "--decrypt", "-i", str(AGE_KEY_FILE), str(RECOVERY_KEY_FILE)], capture=True)
 
     if output:
         Path(output).write_text(decrypted)
@@ -844,7 +856,7 @@ def key_rotate(recovery: bool = False) -> None:
         console.print("[cyan]Rotating recovery key...[/cyan]")
         console.print(f"[dim]Old recovery: {old_recovery_pub[:30]}...[/dim]")
 
-        recovery_priv = run_cmd(["age-keygen"])
+        recovery_priv = run_cmd(["age-keygen"], capture=True)
         priv_line = [l for l in recovery_priv.split("\n") if l.startswith("AGE-SECRET-KEY")][0]
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', dir=str(SECRETS_DIR), delete=False) as tmp:
@@ -852,7 +864,7 @@ def key_rotate(recovery: bool = False) -> None:
             tmp_path = tmp.name
         try:
             os.chmod(tmp_path, 0o600)
-            new_recovery_pub = run_cmd(["age-keygen", "-y", tmp_path])
+            new_recovery_pub = run_cmd(["age-keygen", "-y", tmp_path], capture=True)
         finally:
             pass
 
@@ -867,7 +879,7 @@ def key_rotate(recovery: bool = False) -> None:
         encrypt_args.extend(["-o", str(RECOVERY_KEY_FILE), tmp_path])
 
         try:
-            run_cmd(encrypt_args)
+            run_cmd(encrypt_args, capture=True)
         finally:
             os.unlink(tmp_path)
 
@@ -905,9 +917,9 @@ def key_rotate(recovery: bool = False) -> None:
 
     import uuid
     tmp_path = str(AGE_KEY_DIR / f"rotate_{uuid.uuid4().hex[:8]}.txt")
-    run_cmd(["age-keygen", "-o", tmp_path])
+    run_cmd(["age-keygen", "-o", tmp_path], capture=True)
     os.chmod(tmp_path, 0o600)
-    new_pub = run_cmd(["age-keygen", "-y", tmp_path])
+    new_pub = run_cmd(["age-keygen", "-y", tmp_path], capture=True)
 
     console.print(f"[dim]New public key: {new_pub[:30]}...[/dim]")
 
@@ -927,6 +939,7 @@ def key_rotate(recovery: bool = False) -> None:
     write_sops_yaml_keys(keys)
     run_sops_updatekeys()
 
+    backup_sensitive_file(AGE_KEY_FILE)
     AGE_KEY_FILE.write_text(new_key_content + "\n")
     AGE_KEY_FILE.chmod(0o600)
 
@@ -950,8 +963,6 @@ def key_callback(
 ):
     """Manage age keys for sops encryption."""
     _set_yes_flag(yes)
-    # Also treat --force as auto-yes
-    global _yes_flag
 
 
 @app.command(name="list")

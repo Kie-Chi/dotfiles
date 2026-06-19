@@ -678,9 +678,8 @@ def save_all(values: dict) -> None:
         run_sops_updatekeys()
         progress.update(t5, completed=True)
 
-        t6 = progress.add_task("Committing sops files...", total=None)
-        git_commit_sops_files("setup")
-        progress.update(t6, completed=True)
+    console.print("[cyan]Committing sops files...[/cyan]")
+    git_commit_sops_files("setup")
 
 
 # ==========================================
