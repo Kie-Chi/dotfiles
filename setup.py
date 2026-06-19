@@ -31,7 +31,7 @@ from dtf.key import (
     get_current_device_public_key, get_device_label, set_device_label,
     run_sops_updatekeys, git_commit_sops_files, key_import,
 )
-from dtf.utils import RECOVERY_KEY_FILE
+from dtf.utils import RECOVERY_KEY_FILE, backup_sensitive_file
 
 
 # ==========================================
@@ -171,8 +171,8 @@ def setup_age_key() -> str:
     ssh_key = HOME_DIR / ".ssh" / "id_ed25519"
     if ssh_key.exists():
         try:
-            with open(AGE_KEY_FILE, "w") as f:
-                run_cmd(["ssh-to-age", "-private-key", "-i", str(ssh_key)])
+            result = run_cmd(["ssh-to-age", "-private-key", "-i", str(ssh_key)])
+            AGE_KEY_FILE.write_text(result + "\n")
             with open(str(ssh_key) + ".pub") as f:
                 pub_input = f.read()
             public_key = run_cmd(["ssh-to-age"], stdin_data=pub_input)
@@ -182,6 +182,7 @@ def setup_age_key() -> str:
         except subprocess.CalledProcessError:
             pass
 
+    backup_sensitive_file(AGE_KEY_FILE)
     run_cmd(["age-keygen", "-o", str(AGE_KEY_FILE)])
     public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
     AGE_KEY_FILE.chmod(0o600)
@@ -641,6 +642,9 @@ def confirm_save() -> bool:
 
 
 def save_all(values: dict) -> None:
+    # Read existing secrets before any writes to detect changes
+    existing_secrets, _ = read_secrets_yaml()
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -654,29 +658,59 @@ def save_all(values: dict) -> None:
         t2 = progress.add_task("Updating .sops.yaml...", total=None)
         keys = read_sops_yaml_keys()
         label = get_device_label()
-        keys[label] = public_key
-        # Ensure recovery key exists
-        if "recovery" not in keys:
-            from dtf.key import key_add_recovery
-            write_sops_yaml_keys(keys)
-            progress.update(t2, completed=True, description="[green].sops.yaml written[/green]")
-            progress.add_task("Generating recovery key...", total=None)
-            key_add_recovery()
+
+        sops_updated = False  # track whether .sops.yaml was actually written
+
+        if label in keys and keys[label] == public_key:
+            # Key already correct — skip overwrite, only ensure recovery key exists
+            if "recovery" not in keys:
+                from dtf.key import key_add_recovery
+                progress.update(t2, completed=True,
+                                description="[dim].sops.yaml up-to-date, adding recovery key...[/dim]")
+                key_add_recovery()
+            else:
+                progress.update(t2, completed=True,
+                                description="[dim].sops.yaml up-to-date (skipped)[/dim]")
         else:
-            write_sops_yaml_keys(keys)
-            progress.update(t2, completed=True, description="[green].sops.yaml written[/green]")
+            sops_updated = True
+            keys[label] = public_key
+            # Ensure recovery key exists
+            if "recovery" not in keys:
+                from dtf.key import key_add_recovery
+                write_sops_yaml_keys(keys)
+                progress.update(t2, completed=True, description="[green].sops.yaml written[/green]")
+                progress.add_task("Generating recovery key...", total=None)
+                key_add_recovery()
+            else:
+                write_sops_yaml_keys(keys)
+                progress.update(t2, completed=True, description="[green].sops.yaml updated[/green]")
 
         t3 = progress.add_task("Writing config.nix...", total=None)
         write_config_nix(values)
         progress.update(t3, completed=True, description="[green]config.nix saved[/green]")
 
-        t4 = progress.add_task("Encrypting secrets.yaml...", total=None)
-        write_secrets_yaml(values)
-        progress.update(t4, completed=True, description="[green]secrets.yaml encrypted[/green]")
+        # Only re-encrypt secrets if values changed or key set changed
+        secrets_changed = (
+            not SECRETS_FILE.exists()
+            or any(
+                str(values.get(f.path, "")) != str(existing_secrets.get(f.path, ""))
+                for f in SECRET_FIELDS
+            )
+        )
 
-        t5 = progress.add_task("Re-encrypting secrets with updated keys...", total=None)
-        run_sops_updatekeys()
-        progress.update(t5, completed=True)
+        if secrets_changed:
+            t4 = progress.add_task("Encrypting secrets.yaml...", total=None)
+            write_secrets_yaml(values)
+            progress.update(t4, completed=True, description="[green]secrets.yaml encrypted[/green]")
+        elif sops_updated:
+            progress.add_task("[dim]secrets.yaml unchanged, re-encrypting with updated keys...[/dim]")
+        else:
+            progress.add_task("[dim]secrets.yaml unchanged (skipped)[/dim]")
+
+        if secrets_changed or sops_updated:
+            t5 = progress.add_task("Re-encrypting secrets with updated keys...", total=None)
+            run_sops_updatekeys()
+            progress.update(t5, completed=True)
 
     console.print("[cyan]Committing sops files...[/cyan]")
     git_commit_sops_files("setup")
