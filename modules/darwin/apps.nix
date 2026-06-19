@@ -2,8 +2,8 @@
   homebrew = {
     enable = true;
     onActivation = {
-      autoUpdate = true;
-      upgrade = true;
+      autoUpdate = false;
+      upgrade = false;
     };
 
     # taps = [
@@ -26,6 +26,7 @@
     casks = [
       "clash-verge-rev"
       "codex"
+      "codex-app"
       "cyberduck"
       "betterdisplay"
       "skim"
