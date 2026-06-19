@@ -175,6 +175,9 @@ rules:
   # 4. 需要送回路由器的翻墙流量
   - RULE-SET,openai,MyRouter
   - RULE-SET,claude,MyRouter
+  - RULE-SET,proxy,MyRouter
+  - RULE-SET,gfw,MyRouter
+  - RULE-SET,telegramcidr,MyRouter,no-resolve
   - DOMAIN-KEYWORD,openai,MyRouter
   - DOMAIN-KEYWORD,chatgpt,MyRouter
   - DOMAIN-KEYWORD,claude,MyRouter
