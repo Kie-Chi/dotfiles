@@ -6,29 +6,7 @@ let
   sopsDecryptScript = if hasSopsSecrets then config.launchd.agents.sops-nix.config.Program else null;
 
   sys = rec {
-    cmds = {
-      # macOS system tools (outside Nix sandbox)
-      sudo = "/usr/bin/sudo";
-      sh = "/bin/sh";
-      grep = "/usr/bin/grep";
-      touch = "/usr/bin/touch";
-      install = "/usr/bin/install";
-      cmp = "/usr/bin/cmp";
-      mktemp = "/usr/bin/mktemp";
-      rm = "/bin/rm";
-      cp = "/bin/cp";
-      mkdir = "/bin/mkdir";
-      cat = "/bin/cat";
-      pgrep = "/usr/bin/pgrep";
-      pkill = "/usr/bin/pkill";
-      killall = "/usr/bin/killall";
-      launchctl = "/bin/launchctl";
-      defaults = "/usr/bin/defaults";
-      open = "/usr/bin/open";
-      id = "/usr/bin/id";
-      whoami = "/usr/bin/whoami";
-      sw_vers = "/usr/bin/sw_vers";
-    };
+    cmds = import ./cmds.nix;
 
     initSudoPwd = ''
       SUDO_PWD=""

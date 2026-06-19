@@ -1,0 +1,27 @@
+{
+  sudo = "/usr/bin/sudo";
+  sh = "/bin/sh";
+  grep = "/usr/bin/grep";
+  touch = "/usr/bin/touch";
+  install = "/usr/bin/install";
+  cmp = "/usr/bin/cmp";
+  mktemp = "/usr/bin/mktemp";
+  rm = "/bin/rm";
+  cp = "/bin/cp";
+  mkdir = "/bin/mkdir";
+  cat = "/bin/cat";
+  pgrep = "/usr/bin/pgrep";
+  pkill = "/usr/bin/pkill";
+  killall = "/usr/bin/killall";
+  launchctl = "/bin/launchctl";
+  defaults = "/usr/bin/defaults";
+  open = "/usr/bin/open";
+  id = "/usr/bin/id";
+  whoami = "/usr/bin/whoami";
+  sw_vers = "/usr/bin/sw_vers";
+  networksetup = "/usr/sbin/networksetup";
+  route = "/sbin/route";
+  awk = "/usr/bin/awk";
+  sed = "/usr/bin/sed";
+  head = "/usr/bin/head";
+}
