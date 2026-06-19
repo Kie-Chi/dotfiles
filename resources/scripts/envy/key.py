@@ -1,4 +1,4 @@
-"""Key lifecycle management for sops/age encryption — Typer subgroup for dtf key."""
+"""Key lifecycle management for sops/age encryption — Typer subgroup for envy key."""
 
 import os
 import re
@@ -22,7 +22,7 @@ from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.widgets import Frame
 
-from dtf.utils import (
+from envy.utils import (
     DOTFILES_DIR, HOME_DIR, AGE_KEY_DIR, AGE_KEY_FILE,
     SOPS_YAML, SECRETS_DIR, SECRETS_FILE, RECOVERY_KEY_FILE,
     DEVICE_LABEL_FILE, run_cmd, is_debug, backup_sensitive_file,
@@ -53,7 +53,7 @@ def _set_yes_flag(yes: bool):
 
 
 def complete_sops_labels(ctx, param, incomplete):
-    """Complete key labels from .sops.yaml for dtf key remove."""
+    """Complete key labels from .sops.yaml for envy key remove."""
     if not SOPS_YAML.exists():
         return []
     text = SOPS_YAML.read_text()
@@ -111,7 +111,7 @@ def write_sops_yaml_keys(keys: Dict[str, str]) -> None:
     """Write .sops.yaml with labeled keys and creation rules."""
     backup_sensitive_file(SOPS_YAML)
     lines = ["keys:\n"]
-    lines.append("  # Device keys - managed by dtf key commands\n")
+    lines.append("  # Device keys - managed by envy key commands\n")
     for label, pubkey in keys.items():
         lines.append(f"  - &{label} {pubkey}\n")
     lines.append("\ncreation_rules:\n")
@@ -198,7 +198,7 @@ def git_commit_sops_files(operation: str = "") -> None:
     names = [Path(f).name for f in changed]
     msg = f"chore({scope}): update keys on {label} ({', '.join(names)})"
     if not confirm(f"Commit {', '.join(names)} to git?"):
-        console.print("[yellow]Changes not committed. Run 'dtf git add . && dtf git commit' manually.[/yellow]")
+        console.print("[yellow]Changes not committed. Run 'envy git add . && envy git commit' manually.[/yellow]")
         return
     run_cmd(["git", "commit", "-m", msg, "--"] + changed, check=False, capture=True)
     console.print(f"[green]{', '.join(names)} committed[/green]")
@@ -379,9 +379,9 @@ def key_list() -> None:
         console.print("[green]Current device CAN decrypt secrets.[/green]")
     elif current_pub:
         console.print("[red]Current device key NOT in .sops.yaml — cannot decrypt![/red]")
-        console.print("[yellow]Run 'dtf key import' or 'dtf key add' to add this device's key.[/yellow]")
+        console.print("[yellow]Run 'envy key import' or 'envy key add' to add this device's key.[/yellow]")
     else:
-        console.print("[red]No age key on this device — run 'dtf key import' first.[/red]")
+        console.print("[red]No age key on this device — run 'envy key import' first.[/red]")
 
 
 def key_status() -> None:
@@ -466,7 +466,7 @@ def key_add(pubkey: str, label: Optional[str] = None) -> None:
             _reencrypt_recovery_key_with(new_keys)
         except (subprocess.CalledProcessError, RuntimeError):
             console.print("[yellow]Recovery key reencryption failed with new key. Key will still be added.[/yellow]")
-            console.print("[yellow]Run 'dtf key add-recovery' to regenerate the recovery key after adding.[/yellow]")
+            console.print("[yellow]Run 'envy key add-recovery' to regenerate the recovery key after adding.[/yellow]")
 
     write_sops_yaml_keys(new_keys)
 
@@ -680,7 +680,7 @@ def key_import(
     # Warn if recovery public key exists but recovery-key.age is missing
     if "recovery" in keys and not RECOVERY_KEY_FILE.exists():
         console.print("[bold yellow]WARNING: Recovery key is in .sops.yaml but secrets/recovery-key.age is missing.[/bold yellow]")
-        console.print("[yellow]Without recovery-key.age, you cannot export (dtf key rr) the recovery private key from this device.[/yellow]")
+        console.print("[yellow]Without recovery-key.age, you cannot export (envy key rr) the recovery private key from this device.[/yellow]")
 
     # Warn if device key overlaps with recovery key
     keys = read_sops_yaml_keys()
@@ -696,7 +696,7 @@ def key_import(
             if confirm("Seal recovery key into recovery-key.age?"):
                 key_seal_recovery()
             else:
-                console.print("[yellow]Skipping seal. Run 'dtf key seal-recovery' manually before rotating.[/yellow]")
+                console.print("[yellow]Skipping seal. Run 'envy key seal-recovery' manually before rotating.[/yellow]")
 
         if confirm("Rotate device key now?"):
             key_rotate()
@@ -710,7 +710,7 @@ def key_import(
 def key_add_recovery() -> None:
     keys = read_sops_yaml_keys()
     if "recovery" in keys:
-        console.print("[yellow]Recovery key already exists. Use 'dtf key rotate --recovery' to replace it.[/yellow]")
+        console.print("[yellow]Recovery key already exists. Use 'envy key rotate --recovery' to replace it.[/yellow]")
         return
 
     recovery_priv = run_cmd(["age-keygen"], capture=True)
@@ -753,7 +753,7 @@ def key_seal_recovery(priv_path: Optional[str] = None) -> None:
     """Encrypt a recovery private key into secrets/recovery-key.age."""
     keys = read_sops_yaml_keys()
     if "recovery" not in keys:
-        console.print("[red]No recovery key in .sops.yaml. Run 'dtf key add-recovery' first.[/red]")
+        console.print("[red]No recovery key in .sops.yaml. Run 'envy key add-recovery' first.[/red]")
         return
 
     if RECOVERY_KEY_FILE.exists():
@@ -771,11 +771,11 @@ def key_seal_recovery(priv_path: Optional[str] = None) -> None:
         current_pub = get_current_device_public_key()
         if not current_pub:
             console.print("[red]No current device key.[/red]")
-            console.print("[yellow]Provide recovery private key path: dtf key seal-recovery <path>[/yellow]")
+            console.print("[yellow]Provide recovery private key path: envy key seal-recovery <path>[/yellow]")
             return
         if current_pub != keys["recovery"]:
             console.print("[red]Current device key is not the recovery key.[/red]")
-            console.print("[yellow]Provide recovery private key path: dtf key seal-recovery <path>[/yellow]")
+            console.print("[yellow]Provide recovery private key path: envy key seal-recovery <path>[/yellow]")
             return
         recovery_priv = AGE_KEY_FILE.read_text().strip()
 
@@ -850,7 +850,7 @@ def key_rotate(recovery: bool = False) -> None:
 
         old_recovery_pub = keys.get("recovery")
         if not old_recovery_pub:
-            console.print("[red]No recovery key to rotate. Run 'dtf key add-recovery' first.[/red]")
+            console.print("[red]No recovery key to rotate. Run 'envy key add-recovery' first.[/red]")
             return
 
         console.print("[cyan]Rotating recovery key...[/cyan]")
@@ -897,7 +897,7 @@ def key_rotate(recovery: bool = False) -> None:
     # Rotate device key
     current_pub = get_current_device_public_key()
     if not current_pub:
-        console.print("[red]No current key to rotate. Run 'dtf key import' first.[/red]")
+        console.print("[red]No current key to rotate. Run 'envy key import' first.[/red]")
         return
 
     label = get_device_label()
@@ -907,7 +907,7 @@ def key_rotate(recovery: bool = False) -> None:
 
     if "recovery" not in keys:
         console.print("[red]No recovery key in .sops.yaml! Rotation is unsafe without a recovery key.[/red]")
-        console.print("[yellow]Generate a recovery key first: dtf key add-recovery[/yellow]")
+        console.print("[yellow]Generate a recovery key first: envy key add-recovery[/yellow]")
         return
 
     console.print(f"[cyan]Rotating key for device '{label}'...[/cyan]")

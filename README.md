@@ -39,7 +39,7 @@
 │   ├── desktops/       # GNOME、Fcitx5、字体、终端
 │   └── devps/          # Docker、编辑器、Mamba
 ├── files/              # 原始配置文件模板 (vimrc, rime.yaml 等)
-└── resources/          # 脚本工具与静态资源 (dtf, scrctl 等)
+└── resources/          # 脚本工具与静态资源 (envy, scrctl 等)
 ```
 
 ---
@@ -68,19 +68,18 @@ curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s
 
 ### Maintenance
 
-项目内置了包装脚本 `dtf`，方便管理 Home Manager 状态：
+项目内置了包装脚本 `envy`，方便管理 Home Manager 状态：
 
 | 命令 | 说明 |
 | :--- | :--- |
-| `dtf apply` | 应用当前 Nix 配置（重新构建） |
-| `dtf sync` | 拉取 Git 远程更新并应用 |
-| `dtf edit` | 使用 $EDITOR 快速编辑配置文件 |
-| `dtf update` | 更新 `flake.lock` (升级软件版本) |
-| `dtf rollback` | 回滚到之前的配置版本 |
-| `dtf push` | 快速提交并推送到远程仓库 |
+| `envy apply` | 应用当前 Nix 配置（重新构建） |
+| `envy sync` | 拉取 Git 远程更新并应用 |
+| `envy edit` | 使用 $EDITOR 快速编辑配置文件 |
+| `envy update` | 更新 `flake.lock` (升级软件版本) |
+| `envy rollback` | 回滚到之前的配置版本 |
+| `envy push` | 快速提交并推送到远程仓库 |
 
 ---
-
 ## Modules
 
 ### `secrets.nix`

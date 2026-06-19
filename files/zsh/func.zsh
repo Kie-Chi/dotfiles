@@ -115,7 +115,7 @@ alias c='cat'
 
 # Resolve user-level commands to absolute paths before invoking real sudo,
 # so that binaries outside the secure_path (e.g. ~/.local/bin/rtk,
-# ~/.nix-profile/bin/dtf) remain accessible under sudo.
+# ~/.nix-profile/bin/envy) remain accessible under sudo.
 sudo() {
     local -a new_args=()
     local state=flags  # flags | skip | cmd_next | cmd
@@ -479,11 +479,11 @@ _pm() {
 compdef _pm pm
 
 # ==========================================
-# dtf Completion (typer dynamic + git bridge)
+# envy Completion (typer dynamic + git bridge)
 # ==========================================
 
-_dtf() {
-    # Git bridge: delegate 'dtf git <args>' to standard git completion
+_envy() {
+    # Git bridge: delegate 'envy git <args>' to standard git completion
     if [[ "${words[2]}" == "git" ]]; then
         local service=git
         words=(git "${(@)words[3,-1]}")
@@ -493,8 +493,8 @@ _dtf() {
     fi
 
     # Dynamic completion via typer/Click
-    (( ! $+commands[dtf] )) && return 1
-    eval "$(env _TYPER_COMPLETE_ARGS="${words[1,$CURRENT]}" _DTF_COMPLETE=complete_zsh dtf)"
+    (( ! $+commands[envy] )) && return 1
+    eval "$(env _TYPER_COMPLETE_ARGS="${words[1,$CURRENT]}" _ENVY_COMPLETE=complete_zsh envy)"
 }
 
-compdef _dtf dtf
+compdef _envy envy
