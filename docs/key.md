@@ -1,12 +1,12 @@
-# Key Management (dtf key)
+# Key Management (envy key)
 
-sops-nix 使用 age 加密管理 dotfiles 中的私密信息。`dtf key` 提供密钥全生命周期管理——从导入、轮换、添加/移除设备，到恢复密钥的生成与提取。
+sops-nix 使用 age 加密管理 dotfiles 中的私密信息。`envy key` 提供密钥全生命周期管理——从导入、轮换、添加/移除设备，到恢复密钥的生成与提取。
 
 ## 快速诊断
 
 ```bash
-dtf key status    # 检查当前设备密钥状态：是否存在、是否在 .sops.yaml 中、能否解密
-dtf key list      # 查看 .sops.yaml 中所有密钥及当前设备标记
+envy key status    # 检查当前设备密钥状态：是否存在、是否在 .sops.yaml 中、能否解密
+envy key list      # 查看 .sops.yaml 中所有密钥及当前设备标记
 ```
 
 ## 密钥架构
@@ -44,35 +44,35 @@ creation_rules:
 
 1. 在旧设备上导出密钥到 USB 的 `recovery/` 目录：
    ```bash
-   dtf key ex -o /Volumes/USB/recovery/key.age
+   envy key ex -o /Volumes/USB/recovery/key.age
    ```
 2. 在新设备上插入 USB，运行：
    ```bash
-   dtf key im    # 交互模式——自动扫描 USB，列出找到的密钥文件让你选择
+   envy key im    # 交互模式——自动扫描 USB，列出找到的密钥文件让你选择
    ```
-   `dtf key im` 会自动扫描所有已挂载的 USB（macOS: `/Volumes`，Linux: `/media/$USER` + `/mnt`），优先在 `recovery/` 子目录查找 `.age` / `.age.txt` 文件。选择后无需手动输入路径。
+   `envy key im` 会自动扫描所有已挂载的 USB（macOS: `/Volumes`，Linux: `/media/$USER` + `/mnt`），优先在 `recovery/` 子目录查找 `.age` / `.age.txt` 文件。选择后无需手动输入路径。
 
    也可以直接指定路径：
    ```bash
-   dtf key im -a /Volumes/USB/recovery/key.age -l new_macbook
+   envy key im -a /Volumes/USB/recovery/key.age -l new_macbook
    ```
 
 **方式 B — 从 SSH 密钥派生（如果旧设备也用 SSH 派生）：**
 
 ```bash
-dtf key im -s ~/.ssh/id_ed25519 -l new_macbook
+envy key im -s ~/.ssh/id_ed25519 -l new_macbook
 ```
 
 **方式 C — 全新密钥 + 重新输入所有秘密：**
 
 ```bash
-dtf key im -g -l new_macbook
-dtf config   # 重新填写所有秘密值
+envy key im -g -l new_macbook
+envy config   # 重新填写所有秘密值
 ```
 
-导入后 `dtf key import` 会自动将新密钥加入 `.sops.yaml` 并运行 `sops updatekeys`，使新设备能解密已有秘密。
+导入后 `envy key import` 会自动将新密钥加入 `.sops.yaml` 并运行 `sops updatekeys`，使新设备能解密已有秘密。
 
-也可以通过 `dtf config`（即 setup.py）交互式完成——如果解密失败，它会自动进入密钥导入流程。
+也可以通过 `envy config`（即 setup.py）交互式完成——如果解密失败，它会自动进入密钥导入流程。
 
 ### 场景 2：添加另一台设备的密钥
 
@@ -80,11 +80,11 @@ dtf config   # 重新填写所有秘密值
 
 1. 在另一台设备上查看公钥：
    ```bash
-   dtf key status   # 查看 Public key
+   envy key status   # 查看 Public key
    ```
 2. 在任意设备上添加：
    ```bash
-   dtf key add age1xxx... --label work_desktop
+   envy key add age1xxx... --label work_desktop
    ```
 
 这会自动 re-encrypt secrets 和 recovery key 给新设备。
@@ -94,7 +94,7 @@ dtf config   # 重新填写所有秘密值
 如果一台设备丢失或不再需要：
 
 ```bash
-dtf key remove work_desktop
+envy key remove work_desktop
 ```
 
 移除后会 re-encrypt secrets，被移除的设备将不再能解密。
@@ -106,7 +106,7 @@ dtf key remove work_desktop
 如果怀疑密钥泄露，或想定期更换：
 
 ```bash
-dtf key rotate
+envy key rotate
 ```
 
 轮换流程（两阶段，确保零数据丢失）：
@@ -118,22 +118,22 @@ dtf key rotate
 
 轮换恢复密钥：
 ```bash
-dtf key rotate --recovery
+envy key rotate --recovery
 ```
 
 ### 场景 5：恢复密钥
 
 **生成恢复密钥**（首次 setup 时如果没有，需要手动生成）：
 ```bash
-dtf key add-recovery
+envy key add-recovery
 ```
 
 恢复密钥的私钥会被 age 加密后存储在 `secrets/recovery-key.age`，加密目标为 `.sops.yaml` 中的所有设备公钥。任何已有设备都能解密它。
 
 **提取恢复密钥私钥**（用于离线保存或紧急恢复）：
 ```bash
-dtf key recover-recovery               # 打印到终端
-dtf key recover-recovery --output /tmp/recovery.txt   # 保存到文件
+envy key recover-recovery               # 打印到终端
+envy key recover-recovery --output /tmp/recovery.txt   # 保存到文件
 ```
 
 强烈建议将恢复密钥私钥额外保存在离线位置（USB、纸质、密码管理器），作为设备全部丢失时的终极备份。
@@ -141,14 +141,14 @@ dtf key recover-recovery --output /tmp/recovery.txt   # 保存到文件
 ### 场景 6：导出密钥用于传输
 
 ```bash
-dtf key ex                  # 输出 age 私钥到 stdout
-dtf key ex -o key.txt       # 保存到文件
-dtf key ex -F ssh           # 导出 SSH 私钥（仅适用于 SSH 派生的设备）
+envy key ex                  # 输出 age 私钥到 stdout
+envy key ex -o key.txt       # 保存到文件
+envy key ex -F ssh           # 导出 SSH 私钥（仅适用于 SSH 派生的设备）
 ```
 
-推荐导出到 USB 的 `recovery/` 目录，这样新设备 `dtf key im` 时会自动识别：
+推荐导出到 USB 的 `recovery/` 目录，这样新设备 `envy key im` 时会自动识别：
 ```bash
-dtf key ex -o /Volumes/USB/recovery/macbook_air.age
+envy key ex -o /Volumes/USB/recovery/macbook_air.age
 ```
 
 私钥是敏感数据，请使用安全传输方式（物理 USB 比网络传输更安全）。
@@ -157,7 +157,7 @@ dtf key ex -o /Volumes/USB/recovery/macbook_air.age
 
 ### USB 自动扫描
 
-`dtf key im`（交互模式）会自动扫描已挂载的 USB 驱动器寻找密钥文件：
+`envy key im`（交互模式）会自动扫描已挂载的 USB 驱动器寻找密钥文件：
 - macOS: `/Volumes` 下所有挂载点
 - Linux: `/media/$USER` + `/mnt`
 
@@ -167,7 +167,7 @@ dtf key ex -o /Volumes/USB/recovery/macbook_air.age
 
 找到的文件会按优先级列出，用户直接选择编号即可导入，无需手动输入路径。
 
-推荐约定：在 USB 上创建 `recovery/` 目录存放密钥文件，`dtf key ex -o /Volumes/USB/recovery/key.age`。
+推荐约定：在 USB 上创建 `recovery/` 目录存放密钥文件，`envy key ex -o /Volumes/USB/recovery/key.age`。
 
 ### SOPS_AGE_KEY_FILE
 
@@ -189,23 +189,23 @@ age 的 `keys.txt` 可以包含多行 `AGE-SECRET-KEY-...`（多个私钥）。�
 
 | 命令 | 简写 | 用途 |
 |------|------|------|
-| `dtf key list` | `ls` | 显示所有密钥 |
-| `dtf key status` | `st` | 诊断当前设备状态 |
-| `dtf key add PUBKEY` | `a` | 添加设备公钥 |
-| `dtf key remove LABEL` | `rm` | 移除设备密钥 |
-| `dtf key export` | `ex` | 导出当前设备私钥 |
-| `dtf key import` | `im` | 导入/生成密钥 |
-| `dtf key rotate` | — | 轮换密钥 |
-| `dtf key add-recovery` | `ar` | 生成恢复密钥 |
-| `dtf key recover-recovery` | `rr` | 提取恢复密钥私钥 |
+| `envy key list` | `ls` | 显示所有密钥 |
+| `envy key status` | `st` | 诊断当前设备状态 |
+| `envy key add PUBKEY` | `a` | 添加设备公钥 |
+| `envy key remove LABEL` | `rm` | 移除设备密钥 |
+| `envy key export` | `ex` | 导出当前设备私钥 |
+| `envy key import` | `im` | 导入/生成密钥 |
+| `envy key rotate` | — | 轮换密钥 |
+| `envy key add-recovery` | `ar` | 生成恢复密钥 |
+| `envy key recover-recovery` | `rr` | 提取恢复密钥私钥 |
 
 常用选项简写：`-o` 输出文件，`-l` 标签，`-f` 强制，`-a` age 密钥路径，`-s` SSH 路径，`-g` 生成新密钥，`-r` 轮换恢复密钥，`-F` 导出格式。
 
 示例：
 ```bash
-dtf key ls                          # 查看密钥列表
-dtf key st                          # 诊断状态
-dtf key ex -o USB/key.txt           # 导出到 USB
-dtf key im -a USB/key.txt -l laptop # 从 USB 导入
-dtf key rm work_desktop             # 移除密钥
-dtf key rr -o /tmp/recovery.txt     # 提取恢复密钥
+envy key ls                          # 查看密钥列表
+envy key st                          # 诊断状态
+envy key ex -o USB/key.txt           # 导出到 USB
+envy key im -a USB/key.txt -l laptop # 从 USB 导入
+envy key rm work_desktop             # 移除密钥
+envy key rr -o /tmp/recovery.txt     # 提取恢复密钥

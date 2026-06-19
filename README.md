@@ -39,7 +39,7 @@
 │   ├── desktops/       # 桌面环境相关配置
 │   └── devps/          # 开发工具与编辑器
 ├── files/              # 原始配置文件模板 (vimrc, mihomo.yaml 等)
-└── resources/          # 脚本工具与静态资源 (dtf, ppack, spk 等)
+└── resources/          # 脚本工具与静态资源 (envy, ppack, spk 等)
 ```
 
 ---
@@ -76,15 +76,15 @@ curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s -- -b darwin
 
 ### Maintenance
 
-项目内置了包装脚本 `dtf`，方便管理 Home Manager 状态：
+项目内置了包装脚本 `envy`，方便管理 Home Manager 状态：
 
 | 命令 | 说明 |
 | :--- | :--- |
-| `dtf apply` | 应用当前配置状态  |
-| `dtf apply` | 应用当前配置（darwin-rebuild switch） |
-| `dtf sync` | 拉取 Git 远程更新并应用配置 |
-| `dtf edit` | 使用 $EDITOR 快速编辑配置文件 |
-| `dtf update` | 更新 `flake.lock` (升级软件包) |
+| `envy apply` | 应用当前配置状态  |
+| `envy apply` | 应用当前配置（darwin-rebuild switch） |
+| `envy sync` | 拉取 Git 远程更新并应用配置 |
+| `envy edit` | 使用 $EDITOR 快速编辑配置文件 |
+| `envy update` | 更新 `flake.lock` (升级软件包) |
 ## Modules
 
 ### `secrets.nix`

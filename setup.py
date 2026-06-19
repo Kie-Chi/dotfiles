@@ -24,14 +24,14 @@ from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.widgets import Frame
 from prompt_toolkit import prompt as pt_prompt
 
-from dtf.key import (
+from envy.key import (
     AGE_KEY_DIR, AGE_KEY_FILE, SOPS_YAML, SECRETS_FILE, SECRETS_DIR,
     run_cmd as key_run_cmd, console as key_console,
     read_sops_yaml_keys, write_sops_yaml_keys,
     get_current_device_public_key, get_device_label, set_device_label,
     run_sops_updatekeys, git_commit_sops_files, key_import,
 )
-from dtf.utils import RECOVERY_KEY_FILE, backup_sensitive_file
+from envy.utils import RECOVERY_KEY_FILE, backup_sensitive_file
 
 
 # ==========================================
@@ -664,7 +664,7 @@ def save_all(values: dict) -> None:
         if label in keys and keys[label] == public_key:
             # Key already correct — skip overwrite, only ensure recovery key exists
             if "recovery" not in keys:
-                from dtf.key import key_add_recovery
+                from envy.key import key_add_recovery
                 progress.update(t2, completed=True,
                                 description="[dim].sops.yaml up-to-date, adding recovery key...[/dim]")
                 key_add_recovery()
@@ -676,7 +676,7 @@ def save_all(values: dict) -> None:
             keys[label] = public_key
             # Ensure recovery key exists
             if "recovery" not in keys:
-                from dtf.key import key_add_recovery
+                from envy.key import key_add_recovery
                 write_sops_yaml_keys(keys)
                 progress.update(t2, completed=True, description="[green].sops.yaml written[/green]")
                 progress.add_task("Generating recovery key...", total=None)
@@ -770,10 +770,10 @@ def main():
 
     # Ask if user wants to apply immediately
     try:
-        answer = pt_prompt("? Apply configuration now (dtf apply)? [y/N]: ")
+        answer = pt_prompt("? Apply configuration now (envy apply)? [y/N]: ")
         if answer.lower().startswith("y"):
-            console.print("[cyan]Running dtf apply...[/cyan]")
-            from dtf.main import cmd_apply
+            console.print("[cyan]Running envy apply...[/cyan]")
+            from envy.main import cmd_apply
             cmd_apply()
     except (EOFError, KeyboardInterrupt):
         pass

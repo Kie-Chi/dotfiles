@@ -6,8 +6,8 @@ from click.shell_completion import CompletionItem
 from rich.console import Console
 from typing import Optional
 
-from dtf.key import app as key_app
-from dtf.utils import (
+from envy.key import app as key_app
+from envy.utils import (
     CYAN, GREEN, YELLOW, RED, NC,
     DOTFILES_DIR, SETUP_SCRIPT, PLATFORM,
     FLAKE_TARGET, SYSTEM_PROFILE,
@@ -24,7 +24,7 @@ console = Console()
 
 
 def complete_git_remotes(ctx, param, incomplete):
-    """Complete git remote names for dtf push."""
+    """Complete git remote names for envy push."""
     result = subprocess.run(
         ["git", "remote"], capture_output=True, text=True,
         cwd=str(DOTFILES_DIR), check=False,
@@ -46,7 +46,7 @@ def complete_rollback_target(ctx, param, incomplete):
 
 
 cli = typer.Typer(
-    name="dtf",
+    name="envy",
     help="A friendly manager for your Nix dotfiles.",
     rich_markup_mode="rich",
     no_args_is_help=True,
@@ -57,9 +57,9 @@ cli = typer.Typer(
 def main_callback(
     debug: bool = typer.Option(False, "--debug", "-e", help="Enable debug mode"),
 ):
-    """dtf — dotfiles manager"""
+    """envy — dotfiles manager"""
     if debug:
-        os.environ["DTF_DEBUG"] = "1"
+        os.environ["ENVY_DEBUG"] = "1"
 
 
 # ==========================================
@@ -91,7 +91,7 @@ def cmd_update():
     subprocess.run(["nix", "flake", "update"], cwd=str(DOTFILES_DIR))
     if PLATFORM == "darwin":
         subprocess.run(["brew", "update"])
-    print(f"{GREEN}--> Flake inputs updated. Run 'dtf apply' to use them.{NC}")
+    print(f"{GREEN}--> Flake inputs updated. Run 'envy apply' to use them.{NC}")
 
 
 @cli.command(name="init")

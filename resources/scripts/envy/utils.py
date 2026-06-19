@@ -1,4 +1,4 @@
-"""Shared utilities for dtf CLI — path constants, subprocess helpers, sudo wrapper."""
+"""Shared utilities for envy CLI — path constants, subprocess helpers, sudo wrapper."""
 
 import os
 import re
@@ -73,7 +73,7 @@ NC = "\033[0m"
 
 
 def is_debug() -> bool:
-    return os.environ.get("DTF_DEBUG") == "1"
+    return os.environ.get("ENVY_DEBUG") == "1"
 
 # ==========================================
 # SUBPROCESS
