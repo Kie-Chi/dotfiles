@@ -153,10 +153,11 @@ def backup_sensitive_file(filepath: Path) -> Optional[Path]:
         return None
 
 
-def esudo(*args: str, capture: bool = False) -> None:
+def esudo(*args: str, capture: bool = False, cwd: Path | None = None) -> None:
     """sudo with automatic password injection from sops.
     capture=False: stream output live (default, for long-running commands).
     capture=True:  capture output for return-value inspection."""
+    effective_cwd = str(cwd or DOTFILES_DIR)
     passwd = _get_sudo_passwd()
     if passwd:
         # Try password-based sudo first
@@ -164,13 +165,14 @@ def esudo(*args: str, capture: bool = False) -> None:
             ["sudo", "-S", *args],
             input=passwd, text=True,
             capture_output=capture,
+            cwd=effective_cwd,
         )
         if result.returncode == 0:
             if capture and result.stdout:
                 print(result.stdout)
             return
         # Fall through to interactive sudo
-    subprocess.run(["sudo", *args])
+    subprocess.run(["sudo", *args], cwd=effective_cwd)
 
 # ==========================================
 # APPLY ROUTING
