@@ -121,7 +121,13 @@ vim.keymap.set('c', '<C-N>', '<Down>')
 vim.keymap.set('c', 'w!!', 'w !sudo tee >/dev/null %')
 
 -- terminal
-vim.keymap.set('t', '<ESC>', '<C-\\><C-N>')
+vim.keymap.set('t', '<C-g>', '<C-\\><C-N>', {
+  desc = 'Exit terminal mode',
+})
+vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-N>', {
+  desc = 'Exit terminal mode',
+})
+
 vim.keymap.set('n', '<Leader>tt', ':terminal<CR>')
 vim.keymap.set('n', '<Leader>tv', ':vsplit | terminal<CR>')
 vim.keymap.set('n', '<Leader>th', ':split | terminal<CR>')
