@@ -35,6 +35,7 @@ dns:
     - 223.5.5.5
     - 119.29.29.29
   nameserver:
+    
     - 223.5.5.5
     - 119.29.29.29
     - https://dns.alidns.com/dns-query
@@ -46,6 +47,9 @@ dns:
   nameserver-policy:
     '+.ts.net':
       - 100.100.100.100
+    '+.buaa.edu.cn':
+      - 202.112.128.50
+      - 202.112.128.51
 
 proxies:
   - name: BeiJingRouter
@@ -156,9 +160,10 @@ rule-providers:
 
 rules:
   # 1. Tailscale 与北京内网，必须直连，交给系统 Tailscale 路由
-  - IP-CIDR,100.64.0.0/10,全局直连,no-resolve
-  - IP-CIDR,192.168.255.0/24,全局直连,no-resolve
-  - DOMAIN-SUFFIX,ts.net,全局直连
+  - IP-CIDR,100.64.0.0/10,MyRouter,no-resolve
+  - IP-CIDR,192.168.255.0/24,MyRouter,no-resolve
+  - IP-CIDR,10.0.0.0/8,MyRouter,no-resolve
+  - DOMAIN-SUFFIX,ts.net,MyRouter
 
   # 2. 局域网与私有地址直连
   - RULE-SET,private,全局直连
@@ -166,6 +171,7 @@ rules:
   - GEOIP,LAN,全局直连,no-resolve
 
   # 3. 国内流量直连
+  - DOMAIN-SUFFIX,fl0wer.cn,MyRouter
   - DOMAIN-SUFFIX,buaa.edu.cn,MyRouter
   - DOMAIN-SUFFIX,cn,全局直连
   - RULE-SET,direct,全局直连
