@@ -4,10 +4,11 @@ let
   proxyStatus = cfg.proxy.status or "manual";
 in
 {
-  # --- sops template: mihomo config with encrypted proxy URL ---
   sops.templates."mihomo-config" = lib.mkIf (proxyStatus != "none") {
     content = ''
       ${builtins.readFile ../../files/proxies/mihomo_tailscale.yaml}
+      
+      # interface-name: @PHYS_IFACE@
       tun:
         enable: ${cfg.proxy.tun or "true"}
         stack: mixed
@@ -40,9 +41,9 @@ in
   home.activation.deployMihomoConfig = lib.mkIf (proxyStatus != "none") (sys.task.activation {
     name = "deployMihomoConfig";
     script = ''
-      TARGET="$HOME/.config/mihomo/config.yaml"
+      TARGET="$HOME/.config/mihomo/config.yaml.tmpl"
       ${sys.cmds.mkdir} -p "$(dirname "$TARGET")"
-      esudo ${sys.cmds.install} -m 0644 "${config.sops.templates."mihomo-config".path}" "$TARGET"
+      ${sys.cmds.install} -m 0644 "${config.sops.templates."mihomo-config".path}" "$TARGET"
     '';
   });
 

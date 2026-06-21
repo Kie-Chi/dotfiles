@@ -24,6 +24,7 @@
     ];
 
     casks = [
+      "uuremote" # Game for Windows
       "clash-verge-rev"
       "codex"
       "codex-app"

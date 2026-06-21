@@ -24,6 +24,7 @@ dns:
     - '+.arpa'
     - '+.ts.net'
     - 'time.*.com'
+    - '+.buaa.edu.cn'
     - 'ntp.*.com'
     - 'localhost.ptlogin2.qq.com'
     - 'localhost.sec.qq.com'
@@ -52,7 +53,7 @@ dns:
       - 202.112.128.51
 
 proxies:
-  - name: BeiJingRouter
+  - name: SockRouter
     type: socks5
     server: 100.101.31.4
     port: 10808
@@ -60,11 +61,25 @@ proxies:
     password: password
     udp: true
 
+  - name: TailScaleRouter
+    type: direct
+    interface-name: @TS_IFACE@
+    udp: true
+
 proxy-groups:
-  - name: MyRouter
+  - name: MySock
     type: select
     proxies:
-      - BeiJingRouter
+      - SockRouter
+      - DIRECT
+    url: https://www.google.com/generate_204
+    interval: 300
+    timeout: 3000
+
+  - name: MyTailScale
+    type: select
+    proxies:
+      - TailScaleRouter
       - DIRECT
     url: https://www.google.com/generate_204
     interval: 300
@@ -159,41 +174,37 @@ rule-providers:
     path: ./ruleset/blackmatrix7/claude.yaml
 
 rules:
-  # 1. Tailscale 与北京内网，必须直连，交给系统 Tailscale 路由
-  - IP-CIDR,100.64.0.0/10,MyRouter,no-resolve
-  - IP-CIDR,192.168.255.0/24,MyRouter,no-resolve
-  - IP-CIDR,10.0.0.0/8,MyRouter,no-resolve
-  - DOMAIN-SUFFIX,ts.net,MyRouter
+  - IP-CIDR,100.64.0.0/10,MyTailScale,no-resolve
+  - IP-CIDR,192.168.255.0/24,MyTailScale,no-resolve
+  - IP-CIDR,10.0.0.0/8,MyTailScale,no-resolve
+  - DOMAIN-SUFFIX,ts.net,MyTailScale
 
-  # 2. 局域网与私有地址直连
   - RULE-SET,private,全局直连
   - RULE-SET,lancidr,全局直连,no-resolve
   - GEOIP,LAN,全局直连,no-resolve
 
-  # 3. 国内流量直连
-  - DOMAIN-SUFFIX,fl0wer.cn,MyRouter
-  - DOMAIN-SUFFIX,buaa.edu.cn,MyRouter
+  - DOMAIN-SUFFIX,fl0wer.cn,MyTailScale
+  - DOMAIN,d.buaa.edu.cn,全局直连
+  - DOMAIN-SUFFIX,buaa.edu.cn,MyTailScale
   - DOMAIN-SUFFIX,cn,全局直连
   - RULE-SET,direct,全局直连
   - RULE-SET,cncidr,全局直连,no-resolve
   - GEOIP,CN,全局直连,no-resolve
 
-  # 4. 需要送回路由器的翻墙流量
-  - RULE-SET,openai,MyRouter
-  - RULE-SET,claude,MyRouter
-  - RULE-SET,proxy,MyRouter
-  - RULE-SET,gfw,MyRouter
-  - RULE-SET,telegramcidr,MyRouter,no-resolve
-  - DOMAIN-KEYWORD,openai,MyRouter
-  - DOMAIN-KEYWORD,chatgpt,MyRouter
-  - DOMAIN-KEYWORD,claude,MyRouter
-  - DOMAIN-KEYWORD,cursor,MyRouter
-  - DOMAIN-KEYWORD,google,MyRouter
-  - DOMAIN-SUFFIX,google.com,MyRouter
-  - DOMAIN-SUFFIX,googleapis.com,MyRouter
-  - DOMAIN-SUFFIX,gstatic.com,MyRouter
-  - DOMAIN-SUFFIX,googleusercontent.com,MyRouter
-  - DOMAIN-SUFFIX,blob.core.windows.net,MyRouter
+  - RULE-SET,openai,MySock
+  - RULE-SET,claude,MySock
+  - RULE-SET,proxy,MySock
+  - RULE-SET,gfw,MySock
+  - RULE-SET,telegramcidr,MySock,no-resolve
+  - DOMAIN-KEYWORD,openai,MySock
+  - DOMAIN-KEYWORD,chatgpt,MySock
+  - DOMAIN-KEYWORD,claude,MySock
+  - DOMAIN-KEYWORD,cursor,MySock
+  - DOMAIN-KEYWORD,google,MySock
+  - DOMAIN-SUFFIX,google.com,MySock
+  - DOMAIN-SUFFIX,googleapis.com,MySock
+  - DOMAIN-SUFFIX,gstatic.com,MySock
+  - DOMAIN-SUFFIX,googleusercontent.com,MySock
+  - DOMAIN-SUFFIX,blob.core.windows.net,MySock
 
-  # 5. 其他所有流量全部本地直连
   - MATCH,全局直连

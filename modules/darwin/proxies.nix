@@ -5,47 +5,74 @@ let
   proxyPort = "20122";
   mihomoBin = "/opt/homebrew/bin/mihomo";
   configDir = "/Users/${cfg.home.user}/.config/mihomo";
-  proxyStatus = cfg.proxy.status or "manual";
-  
-  # Check if TUN mode is enabled (matches your desktops/proxies.nix logic)
+  proxyStatus = cfg.proxy.status or "manual";  
   isTunMode = (cfg.proxy.tun or "true") == "true";
 
-  # --- Wrapper 1: Pure TUN Mode (Runs entirely as root, no system proxy mess) ---
+  # --- Shared Shell Functions for Interface Detection ---
+  detectionLogic = ''
+    PHYS_IFACE=$(${sys.cmds.scutil} --nwi 2>/dev/null | ${sys.cmds.awk} '/Network interfaces:/ {print $3}' | ${sys.cmds.head} -n 1)
+    
+    TS_IFACE=$(${sys.cmds.ifconfig} 2>/dev/null | ${sys.cmds.awk} '/^[a-zA-Z0-9]/ {current_iface=$1} /inet 100\./ {print current_iface; exit}' | ${sys.cmds.sed} 's/://')
+
+    echo "[mihomo-wrapper] Detected Physical Interface: $PHYS_IFACE"
+    echo "[mihomo-wrapper] Detected Tailscale Interface: $TS_IFACE"
+
+    PHYS_IFACE=''${PHYS_IFACE:-en0}
+    TS_IFACE=''${TS_IFACE:-utun6}
+
+    echo "[mihomo-wrapper] Decided Physical Interface Finally: $PHYS_IFACE"
+    echo "[mihomo-wrapper] Decided Tailscale Interface Finally: $TS_IFACE"
+
+    TARGET_CONFIG="${configDir}/config.yaml"
+    ${sys.cmds.mkdir} -p "${configDir}"
+    
+    TEMPLATE_TMPL="${configDir}/config.yaml.tmpl"
+    TARGET_CONFIG="${configDir}/config.yaml"
+    
+    if [ ! -f "$TEMPLATE_TMPL" ]; then
+      echo "[mihomo-wrapper] Error: Template $TEMPLATE_TMPL not found yet. Waiting for Home Manager..."
+      exit 1
+    fi
+
+    ${sys.cmds.mkdir} -p "${configDir}"
+    ${sys.cmds.sed} -e "s/@PHYS_IFACE@/$PHYS_IFACE/g" \
+                    -e "s/@TS_IFACE@/$TS_IFACE/g" \
+                    "$TEMPLATE_TMPL" > "$TARGET_CONFIG"
+  '';
+
+  # --- Wrapper 1: Pure TUN Mode (Runs entirely as root to create utun device) ---
   mihomoTunWrapper = pkgs.writeShellScriptBin "mihomo-tun-service" ''
     set -e
-    echo "[mihomo-tun] Creating config directory if not exists..."
-    ${sys.cmds.mkdir} -p ${configDir}
+    echo "[mihomo-tun] Initializing dynamic interfaces..."
+    ${detectionLogic}
     
+    echo "[mihomo-tun] Setting correct ownership for config directory..."
+    ${sys.cmds.chown} -R ${user}:staff ${configDir}
+
     echo "[mihomo-tun] Starting Mihomo in TUN Mode as ROOT..."
     # TUN mode requires root permissions to create utun interface on macOS
     exec ${mihomoBin} -d ${configDir}
   '';
 
-  # --- Wrapper 2: System Proxy Mode (Runs core as user, manages networksetup) ---
+  # --- Wrapper 2: System Proxy Mode (Manages networksetup, drops privileges for core) ---
   mihomoSysProxyWrapper = pkgs.writeShellScriptBin "mihomo-sysproxy-service" ''
     set -e
+    echo "[mihomo-sysproxy] Initializing dynamic interfaces..."
+    ${detectionLogic}
 
-    # 1. Get the active default network interface
-    INTERFACE=$(${sys.cmds.route} -n get default 2>/dev/null | ${sys.cmds.awk} '/interface:/ {print $2}')
-    if [ -z "$INTERFACE" ]; then
-      echo "[mihomo] Error: No active network interface detected."
+    if [[ "$PHYS_IFACE" == utun* ]]; then
+      echo "[mihomo] ERROR: Active interface is '$PHYS_IFACE' (VPN/Tailscale detected). Aborting."
       exit 1
     fi
 
-    # 2. Prevent conflicting with third-party VPNs
-    if [[ "$INTERFACE" == utun* ]]; then
-      echo "[mihomo] ERROR: Active interface is '$INTERFACE' (VPN/Tailscale detected). Aborting."
-      exit 1
-    fi
-
-    # 3. Map interface to macOS Service Name
+    # Map the detected physical interface (e.g. en0) to macOS Service Name (e.g. "Wi-Fi")
     networkService=$(${sys.cmds.networksetup} -listnetworkserviceorder | \
-      ${sys.cmds.grep} -B 1 "Device: $INTERFACE" | \
+      ${sys.cmds.grep} -B 1 "Device: $PHYS_IFACE" | \
       ${sys.cmds.head} -n 1 | \
       ${sys.cmds.sed} -E 's/^\([0-9]+\) //')
 
     if [ -z "$networkService" ]; then
-      echo "[mihomo] Error: Could not map interface to macOS network service."
+      echo "[mihomo-sysproxy] Error: Could not map interface $PHYS_IFACE to macOS network service."
       exit 1
     fi
 
@@ -70,7 +97,6 @@ in
   homebrew.brews = lib.optionals (proxyStatus != "none") [ "mihomo" ];
 
   launchd.daemons.mihomo = lib.mkIf (proxyStatus != "none") {
-    # Dynamically select which wrapper script to execute based on your TUN setting
     script = if isTunMode 
              then "exec ${mihomoTunWrapper}/bin/mihomo-tun-service"
              else "exec ${mihomoSysProxyWrapper}/bin/mihomo-sysproxy-service";

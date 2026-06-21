@@ -24,4 +24,6 @@
   awk = "/usr/bin/awk";
   sed = "/usr/bin/sed";
   head = "/usr/bin/head";
+  ifconfig = "/sbin/ifconfig";
+  scutil = "/usr/sbin/scutil";
 }
