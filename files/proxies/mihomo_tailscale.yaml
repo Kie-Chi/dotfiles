@@ -24,7 +24,6 @@ dns:
     - '+.arpa'
     - '+.ts.net'
     - 'time.*.com'
-    - '+.buaa.edu.cn'
     - 'ntp.*.com'
     - 'localhost.ptlogin2.qq.com'
     - 'localhost.sec.qq.com'
@@ -33,15 +32,17 @@ dns:
     - 'www.msftconnecttest.com'
     - '+.fl0wer.cn'
   default-nameserver:
+    - 100.100.100.100
     - 223.5.5.5
     - 119.29.29.29
   nameserver:
-    
+    - 100.100.100.100
     - 223.5.5.5
     - 119.29.29.29
     - https://dns.alidns.com/dns-query
     - https://doh.pub/dns-query
   proxy-server-nameserver:
+    - 100.100.100.100
     - 223.5.5.5
     - https://dns.alidns.com/dns-query
     - https://doh.pub/dns-query
@@ -49,6 +50,7 @@ dns:
     '+.ts.net':
       - 100.100.100.100
     '+.buaa.edu.cn':
+      - 100.100.100.100
       - 202.112.128.50
       - 202.112.128.51
 

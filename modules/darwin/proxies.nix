@@ -90,7 +90,9 @@ let
 
     # 5. Start Mihomo core as unprivileged user
     echo "[mihomo] Starting mihomo core as user '${user}'..."
-    exec ${sys.cmds.sudo} -u ${user} ${mihomoBin} -d ${configDir}
+    ${sys.cmds.sudo} -u ${user} ${mihomoBin} -d ${configDir} &
+    MIHOMO_PID=$!
+    wait "$MIHOMO_PID"
   '';
 in
 {
@@ -98,8 +100,8 @@ in
 
   launchd.daemons.mihomo = lib.mkIf (proxyStatus != "none") {
     script = if isTunMode 
-             then "exec ${mihomoTunWrapper}/bin/mihomo-tun-service"
-             else "exec ${mihomoSysProxyWrapper}/bin/mihomo-sysproxy-service";
+             then "${mihomoTunWrapper}/bin/mihomo-tun-service"
+             else "${mihomoSysProxyWrapper}/bin/mihomo-sysproxy-service";
 
     serviceConfig = {
       KeepAlive = (proxyStatus == "keep");
