@@ -24,35 +24,35 @@
     ];
 
     casks = [
-      "uuremote" # Game for Windows
+      # "uuremote" # Game for Windows
       "clash-verge-rev"
       "codex"
       "codex-app"
       "cyberduck"
       "betterdisplay"
-      "skim"
-      "microsoft-remote-desktop"
+      # "skim"
+      # "microsoft-remote-desktop"
       "wpsoffice-cn"
       "karabiner-elements"
-      "ticktick"
+      # "ticktick"
       "squirrel-app"
-      "trae"
+      # "trae"
       "linearmouse"
       "tailscale-app"
-      "moonlight"
+      # "moonlight"
       "raycast"
-      "wechat"
+      # "wechat"
       "google-chrome"
       "feishu"
       "tencent-meeting"
-      "dingtalk"
+      # "dingtalk"
       "karabiner-elements"
       "orbstack"
       "squirrel-app"
       "iina"
       "iterm2"
       "snipaste"
-      "neteasemusic"
+      # "neteasemusic"
     ];
   };
 }
