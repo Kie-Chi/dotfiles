@@ -2,15 +2,9 @@
 """Dotfiles setup CLI — menuconfig-like UI for config.nix + sops secrets."""
 
 import os
-import re
 import subprocess
-import tempfile
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Callable, List, Optional
+from typing import List, Optional
 
-import yaml
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -24,121 +18,23 @@ from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.widgets import Frame
 from prompt_toolkit import prompt as pt_prompt
 
+from envy import log
 from envy.key import (
-    AGE_KEY_DIR, AGE_KEY_FILE, SOPS_YAML, SECRETS_FILE, SECRETS_DIR,
-    run_cmd as key_run_cmd, console as key_console,
+    AGE_KEY_DIR, AGE_KEY_FILE, SECRETS_FILE,
     read_sops_yaml_keys, write_sops_yaml_keys,
     get_current_device_public_key, get_device_label, set_device_label,
     run_sops_updatekeys, git_commit_sops_files, key_import,
 )
-from envy.utils import RECOVERY_KEY_FILE, backup_sensitive_file
-
-
-# ==========================================
-# PATHS (shared with key.py)
-# ==========================================
-
-BASE_DIR = Path(__file__).resolve().parent
-HOME_DIR = Path.home()
-CONFIG_FILE = BASE_DIR / "config.nix"
-
-# SOPS paths imported from key.py: AGE_KEY_DIR, AGE_KEY_FILE, SOPS_YAML, SECRETS_DIR, SECRETS_FILE
-
-console = Console()
-
-
-# ==========================================
-# FIELD DEFINITIONS
-# ==========================================
-
-def non_empty(val: str) -> Optional[str]:
-    if not val.strip():
-        return "Value cannot be empty"
-    return None
-
-def is_email(val: str) -> Optional[str]:
-    if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', val):
-        return "Please enter a valid email address"
-    return None
-
-def is_url(val: str) -> Optional[str]:
-    if val and not val.startswith("http://") and not val.startswith("https://"):
-        return "URL must start with http:// or https://"
-    return None
-
-
-@dataclass
-class FieldDef:
-    group: str
-    dest: str
-    path: str
-    yaml_path: str = ""
-    prompt: str = ""
-    default_fn: Callable = field(default_factory=lambda: lambda: "")
-    choices: List[str] = field(default_factory=list)
-    condition: Optional[Callable] = None
-    validators: List[Callable] = field(default_factory=list)
-    error_msg: str = ""
-    ignore: bool = False
-
-
-CONFIG_FIELDS = [
-    FieldDef(group="BASE", dest="config", path="home.user", prompt="System username",
-             default_fn=lambda: os.getenv("USER", "chi"), validators=[non_empty]),
-    FieldDef(group="BASE", dest="config", path="home.dir", prompt="Home directory",
-             default_fn=lambda: str(HOME_DIR), validators=[non_empty]),
-    FieldDef(group="GIT", dest="config", path="git.name", prompt="Git user name",
-             default_fn=lambda: os.getenv("USER", "chi"), validators=[non_empty]),
-    FieldDef(group="GIT", dest="config", path="git.email", prompt="Git user email",
-             default_fn=lambda: f"{os.getenv('USER','chi')}@{subprocess.getoutput('hostname -f')}",
-             validators=[is_email]),
-    FieldDef(group="PROXY", dest="config", path="proxy.status", prompt="Proxy status",
-             default_fn=lambda: "none", choices=["none", "manual", "keep"]),
-    FieldDef(group="PROXY", dest="config", path="proxy.tun", prompt="Proxy TUN status",
-             default_fn=lambda: "true", choices=["true", "false"],
-             condition=lambda v: v.get("proxy.status") != "none"),
-    FieldDef(group="ENV", dest="config", path="dotfiles.path", prompt="Dotfiles local path",
-             default_fn=lambda: str(BASE_DIR), ignore=True),
-    FieldDef(group="LLM", dest="config", path="llm.steps.url", prompt="StepFun API base URL",
-             default_fn=lambda: os.getenv("STEPFUN_BASE_URL", ""),
-             validators=[non_empty, is_url]),
-    FieldDef(group="LLM", dest="config", path="llm.steps.model", prompt="StepFun default model",
-             default_fn=lambda: "step-3.7-flash"),
-    FieldDef(group="LLM", dest="config", path="llm.deepseek.url", prompt="DeepSeek API base URL",
-             default_fn=lambda: "https://api.deepseek.com/v1"),
-    FieldDef(group="LLM", dest="config", path="llm.deepseek.model", prompt="DeepSeek default model",
-             default_fn=lambda: "deepseek-v4-pro"),
-]
-
-SECRET_FIELDS = [
-    FieldDef(group="SECRET", dest="secret", yaml_path="home/passwd", path="home_passwd",
-             prompt="System password",
-             default_fn=lambda: os.getenv("USER", ""), validators=[non_empty]),
-    FieldDef(group="SECRET", dest="secret", yaml_path="proxy/url", path="proxy_url",
-             prompt="Proxy URL", default_fn=lambda: "",
-             condition=lambda v: v.get("proxy.status") != "none",
-             validators=[is_url]),
-    FieldDef(group="SECRET", dest="secret", yaml_path="llm/steps/apikey", path="llm_steps_apikey",
-             prompt="StepFun API Key",
-             default_fn=lambda: os.getenv("STEPFUN_API_KEY", os.getenv("API_KEY", ""))),
-    FieldDef(group="SECRET", dest="secret", yaml_path="llm/deepseek/apikey", path="llm_deepseek_apikey",
-             prompt="DeepSeek API Key",
-             default_fn=lambda: ""),
-]
-
-ALL_FIELDS = CONFIG_FIELDS + SECRET_FIELDS
+from envy.config import (
+    ALL_FIELDS, CONFIG_FIELDS, SECRET_FIELDS, FieldDef,
+    read_config_nix, read_secrets_yaml, write_config_nix, write_secrets_yaml,
+)
+from envy.utils import HOME_DIR, RECOVERY_KEY_FILE, backup_sensitive_file, run_cmd
 
 
 # ==========================================
 # CRYPTO — age key + sops (delegated to key.py)
 # ==========================================
-
-def run_cmd(cmd: List[str], stdin_data: Optional[str] = None, check: bool = True) -> str:
-    env = os.environ.copy()
-    if AGE_KEY_FILE.exists():
-        env["SOPS_AGE_KEY_FILE"] = str(AGE_KEY_FILE)
-    result = subprocess.run(cmd, input=stdin_data, capture_output=True, text=True, check=check, env=env)
-    return result.stdout.strip()
 
 
 def setup_age_key() -> str:
@@ -157,26 +53,26 @@ def setup_age_key() -> str:
             if ssh_key.exists():
                 try:
                     ssh_pub_input = ssh_key.with_suffix(".pub").read_text()
-                    ssh_derived_pub = run_cmd(["ssh-to-age"], stdin_data=ssh_pub_input)
+                    ssh_derived_pub = run_cmd(["ssh-to-age"], stdin_data=ssh_pub_input, capture=True)
                     if ssh_derived_pub == current_pub:
-                        console.print("[yellow]Your age key was derived from SSH and doesn't match .sops.yaml.[/yellow]")
-                        console.print("[yellow]This usually means your SSH key was rotated on a new device.[/yellow]")
+                        log.warn("setup", "age key was derived from SSH and doesn't match .sops.yaml")
+                        log.hint("This usually means your SSH key was rotated on a new device.")
                 except subprocess.CalledProcessError:
                     pass
 
-            console.print("[yellow]Age key exists but is not in .sops.yaml for this device.[/yellow]")
-            console.print("[yellow]It will be added during save.[/yellow]")
+            log.warn("setup", "age key exists but is not in .sops.yaml for this device")
+            log.hint("It will be added during save.")
             return current_pub
 
     # No age key file — try SSH derivation or generate new
     ssh_key = HOME_DIR / ".ssh" / "id_ed25519"
     if ssh_key.exists():
         try:
-            result = run_cmd(["ssh-to-age", "-private-key", "-i", str(ssh_key)])
+            result = run_cmd(["ssh-to-age", "-private-key", "-i", str(ssh_key)], capture=True)
             AGE_KEY_FILE.write_text(result + "\n")
             with open(str(ssh_key) + ".pub") as f:
                 pub_input = f.read()
-            public_key = run_cmd(["ssh-to-age"], stdin_data=pub_input)
+            public_key = run_cmd(["ssh-to-age"], stdin_data=pub_input, capture=True)
             if public_key:
                 AGE_KEY_FILE.chmod(0o600)
                 return public_key
@@ -184,134 +80,10 @@ def setup_age_key() -> str:
             pass
 
     backup_sensitive_file(AGE_KEY_FILE)
-    run_cmd(["age-keygen", "-o", str(AGE_KEY_FILE)])
-    public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
+    run_cmd(["age-keygen", "-o", str(AGE_KEY_FILE)], capture=True)
+    public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)], capture=True)
     AGE_KEY_FILE.chmod(0o600)
     return public_key
-
-
-# ==========================================
-# CONFIG I/O
-# ==========================================
-
-def read_config_nix() -> dict:
-    values = {}
-    if not CONFIG_FILE.exists():
-        return values
-    pattern = re.compile(r'(\S+)\s*=\s*"([^"]*)"')
-    for line in CONFIG_FILE.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("#") or not line:
-            continue
-        for key, val in pattern.findall(line):
-            values[key] = val
-    return values
-
-
-def write_config_nix(values: dict) -> None:
-    groups = sorted(set(f.group for f in CONFIG_FIELDS))
-    lines = ["{\n"]
-    for group in groups:
-        lines.append(f"\n  # --- {group} CONFIG ---\n")
-        for f in CONFIG_FIELDS:
-            if f.group != group:
-                continue
-            val = values.get(f.path, "")
-            val = val.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f"  {f.path} = \"{val}\";\n")
-    lines.append("}\n")
-    CONFIG_FILE.write_text("".join(lines))
-
-    target_dir = HOME_DIR / ".config" / "dotfiles"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    symlink = target_dir / "config.nix"
-    if symlink.exists() or symlink.is_symlink():
-        symlink.unlink()
-    symlink.symlink_to(CONFIG_FILE)
-
-
-def read_secrets_yaml() -> tuple:
-    """Read secrets from sops-encrypted YAML.
-    Returns (values_dict, decrypt_success_bool).
-    """
-    values = {}
-    if not SECRETS_FILE.exists():
-        return values, False
-    # Try sops decryption first, fallback to plain YAML for unencrypted files
-    data = None
-    decrypt_ok = False
-    try:
-        plain = run_cmd(["sops", "--decrypt", str(SECRETS_FILE)])
-        data = yaml.safe_load(plain)
-        decrypt_ok = True
-    except subprocess.CalledProcessError:
-        try:
-            data = yaml.safe_load(SECRETS_FILE.read_text())
-            decrypt_ok = False  # plain YAML = not encrypted = new device can't use sops-nix
-        except Exception:
-            pass
-    if data is None:
-        return values, False
-    for f in SECRET_FIELDS:
-        if not f.yaml_path:
-            continue
-        parts = f.yaml_path.split("/")
-        d = data
-        try:
-            for part in parts[:-1]:
-                d = d[part]
-            val = d.get(parts[-1], "")
-            if val is not None:
-                values[f.path] = str(val)
-        except (KeyError, TypeError):
-            pass
-    return values, decrypt_ok
-
-
-def write_secrets_yaml(values: dict) -> None:
-    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
-
-    data = {}
-    for f in SECRET_FIELDS:
-        parts = f.yaml_path.split("/")
-        d = data
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = values.get(f.path, "")
-
-    backup = SECRETS_FILE.with_suffix(".yaml.bak")
-    had_existing = SECRETS_FILE.exists()
-
-    # Backup existing encrypted secrets before any modification
-    if had_existing:
-        os.replace(str(SECRETS_FILE), str(backup))
-
-    try:
-        # Write unencrypted data to the real path (matches .sops.yaml path_regex)
-        with open(SECRETS_FILE, "w") as fh:
-            yaml.dump(data, fh, default_flow_style=False, allow_unicode=True)
-
-        # Encrypt in-place; filename matches creation rules so sops can find config
-        keys = read_sops_yaml_keys()
-        age_recipients = ",".join(keys.values())
-        run_cmd(["sops", "--encrypt", "--in-place", "--age", age_recipients, str(SECRETS_FILE)])
-    except Exception:
-        # Encryption failed — rollback to backup immediately
-        console.print("[red]sops encryption failed[/red]")
-        console.print("[red]ABORTING: secrets.yaml will NOT be written unencrypted.[/red]")
-        if had_existing and backup.exists():
-            os.replace(str(backup), str(SECRETS_FILE))
-            console.print("[green]Rolled back to previous encrypted secrets.yaml[/green]")
-        else:
-            # No backup means secrets.yaml didn't exist before — remove the unencrypted file
-            if SECRETS_FILE.exists():
-                os.unlink(str(SECRETS_FILE))
-            console.print("[yellow]No previous secrets.yaml to restore — unencrypted file removed.[/yellow]")
-        raise RuntimeError("sops encryption failed — refusing to leave secrets unencrypted")
-
-    # Success — discard backup
-    if backup.exists():
-        os.unlink(str(backup))
 
 
 # git_commit_sops_files is imported from key.py
@@ -353,7 +125,7 @@ def init_values() -> dict:
 def handle_decrypt_failure() -> dict:
     """Layered guidance when sops decryption fails on a new device.
     Delegates to key_import() interactive mode from key.py."""
-    console.print(Panel(
+    log.console.print(Panel(
         "[bold red]sops decryption failed[/bold red]\n\n"
         "This usually means you're on a [bold]new device[/bold] and the age key\n"
         "doesn't match the one that encrypted secrets.yaml.\n\n"
@@ -364,12 +136,12 @@ def handle_decrypt_failure() -> dict:
     if pub:
         secrets, ok = read_secrets_yaml()
         if ok:
-            console.print("[bold green]Decryption successful! Existing secrets restored.[/bold green]")
+            log.ok("setup", "decryption successful — existing secrets restored")
             return secrets
         else:
-            console.print("[yellow]Key imported but decryption still failed. Try another key.[/yellow]")
+            log.warn("setup", "key imported but decryption still failed, try another key")
 
-    console.print("[yellow]Proceeding with empty secrets — you must re-enter all values in the menuconfig UI.[/yellow]")
+    log.warn("setup", "proceeding with empty secrets — re-enter all values in the menuconfig UI")
     return {}
 
 
@@ -619,7 +391,7 @@ def show_changes(old_values: dict, new_values: dict) -> bool:
             changes.append((f"{tag}: {f.prompt}", old, new))
 
     if not changes:
-        console.print("[dim]No changes detected[/dim]")
+        log.hint("No changes detected")
         return False
 
     table = Table(show_header=True, box=None, padding=(0, 2))
@@ -629,7 +401,7 @@ def show_changes(old_values: dict, new_values: dict) -> bool:
     for row in changes:
         table.add_row(*row)
 
-    console.print(Panel(table, title="Changes Summary", border_style="yellow"))
+    log.console.print(Panel(table, title="Changes Summary", border_style="yellow"))
     return True
 
 
@@ -649,7 +421,7 @@ def save_all(values: dict) -> None:
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console,
+        console=log.console,
     ) as progress:
 
         t1 = progress.add_task("Setting up age key...", total=None)
@@ -713,7 +485,7 @@ def save_all(values: dict) -> None:
             run_sops_updatekeys()
             progress.update(t5, completed=True)
 
-    console.print("[cyan]Committing sops files...[/cyan]")
+    log.step("setup", "committing sops files")
     git_commit_sops_files("setup")
 
 
@@ -750,30 +522,30 @@ def main():
     new_values = menuconfig_loop(old_values)
 
     if new_values is None:
-        console.print("[dim]Quit without saving.[/dim]")
+        log.hint("Quit without saving.")
         return
 
-    console.print()
+    log.console.print()
     has_changes = show_changes(old_values, new_values)
 
     if not has_changes:
-        console.print("[dim]No changes to apply.[/dim]")
+        log.hint("No changes to apply.")
         return
 
     if not confirm_save():
-        console.print("[red]Changes aborted.[/red]")
+        log.error("setup", "changes aborted")
         return
 
-    console.print()
+    log.console.print()
     save_all(new_values)
-    console.print()
-    console.print(Panel("[bold green]All files saved successfully![/bold green]", border_style="green"))
+    log.console.print()
+    log.console.print(Panel("[bold green]All files saved successfully![/bold green]", border_style="green"))
 
     # Ask if user wants to apply immediately
     try:
         answer = pt_prompt("? Apply configuration now (envy apply)? [y/N]: ")
         if answer.lower().startswith("y"):
-            console.print("[cyan]Running envy apply...[/cyan]")
+            log.step("setup", "running envy apply")
             from envy.main import cmd_apply
             cmd_apply()
     except (EOFError, KeyboardInterrupt):

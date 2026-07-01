@@ -67,12 +67,12 @@ envy key im -s ~/.ssh/id_ed25519 -l new_macbook
 
 ```bash
 envy key im -g -l new_macbook
-envy config   # 重新填写所有秘密值
+envy setup   # 重新填写所有秘密值
 ```
 
 导入后 `envy key import` 会自动将新密钥加入 `.sops.yaml` 并运行 `sops updatekeys`，使新设备能解密已有秘密。
 
-也可以通过 `envy config`（即 setup.py）交互式完成——如果解密失败，它会自动进入密钥导入流程。
+也可以通过 `envy setup` 交互式完成——如果解密失败，它会自动进入密钥导入流程。
 
 ### 场景 2：添加另一台设备的密钥
 
@@ -175,11 +175,11 @@ sops 默认在 `~/.config/sops/age/keys.txt` 查找密钥，但 dotfiles 使用 
 
 ### write_secrets_yaml 安全机制
 
-`setup.py` 的 `write_secrets_yaml()` 使用原子写入策略：
-1. 写到临时文件
-2. 在临时文件上执行 sops encrypt
-3. `os.replace` 原子重命名到最终位置
-4. 如果加密失败 → 删除临时文件 → 抛出异常 → **绝不留下未加密数据**
+`envy.config.write_secrets_yaml()` 使用备份回滚策略：
+1. 先把现有 `secrets.yaml` 移动到 `.bak`
+2. 写入新的明文 YAML
+3. 立即执行 `sops --encrypt --in-place`
+4. 如果加密失败 → 恢复 `.bak` 或删除新明文文件 → 抛出异常 → **绝不留下未加密数据**
 
 ### 密钥文件多行支持
 

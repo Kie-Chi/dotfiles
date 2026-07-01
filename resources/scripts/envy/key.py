@@ -10,7 +10,6 @@ from typing import Dict, List, Optional
 
 import typer
 from click.shell_completion import CompletionItem
-from rich.console import Console
 from rich.prompt import Confirm
 from rich.table import Table
 from prompt_toolkit import prompt as pt_prompt
@@ -22,14 +21,13 @@ from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.widgets import Frame
 
+from envy import log
 from envy.utils import (
     DOTFILES_DIR, HOME_DIR, AGE_KEY_DIR, AGE_KEY_FILE,
     SOPS_YAML, SECRETS_DIR, SECRETS_FILE, RECOVERY_KEY_FILE,
-    DEVICE_LABEL_FILE, run_cmd, is_debug, backup_sensitive_file,
-    CYAN, GREEN, YELLOW, RED, NC,
+    DEVICE_LABEL_FILE, run_cmd, backup_sensitive_file,
+    is_sops_encrypted,
 )
-
-console = Console()
 
 # Typer subgroup
 app = typer.Typer(
@@ -66,18 +64,6 @@ def complete_sops_labels(ctx, param, incomplete):
 # ==========================================
 
 
-def _is_sops_encrypted(path: Path) -> bool:
-    """Check whether a YAML file contains sops metadata."""
-    try:
-        with open(path) as f:
-            for line in f:
-                if line.startswith("sops:"):
-                    return True
-    except (OSError, UnicodeDecodeError):
-        return False
-    return False
-
-
 def sanitize_label(name: str) -> str:
     return re.sub(r'[^a-z0-9_]', '_', name.lower())
 
@@ -85,9 +71,9 @@ def sanitize_label(name: str) -> str:
 def confirm(prompt_text: str) -> bool:
     """Ask user for y/N confirmation. Auto-answers yes if --yes/-y was set."""
     if _yes_flag:
-        console.print(f"[dim]{prompt_text} → auto-yes[/dim]")
+        log.hint(f"{prompt_text} → auto-yes")
         return True
-    return Confirm.ask(prompt_text, console=console, default=False)
+    return Confirm.ask(prompt_text, console=log.console, default=False)
 
 # ==========================================
 # SOPS YAML I/O
@@ -153,20 +139,20 @@ def get_current_device_public_key() -> Optional[str]:
 
 def run_sops_updatekeys() -> None:
     if not SECRETS_FILE.exists():
-        console.print("[yellow]No secrets file to updatekeys.[/yellow]")
+        log.warn("key", "no secrets file to updatekeys")
         return
-    if not _is_sops_encrypted(SECRETS_FILE):
-        console.print("[yellow]secrets.yaml is not sops-encrypted.[/yellow]")
-        console.print("To use sops-nix, secrets.yaml must be encrypted with your device keys.")
+    if not is_sops_encrypted(SECRETS_FILE):
+        log.warn("key", "secrets.yaml is not sops-encrypted")
+        log.hint("To use sops-nix, secrets.yaml must be encrypted with your device keys.")
         if not confirm("Encrypt secrets.yaml now?"):
-            console.print("[dim]Skipping updatekeys — secrets.yaml remains unencrypted.[/dim]")
+            log.hint("Skipping updatekeys — secrets.yaml remains unencrypted.")
             return
-        console.print("[cyan]Encrypting secrets.yaml...[/cyan]")
+        log.step("key", "encrypting secrets.yaml")
         backup_sensitive_file(SECRETS_FILE)
         run_cmd(["sops", "--encrypt", "--in-place", str(SECRETS_FILE)], capture=True)
     backup_sensitive_file(SECRETS_FILE)
     run_cmd(["sops", "updatekeys", "--yes", str(SECRETS_FILE)], capture=True)
-    console.print("[green]Secrets re-encrypted with updated key list.[/green]")
+    log.ok("key", "secrets re-encrypted with updated key list")
 
 
 def git_commit_sops_files(operation: str = "") -> None:
@@ -192,16 +178,17 @@ def git_commit_sops_files(operation: str = "") -> None:
             changed.append(f)
 
     if not changed:
-        console.print("[dim]sops files: no changes to commit[/dim]")
+        log.hint("sops files: no changes to commit")
         return
 
     names = [Path(f).name for f in changed]
     msg = f"chore({scope}): update keys on {label} ({', '.join(names)})"
     if not confirm(f"Commit {', '.join(names)} to git?"):
-        console.print("[yellow]Changes not committed. Run 'envy git add . && envy git commit' manually.[/yellow]")
+        log.warn("key", "changes not committed")
+        log.hint("Run: envy git add . && envy git commit")
         return
     run_cmd(["git", "commit", "-m", msg, "--"] + changed, check=False, capture=True)
-    console.print(f"[green]{', '.join(names)} committed[/green]")
+    log.ok("key", "committed", files=', '.join(names))
 
 # ==========================================
 # RECOVERY KEY MANAGEMENT
@@ -373,15 +360,16 @@ def key_list() -> None:
             status = "[dim]remote[/dim]"
         table.add_row(label, pubkey[:24] + "...", status)
 
-    console.print(table)
+    log.console.print(table)
 
     if current_pub and current_pub in keys.values():
-        console.print("[green]Current device CAN decrypt secrets.[/green]")
+        log.ok("key", "current device CAN decrypt secrets")
     elif current_pub:
-        console.print("[red]Current device key NOT in .sops.yaml — cannot decrypt![/red]")
-        console.print("[yellow]Run 'envy key import' or 'envy key add' to add this device's key.[/yellow]")
+        log.error("key", "current device key NOT in .sops.yaml — cannot decrypt")
+        log.hint("Run: envy key import or envy key add")
     else:
-        console.print("[red]No age key on this device — run 'envy key import' first.[/red]")
+        log.error("key", "no age key on this device")
+        log.hint("Run: envy key import")
 
 
 def key_status() -> None:
@@ -427,21 +415,21 @@ def key_status() -> None:
     table.add_column("Detail")
     for prop, val, detail in items:
         table.add_row(prop, val, detail)
-    console.print(table)
+    log.console.print(table)
 
 
 def key_add(pubkey: str, label: Optional[str] = None) -> None:
     if not pubkey.startswith("age1"):
-        console.print("[red]Invalid age public key (must start with 'age1').[/red]")
+        log.error("key", "invalid age public key (must start with 'age1')")
         return
 
     if len(pubkey) < 58:
-        console.print(f"[red]Invalid age public key (too short: {len(pubkey)} chars, expected ~58-62).[/red]")
+        log.error("key", f"invalid age public key (too short: {len(pubkey)} chars, expected ~58-62)")
         return
 
     keys = read_sops_yaml_keys()
     if pubkey in keys.values():
-        console.print("[yellow]Key already exists in .sops.yaml.[/yellow]")
+        log.warn("key", "key already exists in .sops.yaml")
         return
 
     if label is None:
@@ -449,13 +437,13 @@ def key_add(pubkey: str, label: Optional[str] = None) -> None:
     label = sanitize_label(label)
 
     if label in keys:
-        console.print(f"[red]Label '{label}' already used. Choose a different label.[/red]")
+        log.error("key", f"label '{label}' already used, choose a different label")
         return
 
     try:
         run_cmd(["age", "--encrypt", "-r", pubkey, "-o", "/dev/null"], stdin_data="test", capture=True)
     except subprocess.CalledProcessError:
-        console.print("[red]Key rejected by age — not a valid recipient.[/red]")
+        log.error("key", "key rejected by age — not a valid recipient")
         return
 
     new_keys = dict(keys)
@@ -465,8 +453,8 @@ def key_add(pubkey: str, label: Optional[str] = None) -> None:
         try:
             _reencrypt_recovery_key_with(new_keys)
         except (subprocess.CalledProcessError, RuntimeError):
-            console.print("[yellow]Recovery key reencryption failed with new key. Key will still be added.[/yellow]")
-            console.print("[yellow]Run 'envy key add-recovery' to regenerate the recovery key after adding.[/yellow]")
+            log.warn("key", "recovery key reencryption failed with new key, key will still be added")
+            log.hint("Run: envy key add-recovery")
 
     write_sops_yaml_keys(new_keys)
 
@@ -474,10 +462,10 @@ def key_add(pubkey: str, label: Optional[str] = None) -> None:
         try:
             run_sops_updatekeys()
         except subprocess.CalledProcessError:
-            console.print("[yellow]sops updatekeys failed — secrets may not be re-encrypted for the new key yet.[/yellow]")
+            log.warn("key", "sops updatekeys failed — secrets may not be re-encrypted for the new key yet")
 
     git_commit_sops_files("add")
-    console.print(f"[green]Key '{label}' added.[/green]")
+    log.ok("key", "key added", label=label)
 
 
 def key_remove(label: str, force: bool = False) -> None:
@@ -485,21 +473,21 @@ def key_remove(label: str, force: bool = False) -> None:
     current_pub = get_current_device_public_key()
 
     if label not in keys:
-        console.print(f"[red]Label '{label}' not found in .sops.yaml.[/red]")
+        log.error("key", f"label '{label}' not found in .sops.yaml")
         return
 
     if label == "recovery":
-        console.print("[red]Cannot remove the recovery key. It ensures decryptability during rotation.[/red]")
+        log.error("key", "cannot remove the recovery key — it ensures decryptability during rotation")
         return
 
     if keys[label] == current_pub:
         if not force and not confirm("This is your CURRENT device key! Removing it will make secrets inaccessible here. Remove anyway?"):
-            console.print("[yellow]Skipped.[/yellow]")
+            log.warn("key", "skipped")
             return
 
     remaining = len(keys) - 1
     if remaining < 2:
-        console.print("[red]Cannot remove — at least one device key and the recovery key must remain.[/red]")
+        log.error("key", "cannot remove — at least one device key and the recovery key must remain")
         return
 
     removed_pub = keys.pop(label)
@@ -509,16 +497,16 @@ def key_remove(label: str, force: bool = False) -> None:
 
     run_sops_updatekeys()
     git_commit_sops_files("remove")
-    console.print(f"[green]Key '{label}' ({removed_pub[:24]}...) removed.[/green]")
-    console.print("[yellow]That device will NO LONGER be able to decrypt secrets.[/yellow]")
+    log.ok("key", "key removed", label=label, pubkey=removed_pub[:24] + "...")
+    log.warn("key", "that device will NO LONGER be able to decrypt secrets")
 
     if removed_pub == current_pub:
-        console.print("[bold red]WARNING: You removed your own key! Secrets inaccessible on this device until you import a new key.[/bold red]")
+        log.error("key", "WARNING: you removed your own key! Secrets inaccessible on this device until you import a new key")
 
 
 def key_export(format: str = "age", output: Optional[str] = None) -> None:
     if not AGE_KEY_FILE.exists():
-        console.print("[red]No age key on this device to export.[/red]")
+        log.error("key", "no age key on this device to export")
         return
 
     content = AGE_KEY_FILE.read_text().strip()
@@ -528,7 +516,7 @@ def key_export(format: str = "age", output: Optional[str] = None) -> None:
         if output:
             Path(output).write_text(content + "\n")
             Path(output).chmod(0o600)
-            console.print(f"[green]Age key exported to {output}[/green]")
+            log.ok("key", "age key exported", path=output)
         else:
             print(content)
     elif format == "ssh":
@@ -537,15 +525,15 @@ def key_export(format: str = "age", output: Optional[str] = None) -> None:
             if output:
                 Path(output).write_text(ssh_key.read_text())
                 Path(output).chmod(0o600)
-                console.print(f"[green]SSH key exported to {output}[/green]")
+                log.ok("key", "SSH key exported", path=output)
             else:
                 print(ssh_key.read_text().strip())
         else:
-            console.print("[yellow]No SSH key found. Export as age format instead.[/yellow]")
+            log.warn("key", "no SSH key found, export as age format instead")
             return
 
-    console.print(f"[dim]Public key: {pub}[/dim]")
-    console.print("[yellow]WARNING: Private keys are sensitive. Transfer securely (USB, scp, encrypted channel).[/yellow]")
+    log.hint(f"Public key: {pub}")
+    log.warn("key", "private keys are sensitive — transfer securely (USB, scp, encrypted channel)")
 
 
 def key_import(
@@ -560,29 +548,29 @@ def key_import(
     # If AGE_KEY_FILE already exists, confirm overwrite and backup before any write path
     if AGE_KEY_FILE.exists() and (age_path or ssh_path or generate):
         if not confirm(f"AGE_KEY_FILE already exists at {AGE_KEY_FILE}. Overwrite?"):
-            console.print("[yellow]Import cancelled.[/yellow]")
+            log.warn("key", "import cancelled")
             return None
         backup_sensitive_file(AGE_KEY_FILE)
 
     if age_path:
         src = Path(age_path).expanduser()
         if not src.exists():
-            console.print(f"[red]File not found: {src}[/red]")
+            log.error("key", "file not found", path=str(src))
             return None
         content = src.read_text().strip()
         if not content.startswith("AGE-SECRET-KEY"):
-            console.print("[red]File does not appear to be an age key (missing AGE-SECRET-KEY prefix)[/red]")
+            log.error("key", "file does not appear to be an age key (missing AGE-SECRET-KEY prefix)")
             return None
         AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
         AGE_KEY_FILE.write_text(content + "\n")
         AGE_KEY_FILE.chmod(0o600)
         pub = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)], capture=True)
         if pub:
-            console.print(f"[green]Age key imported: {pub[:20]}...[/green]")
+            log.ok("key", "age key imported", pubkey=pub[:20] + "...")
     elif ssh_path:
         src = Path(ssh_path).expanduser()
         if not src.exists():
-            console.print(f"[red]File not found: {src}[/red]")
+            log.error("key", "file not found", path=str(src))
             return None
         AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
         result = run_cmd(["ssh-to-age", "-private-key", "-i", str(src)], capture=True)
@@ -591,19 +579,19 @@ def key_import(
         if pub_path.exists():
             pub_input = pub_path.read_text()
         else:
-            console.print(f"[yellow]No public key found at {pub_path}, enter it manually:[/yellow]")
+            log.warn("key", "no public key found, enter it manually", path=str(pub_path))
             pub_input = pt_prompt("SSH public key: ")
         pub = run_cmd(["ssh-to-age"], stdin_data=pub_input, capture=True)
         if pub:
             AGE_KEY_FILE.chmod(0o600)
-            console.print(f"[green]Age key derived from SSH: {pub[:20]}...[/green]")
+            log.ok("key", "age key derived from SSH", pubkey=pub[:20] + "...")
     elif generate:
         AGE_KEY_DIR.mkdir(parents=True, exist_ok=True)
         run_cmd(["age-keygen", "-o", str(AGE_KEY_FILE)], capture=True)
         AGE_KEY_FILE.chmod(0o600)
         pub = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)], capture=True)
         if pub:
-            console.print(f"[green]New age key generated: {pub[:20]}...[/green]")
+            log.ok("key", "new age key generated", pubkey=pub[:20] + "...")
     else:
         # Interactive mode — arrow-key navigation menu
         usb_files = scan_usb_key_files()
@@ -647,7 +635,7 @@ def key_import(
             return key_import(generate=True, label=label)
 
     if not pub:
-        console.print("[red]Key import failed.[/red]")
+        log.error("key", "key import failed")
         return None
 
     # Set device label
@@ -674,34 +662,34 @@ def key_import(
         run_sops_updatekeys()
     git_commit_sops_files("import")
 
-    console.print(f"[green]Key imported and added to .sops.yaml as '{current_label}'.[/green]")
-    console.print(f"[green]Public key: {pub}[/green]")
+    log.ok("key", f"key imported and added to .sops.yaml as '{current_label}'")
+    log.hint(f"Public key: {pub}")
 
     # Warn if recovery public key exists but recovery-key.age is missing
     if "recovery" in keys and not RECOVERY_KEY_FILE.exists():
-        console.print("[bold yellow]WARNING: Recovery key is in .sops.yaml but secrets/recovery-key.age is missing.[/bold yellow]")
-        console.print("[yellow]Without recovery-key.age, you cannot export (envy key rr) the recovery private key from this device.[/yellow]")
+        log.warn("key", "recovery key is in .sops.yaml but secrets/recovery-key.age is missing")
+        log.hint("Without recovery-key.age, you cannot export (envy key rr) the recovery private key from this device.")
 
     # Warn if device key overlaps with recovery key
     keys = read_sops_yaml_keys()
     if "recovery" in keys and pub == keys["recovery"]:
-        console.print("[bold yellow]WARNING: Your device key is the same as the recovery key.[/bold yellow]")
-        console.print("The recovery key should be kept separate for offline backup.")
-        console.print("It is recommended to rotate your device key to generate an independent one.")
+        log.warn("key", "your device key is the same as the recovery key")
+        log.hint("The recovery key should be kept separate for offline backup.")
+        log.hint("It is recommended to rotate your device key to generate an independent one.")
 
         if not RECOVERY_KEY_FILE.exists():
-            console.print("[cyan]The recovery private key needs to be sealed into secrets/recovery-key.age.[/cyan]")
-            console.print("[dim]Sealing encrypts the recovery private key with all device public keys[/dim]")
-            console.print("[yellow]If you skip sealing now, the recovery private key will be permanently lost after rotation,[/yellow]")
+            log.info("key", "the recovery private key needs to be sealed into secrets/recovery-key.age")
+            log.hint("Sealing encrypts the recovery private key with all device public keys")
+            log.warn("key", "if you skip sealing now, the recovery private key will be permanently lost after rotation")
             if confirm("Seal recovery key into recovery-key.age?"):
                 key_seal_recovery()
             else:
-                console.print("[yellow]Skipping seal. Run 'envy key seal-recovery' manually before rotating.[/yellow]")
+                log.hint("Run: envy key seal-recovery")
 
         if confirm("Rotate device key now?"):
             key_rotate()
             new_pub = get_current_device_public_key()
-            console.print(f"[green]Device key rotated. New public key: {new_pub}[/green]")
+            log.ok("key", "device key rotated", pubkey=new_pub)
             return new_pub
 
     return pub
@@ -710,7 +698,8 @@ def key_import(
 def key_add_recovery() -> None:
     keys = read_sops_yaml_keys()
     if "recovery" in keys:
-        console.print("[yellow]Recovery key already exists. Use 'envy key rotate --recovery' to replace it.[/yellow]")
+        log.warn("key", "recovery key already exists")
+        log.hint("Run: envy key rotate --recovery")
         return
 
     recovery_priv = run_cmd(["age-keygen"], capture=True)
@@ -743,45 +732,46 @@ def key_add_recovery() -> None:
         run_sops_updatekeys()
 
     git_commit_sops_files("add_recovery")
-    console.print(f"[green]Recovery key generated and added to .sops.yaml.[/green]")
-    console.print(f"[dim]Recovery public key: {recovery_pub[:30]}...[/dim]")
-    console.print("[cyan]Recovery private key is stored encrypted at secrets/recovery-key.age[/cyan]")
-    console.print("[yellow]IMPORTANT: Also save the recovery key offline (USB/paper/password manager) as ultimate backup.[/yellow]")
+    log.ok("key", "recovery key generated and added to .sops.yaml")
+    log.hint(f"Recovery public key: {recovery_pub[:30]}...")
+    log.info("key", "recovery private key is stored encrypted at secrets/recovery-key.age")
+    log.warn("key", "IMPORTANT: also save the recovery key offline (USB/paper/password manager) as ultimate backup")
 
 
 def key_seal_recovery(priv_path: Optional[str] = None) -> None:
     """Encrypt a recovery private key into secrets/recovery-key.age."""
     keys = read_sops_yaml_keys()
     if "recovery" not in keys:
-        console.print("[red]No recovery key in .sops.yaml. Run 'envy key add-recovery' first.[/red]")
+        log.error("key", "no recovery key in .sops.yaml")
+        log.hint("Run: envy key add-recovery")
         return
 
     if RECOVERY_KEY_FILE.exists():
-        console.print("[yellow]recovery-key.age already exists. Re-encrypting with updated key list...[/yellow]")
+        log.warn("key", "recovery-key.age already exists, re-encrypting with updated key list")
         reencrypt_recovery_key(keys)
         return
 
     if priv_path:
         src = Path(priv_path).expanduser()
         if not src.exists():
-            console.print(f"[red]File not found: {src}[/red]")
+            log.error("key", "file not found", path=str(src))
             return
         recovery_priv = src.read_text().strip()
     else:
         current_pub = get_current_device_public_key()
         if not current_pub:
-            console.print("[red]No current device key.[/red]")
-            console.print("[yellow]Provide recovery private key path: envy key seal-recovery <path>[/yellow]")
+            log.error("key", "no current device key")
+            log.hint("Run: envy key seal-recovery <path>")
             return
         if current_pub != keys["recovery"]:
-            console.print("[red]Current device key is not the recovery key.[/red]")
-            console.print("[yellow]Provide recovery private key path: envy key seal-recovery <path>[/yellow]")
+            log.error("key", "current device key is not the recovery key")
+            log.hint("Run: envy key seal-recovery <path>")
             return
         recovery_priv = AGE_KEY_FILE.read_text().strip()
 
     priv_lines = [l for l in recovery_priv.split("\n") if l.startswith("AGE-SECRET-KEY")]
     if not priv_lines:
-        console.print("[red]Provided key does not contain AGE-SECRET-KEY.[/red]")
+        log.error("key", "provided key does not contain AGE-SECRET-KEY")
         return
 
     priv_line = priv_lines[0]
@@ -795,9 +785,9 @@ def key_seal_recovery(priv_path: Optional[str] = None) -> None:
         os.unlink(tmp_path)
 
     if derived_pub != keys["recovery"]:
-        console.print("[red]Derived public key does not match recovery key in .sops.yaml.[/red]")
-        console.print(f"[dim]Expected: {keys['recovery'][:30]}...[/dim]")
-        console.print(f"[dim]Got:      {derived_pub[:30]}...[/dim]")
+        log.error("key", "derived public key does not match recovery key in .sops.yaml")
+        log.hint(f"Expected: {keys['recovery'][:30]}...")
+        log.hint(f"Got:      {derived_pub[:30]}...")
         return
 
     recipients = list(keys.values())
@@ -811,19 +801,19 @@ def key_seal_recovery(priv_path: Optional[str] = None) -> None:
     if SECRETS_FILE.exists():
         run_sops_updatekeys()
     git_commit_sops_files("seal_recovery")
-    console.print("[green]Recovery private key sealed into secrets/recovery-key.age[/green]")
-    console.print("[dim]Encrypted for all device keys in .sops.yaml[/dim]")
+    log.ok("key", "recovery private key sealed into secrets/recovery-key.age")
+    log.hint("Encrypted for all device keys in .sops.yaml")
 
 
 def key_recover_recovery(output: Optional[str] = None) -> None:
     """Decrypt the stored recovery private key."""
     if not RECOVERY_KEY_FILE.exists():
-        console.print("[red]No recovery-key.age file found in repo.[/red]")
+        log.error("key", "no recovery-key.age file found in repo")
         return
 
     current_pub = get_current_device_public_key()
     if not current_pub:
-        console.print("[red]No age key on this device to decrypt recovery key.[/red]")
+        log.error("key", "no age key on this device to decrypt recovery key")
         return
 
     decrypted = run_cmd(["age", "--decrypt", "-i", str(AGE_KEY_FILE), str(RECOVERY_KEY_FILE)], capture=True)
@@ -831,11 +821,11 @@ def key_recover_recovery(output: Optional[str] = None) -> None:
     if output:
         Path(output).write_text(decrypted)
         Path(output).chmod(0o600)
-        console.print(f"[green]Recovery key decrypted and saved to {output}[/green]")
+        log.ok("key", "recovery key decrypted and saved", path=output)
     else:
-        console.print("[yellow]Recovery private key:[/yellow]")
-        console.print(decrypted)
-        console.print("[yellow]Use --output to save to a file safely.[/yellow]")
+        log.warn("key", "recovery private key:")
+        print(decrypted)
+        log.hint("Use --output to save to a file safely.")
 
 
 def key_rotate(recovery: bool = False) -> None:
@@ -845,16 +835,17 @@ def key_rotate(recovery: bool = False) -> None:
     if recovery:
         current_pub = get_current_device_public_key()
         if not current_pub or current_pub not in keys.values():
-            console.print("[red]Current device key must be in .sops.yaml to rotate recovery key.[/red]")
+            log.error("key", "current device key must be in .sops.yaml to rotate recovery key")
             return
 
         old_recovery_pub = keys.get("recovery")
         if not old_recovery_pub:
-            console.print("[red]No recovery key to rotate. Run 'envy key add-recovery' first.[/red]")
+            log.error("key", "no recovery key to rotate")
+            log.hint("Run: envy key add-recovery")
             return
 
-        console.print("[cyan]Rotating recovery key...[/cyan]")
-        console.print(f"[dim]Old recovery: {old_recovery_pub[:30]}...[/dim]")
+        log.step("key", "rotating recovery key")
+        log.hint(f"Old recovery: {old_recovery_pub[:30]}...")
 
         recovery_priv = run_cmd(["age-keygen"], capture=True)
         priv_line = [l for l in recovery_priv.split("\n") if l.startswith("AGE-SECRET-KEY")][0]
@@ -890,28 +881,29 @@ def key_rotate(recovery: bool = False) -> None:
         run_sops_updatekeys()
         git_commit_sops_files("rotate_recovery")
 
-        console.print(f"[green]Recovery key rotated. New: {new_recovery_pub[:30]}...[/green]")
-        console.print("[yellow]IMPORTANT: Save the new recovery key offline (USB/paper/password manager).[/yellow]")
+        log.ok("key", "recovery key rotated", pubkey=new_recovery_pub[:30] + "...")
+        log.warn("key", "IMPORTANT: save the new recovery key offline (USB/paper/password manager)")
         return
 
     # Rotate device key
     current_pub = get_current_device_public_key()
     if not current_pub:
-        console.print("[red]No current key to rotate. Run 'envy key import' first.[/red]")
+        log.error("key", "no current key to rotate")
+        log.hint("Run: envy key import")
         return
 
     label = get_device_label()
     if current_pub not in keys.values():
-        console.print("[red]Current device key not in .sops.yaml. Cannot rotate.[/red]")
+        log.error("key", "current device key not in .sops.yaml, cannot rotate")
         return
 
     if "recovery" not in keys:
-        console.print("[red]No recovery key in .sops.yaml! Rotation is unsafe without a recovery key.[/red]")
-        console.print("[yellow]Generate a recovery key first: envy key add-recovery[/yellow]")
+        log.error("key", "no recovery key in .sops.yaml — rotation is unsafe without a recovery key")
+        log.hint("Run: envy key add-recovery")
         return
 
-    console.print(f"[cyan]Rotating key for device '{label}'...[/cyan]")
-    console.print(f"[dim]Old public key: {current_pub[:30]}...[/dim]")
+    log.step("key", f"rotating key for device '{label}'")
+    log.hint(f"Old public key: {current_pub[:30]}...")
 
     old_key_content = AGE_KEY_FILE.read_text().strip()
 
@@ -921,7 +913,7 @@ def key_rotate(recovery: bool = False) -> None:
     os.chmod(tmp_path, 0o600)
     new_pub = run_cmd(["age-keygen", "-y", tmp_path], capture=True)
 
-    console.print(f"[dim]New public key: {new_pub[:30]}...[/dim]")
+    log.hint(f"New public key: {new_pub[:30]}...")
 
     new_key_content = Path(tmp_path).read_text().strip()
     AGE_KEY_FILE.write_text(old_key_content + "\n" + new_key_content + "\n")
@@ -948,8 +940,8 @@ def key_rotate(recovery: bool = False) -> None:
 
     git_commit_sops_files("rotate")
 
-    console.print(f"[green]Key rotation complete for '{label}'.[/green]")
-    console.print(f"[green]New public key: {new_pub}[/green]")
+    log.ok("key", f"key rotation complete for '{label}'")
+    log.hint(f"New public key: {new_pub}")
 
 
 # ==========================================

@@ -3,19 +3,17 @@ import subprocess
 
 import typer
 from click.shell_completion import CompletionItem
-from rich.console import Console
 from typing import Optional
 
+from envy import log
+from envy.config import app as config_app, refine_all
 from envy.key import app as key_app
 from envy.utils import (
-    CYAN, GREEN, YELLOW, RED, NC,
     DOTFILES_DIR, SETUP_SCRIPT, PLATFORM,
     FLAKE_TARGET, SYSTEM_PROFILE,
     clean_config_links, ensure_config_links,
-    is_debug, run_cmd, run_hm, run_apply, esudo,
+    run_cmd, run_hm, run_apply, esudo,
 )
-
-console = Console()
 
 
 # ==========================================
@@ -62,6 +60,12 @@ def main_callback(
         os.environ["ENVY_DEBUG"] = "1"
 
 
+def _refine_before_apply() -> None:
+    report = refine_all(write=True, strict=True, include_secrets=True)
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
 # ==========================================
 # SUBCOMMANDS
 # ==========================================
@@ -71,6 +75,7 @@ def main_callback(
 @cli.command(name="switch", rich_help_panel="Aliases")
 def cmd_apply():
     """Apply the configuration (home-manager on Linux, nix-darwin on macOS)."""
+    _refine_before_apply()
     run_apply()
 
 
@@ -78,7 +83,7 @@ def cmd_apply():
 @cli.command(name="s", rich_help_panel="Aliases")
 def cmd_sync():
     """Pull latest changes from git and then apply."""
-    print(f"{CYAN}--> Pulling from git...{NC}")
+    log.step("git", "pulling latest changes")
     subprocess.run(["git", "pull"], cwd=str(DOTFILES_DIR))
     cmd_apply()
 
@@ -87,11 +92,12 @@ def cmd_sync():
 @cli.command(name="u", rich_help_panel="Aliases")
 def cmd_update():
     """Update flake inputs (nixpkgs, etc.)."""
-    print(f"{CYAN}--> Updating flake inputs (nixpkgs, etc.)...{NC}")
+    log.step("flake", "updating flake inputs")
     subprocess.run(["nix", "flake", "update"], cwd=str(DOTFILES_DIR))
     if PLATFORM == "darwin":
         subprocess.run(["brew", "update"])
-    print(f"{GREEN}--> Flake inputs updated. Run 'envy apply' to use them.{NC}")
+    log.ok("flake", "flake inputs updated")
+    log.hint("Run: envy apply")
 
 
 @cli.command(name="init")
@@ -99,12 +105,13 @@ def cmd_update():
 @cli.command(name="bootstrap", rich_help_panel="Aliases")
 def cmd_init():
     """Bootstrap configuration (home-manager on Linux, nix-darwin on macOS)."""
+    _refine_before_apply()
     if PLATFORM == "darwin":
         run_apply()
     else:
-        print(f"{CYAN}--> Bootstrapping Home Manager from flake...{NC}")
+        log.step("hm", "bootstrapping Home Manager from flake")
         run_hm("switch", "--flake", FLAKE_TARGET, "--impure")
-    print(f"{GREEN}--> Bootstrap completed successfully!{NC}")
+    log.ok("bootstrap", "bootstrap completed successfully")
 
 
 @cli.command(name="rollback")
@@ -123,45 +130,45 @@ def _rollback_darwin(target: Optional[str] = None):
     """Darwin rollback via nix-env on system profile."""
     profile = str(SYSTEM_PROFILE)
     if target is None:
-        print(f"{CYAN}--> Rolling back to the previous generation...{NC}")
+        log.step("rollback", "rolling back to previous generation")
         esudo("-H", "nix-env", "-p", profile, "--rollback", capture=True)
-        print(f"{CYAN}--> Re-activating previous configuration...{NC}")
+        log.step("rollback", "re-activating previous configuration")
         esudo("-H", profile + "/activate", capture=False)
-        print(f"{GREEN}--> Rollback complete.{NC}")
+        log.ok("rollback", "rollback complete")
     elif target == "list":
-        print(f"{CYAN}--> Current System Generations:{NC}")
+        log.step("rollback", "current system generations")
         esudo("-H", "nix-env", "-p", profile, "--list-generations", capture=True)
     else:
         try:
             gen_num = int(target)
         except ValueError:
-            print(f"{RED}Error: Invalid argument for rollback. Must be a number or 'list'.{NC}")
+            log.error("rollback", "invalid argument, must be a number or 'list'")
             raise typer.Exit(code=1)
-        print(f"{CYAN}--> Switching system profile to generation {gen_num}...{NC}")
+        log.step("rollback", f"switching system profile to generation {gen_num}")
         esudo("-H", "nix-env", "-p", profile, "--set-generation", str(gen_num), capture=True)
-        print(f"{CYAN}--> Activating configuration {gen_num}...{NC}")
+        log.step("rollback", f"activating configuration {gen_num}")
         esudo("-H", profile + "/activate", capture=False)
-        print(f"{GREEN}--> Switched to generation {gen_num} successfully.{NC}")
+        log.ok("rollback", f"switched to generation {gen_num} successfully")
 
 
 def _rollback_linux(target: Optional[str] = None):
     """Linux rollback via home-manager."""
     if target is None:
-        print(f"{CYAN}--> Rolling back to the previous generation...{NC}")
+        log.step("rollback", "rolling back to previous generation")
         run_hm("switch", "--rollback")
-        print(f"{GREEN}--> Rollback successful!{NC}")
+        log.ok("rollback", "rollback successful")
     elif target == "list":
-        print(f"{CYAN}--> Available Home Manager generations:{NC}")
+        log.step("rollback", "available Home Manager generations")
         run_hm("generations")
     else:
         try:
             gen_num = int(target)
         except ValueError:
-            print(f"{RED}Error: Invalid argument for rollback. Must be a number or 'list'.{NC}")
+            log.error("rollback", "invalid argument, must be a number or 'list'")
             raise typer.Exit(code=1)
-        print(f"{CYAN}--> Switching to generation {gen_num}...{NC}")
+        log.step("rollback", f"switching to generation {gen_num}")
         run_hm("switch", "--generation", str(gen_num))
-        print(f"{GREEN}--> Switched to generation {gen_num} successfully!{NC}")
+        log.ok("rollback", f"switched to generation {gen_num} successfully")
 
 
 @cli.command(name="edit")
@@ -169,7 +176,7 @@ def _rollback_linux(target: Optional[str] = None):
 def cmd_edit():
     """Open the dotfiles directory in your default editor."""
     editor = os.environ.get("EDITOR", "vim")
-    print(f"{CYAN}--> Opening dotfiles in $EDITOR ({editor})...{NC}")
+    log.step("editor", f"opening dotfiles in $EDITOR ({editor})")
     subprocess.run([editor, str(DOTFILES_DIR)])
 
 
@@ -197,7 +204,7 @@ def cmd_push(
     )
     if diff_result.returncode != 0:
         subprocess.run(["git", "add", "."], cwd=str(DOTFILES_DIR))
-        print(f"{CYAN}--> Committing changes...{NC}")
+        log.step("git", "committing changes")
         subprocess.run(["git", "commit", "-m", msg], cwd=str(DOTFILES_DIR))
         committed = True
 
@@ -215,32 +222,32 @@ def cmd_push(
             )
             local_commits = int(local_commits) if local_commits and local_commits.isdigit() else 0
             if local_commits > 0 or committed:
-                print(f"{CYAN}--> Pushing to {r}/{current_branch}...{NC}")
+                log.step("git", f"pushing to {r}/{current_branch}")
                 result = subprocess.run(
                     ["git", "push", r, current_branch],
                     cwd=str(DOTFILES_DIR),
                 )
                 if result.returncode == 0:
-                    print(f"{GREEN}--> Pushed to {r} successfully.{NC}")
+                    log.ok("git", f"pushed to {r} successfully")
                 else:
-                    print(f"{RED}--> Failed to push to {r}.{NC}")
+                    log.error("git", f"failed to push to {r}")
                     failed += 1
             else:
-                print(f"{YELLOW}--> Already up to date with {r}/{current_branch}.{NC}")
+                log.info("git", f"already up to date with {r}/{current_branch}")
         else:
-            print(f"{CYAN}--> Creating new branch on {r}/{current_branch}...{NC}")
+            log.step("git", f"creating new branch on {r}/{current_branch}")
             result = subprocess.run(
                 ["git", "push", "-u", r, current_branch],
                 cwd=str(DOTFILES_DIR),
             )
             if result.returncode == 0:
-                print(f"{GREEN}--> Branch pushed to {r} successfully.{NC}")
+                log.ok("git", f"branch pushed to {r} successfully")
             else:
-                print(f"{RED}--> Failed to push to {r}.{NC}")
+                log.error("git", f"failed to push to {r}")
                 failed += 1
 
     if failed > 0:
-        print(f"{RED}--> {failed} remote(s) failed.{NC}")
+        log.error("git", f"{failed} remote(s) failed")
 
 
 @cli.command(name="status")
@@ -271,7 +278,7 @@ def cmd_git(
 @cli.command(name="gc", rich_help_panel="Aliases")
 def cmd_clean():
     """Run Nix garbage collection to clean old generations."""
-    print(f"{CYAN}--> Cleaning up old Nix generations...{NC}")
+    log.step("nix", "cleaning up old generations")
     if PLATFORM == "darwin":
         esudo("-H", "nix-collect-garbage", "-d", capture=False)
         subprocess.run(["nix-collect-garbage", "-d"])
@@ -279,17 +286,21 @@ def cmd_clean():
         subprocess.run(["brew", "cleanup"])
     else:
         subprocess.run(["nix-collect-garbage", "-d"])
-    print(f"{GREEN}--> Cleanup complete.{NC}")
+    log.ok("nix", "cleanup complete")
 
 
-@cli.command(name="config")
-@cli.command(name="c", rich_help_panel="Aliases")
-def cmd_config():
+@cli.command(name="setup")
+@cli.command(name="configure", rich_help_panel="Aliases")
+def cmd_setup():
     """Run the setup script to configure secrets."""
-    print(f"{CYAN}--> Running setup...{NC}")
+    log.step("setup", "running setup")
     subprocess.run(["/bin/bash", str(SETUP_SCRIPT)])
-    print(f"{GREEN}--> Configuration complete!{NC}")
+    log.ok("setup", "configuration complete")
 
+
+# Register config subgroup — "c" alias registered separately
+cli.add_typer(config_app, name="config")
+cli.add_typer(config_app, name="c", rich_help_panel="Aliases")
 
 # Register key subgroup — "k" alias registered separately
 cli.add_typer(key_app, name="key")

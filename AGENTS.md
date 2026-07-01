@@ -21,7 +21,9 @@ Nix-based dotfiles for macOS (aarch64-darwin), using nix-darwin + home-manager +
 | `secrets/secrets.yaml` | sops-encrypted YAML with nested structure. Gitignored. |
 | `.sops.yaml` | sops creation rules with age public key(s). |
 | `home.nix` | Home-manager config: sops secrets declarations, templates, activation debug. |
-| `setup.py` | Python rich + prompt_toolkit sequential CLI for initial setup and config editing. Reads existing config.nix/secrets.yaml as defaults, prompts each field in order, shows changes summary, then saves + encrypts + commits .sops.yaml. |
+| `setup.py` | Python rich + prompt_toolkit sequential CLI for initial setup and config editing. Reuses `envy.config` schema/read-write helpers, prompts each field in order, shows changes summary, then saves + encrypts + commits .sops.yaml. |
+| `resources/scripts/envy/config.py` | Single source of truth for config/secret fields, validation, local refine/check commands, and safe config.nix/secrets.yaml I/O. |
+| `resources/scripts/envy/log.py` | Shared logging helpers for envy commands. |
 | `setup.sh` | Thin launcher: install Nix → enter devShell → exec setup.py. |
 | `requires.sh` | Installs Nix if missing. Nothing else — devShell provides all tools. |
 
@@ -64,6 +66,8 @@ Hybrid approach (in `setup.py`):
 | Command | Purpose |
 |---|---|
 | `bash setup.sh` | Run setup TUI (auto-enters devShell) |
+| `envy config check` | Check config.nix and secrets.yaml without writing |
+| `envy config refine` | Complete/migrate local config.nix and secret paths before apply |
 | `nix develop` | Enter devShell (jq, sops, age, ssh-to-age, python3, textual) |
 | `darwin-rebuild switch --flake .` | Apply system config |
 | `sops --decrypt secrets/secrets.yaml` | View encrypted secrets |
@@ -74,7 +78,7 @@ Hybrid approach (in `setup.py`):
 - **Never** put sensitive values in Nix eval-time expressions. They must go through sops (file path or template).
 - **Never** commit `config.nix` or `secrets/secrets.yaml` unencrypted. They are gitignored.
 - The `.sops.yaml` file CAN be committed once it has real age public keys.
-- When adding new secret fields: add to `SECRET_FIELDS` in `setup.py`, declare in `home.nix` under `sops.secrets`, and add the `yaml_path` entry to `secrets.yaml`.
-- When adding new non-sensitive config: add to `CONFIG_FIELDS` in `setup.py`, and it will auto-appear in `config.nix`.
+- When adding new secret fields: add to `SECRET_FIELDS` in `resources/scripts/envy/config.py`, declare in `home.nix` under `sops.secrets`, and let `envy config refine` create the `yaml_path` entry in `secrets.yaml`.
+- When adding new non-sensitive config: add to `CONFIG_FIELDS` in `resources/scripts/envy/config.py`, and it will be used by setup plus `envy config refine`.
 - Module function signatures use `cfg` (not `secrets`) for non-sensitive config values.
 - sops-nix on darwin uses activation scripts (not systemd), so secrets are decrypted during `darwin-rebuild switch`.

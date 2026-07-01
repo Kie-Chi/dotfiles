@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from envy import log
+
 # ==========================================
 # PLATFORM
 # ==========================================
@@ -57,23 +59,6 @@ SETUP_SCRIPT = DOTFILES_DIR / "setup.sh"
 FLAKE_TARGET = ".#MacBook-Air" if PLATFORM == "darwin" else ".#default"
 SYSTEM_PROFILE = Path("/nix/var/nix/profiles/system")
 
-# ==========================================
-# COLOR HELPERS
-# ==========================================
-
-GREEN = "\033[0;32m"
-YELLOW = "\033[1;33m"
-CYAN = "\033[0;36m"
-RED = "\033[0;31m"
-NC = "\033[0m"
-
-# ==========================================
-# DEBUG MODE
-# ==========================================
-
-
-def is_debug() -> bool:
-    return os.environ.get("ENVY_DEBUG") == "1"
 
 # ==========================================
 # SUBPROCESS
@@ -94,8 +79,7 @@ def run_cmd(
 
     effective_cwd = str(cwd or DOTFILES_DIR)
 
-    if is_debug():
-        print(f"{CYAN}[debug] running: {' '.join(cmd)} (cwd={effective_cwd}){NC}")
+    log.debug("cmd", "running", cmd=' '.join(cmd), cwd=effective_cwd)
 
     if capture:
         result = subprocess.run(
@@ -103,11 +87,11 @@ def run_cmd(
             check=check, env=env, cwd=effective_cwd,
         )
 
-        if is_debug():
+        if log.is_debug():
             if result.stdout:
-                print(f"{CYAN}[debug] stdout: {result.stdout[:500]}{NC}")
+                log.debug("cmd", "stdout", output=result.stdout[:500])
             if result.stderr:
-                print(f"{YELLOW}[debug] stderr: {result.stderr[:500]}{NC}")
+                log.debug("cmd", "stderr", output=result.stderr[:500])
 
         return result.stdout.strip()
     else:
@@ -138,6 +122,16 @@ def _get_sudo_passwd() -> str | None:
     except Exception:
         pass
     return None
+
+
+def is_sops_encrypted(path: Path) -> bool:
+    """Check whether a YAML file contains sops metadata."""
+    if not path.exists():
+        return False
+    try:
+        return any(line.startswith("sops:") for line in path.read_text().splitlines())
+    except (OSError, UnicodeDecodeError):
+        return False
 
 
 def backup_sensitive_file(filepath: Path) -> Optional[Path]:
@@ -184,17 +178,17 @@ def run_hm(*args: str) -> None:
     if _command_exists("home-manager"):
         run_cmd(["home-manager", *args], capture=False)
     else:
-        print(f"{YELLOW}--> 'home-manager' not found. Using nix run fallback...{NC}")
+        log.warn("hm", "'home-manager' not found, using nix run fallback")
         run_cmd(["nix", "run", "github:nix-community/home-manager", "--", *args], capture=False)
 
 
 def run_darwin_switch() -> None:
     """Run nix-darwin switch with sudo."""
     ensure_config_links()
-    print(f"{CYAN}--> Running nix-darwin switch...{NC}")
+    log.step("darwin", "running nix-darwin switch")
     esudo("--preserve-env=HOME", "nix", "run", "nix-darwin", "--", "switch",
           "--flake", FLAKE_TARGET, "--impure", capture=False)
-    print(f"{GREEN}--> System successfully updated!{NC}")
+    log.ok("darwin", "system successfully updated")
     clean_config_links()
 
 
@@ -203,9 +197,9 @@ def run_apply() -> None:
     if PLATFORM == "darwin":
         run_darwin_switch()
     else:
-        print(f"{CYAN}--> Applying Home Manager configuration...{NC}")
+        log.step("hm", "applying Home Manager configuration")
         run_hm("switch", "--flake", FLAKE_TARGET, "--impure")
-        print(f"{GREEN}--> Configuration applied successfully! A new generation was created.{NC}")
+        log.ok("hm", "configuration applied, new generation created")
         clean_config_links()
 
 
@@ -222,7 +216,7 @@ def _command_exists(name: str) -> bool:
 def ensure_config_links() -> None:
     """Link config.nix to /etc/dotfiles if not already linked."""
     if not SYSTEM_CONFIG.exists() or not os.path.islink(str(SYSTEM_CONFIG)):
-        print(f"{CYAN}--> Linking config.nix to /etc/dotfiles...{NC}")
+        log.step("config", "linking config.nix to /etc/dotfiles")
         esudo("mkdir", "-p", "/etc/dotfiles", capture=True)
         esudo("ln", "-sf", str(USER_CONFIG), str(SYSTEM_CONFIG), capture=True)
 
@@ -230,5 +224,5 @@ def ensure_config_links() -> None:
 def clean_config_links() -> None:
     """Remove /etc/dotfiles symlink."""
     if SYSTEM_CONFIG.exists() and os.path.islink(str(SYSTEM_CONFIG)):
-        print(f"{CYAN}--> Cleaning up config link...{NC}")
+        log.step("config", "cleaning up config link")
         esudo("rm", "-f", str(SYSTEM_CONFIG), capture=True)
