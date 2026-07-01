@@ -1,11 +1,5 @@
 { pkgs, config, cfg, lib, sys, ... }:
 
-let
-  stepsCfg = cfg.llm.steps or {};
-  stepsUrl = stepsCfg.url or "";
-  stepsModel = stepsCfg.model or "step-3.7-flash";
-in
-
 {
   # --- sops template: raycast AI providers with encrypted keys ---
   sops.templates."raycast-providers" = {
@@ -13,11 +7,11 @@ in
       providers:
         - id: stepfun
           name: StepFun
-          base_url: ${stepsUrl}
+          base_url: ${cfg.llm.steps.url}
           api_keys:
             stepfun: ${config.sops.placeholder.llm-steps-apikey}
           models:
-            - id: ${stepsModel}
+            - id: ${cfg.llm.steps.model}
               name: Step 3.7 Flash
               context: 256000
               abilities:

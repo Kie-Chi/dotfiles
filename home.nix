@@ -1,10 +1,5 @@
 { config, pkgs, cfg, lib, sys, ... }:
 
-let
-  stepsCfg = cfg.llm.steps or {};
-  stepsUrl = stepsCfg.url or "";
-in
-
 {
   imports = [
     ./modules/cores
@@ -38,12 +33,13 @@ in
     # --- sops templates for env vars ---
     sops.templates."env-secrets" = {
       content = ''
-        STEPFUN_BASE_URL=${stepsUrl}
+        STEPFUN_BASE_URL=${cfg.llm.steps.url}
         API_KEY=${config.sops.placeholder.llm-steps-apikey}
         STEPFUN_API_KEY=${config.sops.placeholder.llm-steps-apikey}
-        ANTHROPIC_BASE_URL=${stepsUrl}
+        ANTHROPIC_BASE_URL=${cfg.llm.steps.url}
         ANTHROPIC_API_KEY=${config.sops.placeholder.llm-steps-apikey}
         ANTHROPIC_AUTH_TOKEN=${config.sops.placeholder.llm-steps-apikey}
+        ANTHROPIC_MODEL=${cfg.llm.steps.model}
       '';
     };
 
