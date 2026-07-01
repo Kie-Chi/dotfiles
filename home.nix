@@ -33,13 +33,13 @@
     # --- sops templates for env vars ---
     sops.templates."env-secrets" = {
       content = ''
-        STEPFUN_BASE_URL=${cfg.llm.steps.url}
-        API_KEY=${config.sops.placeholder.llm-steps-apikey}
-        STEPFUN_API_KEY=${config.sops.placeholder.llm-steps-apikey}
-        ANTHROPIC_BASE_URL=${cfg.llm.steps.url}
-        ANTHROPIC_API_KEY=${config.sops.placeholder.llm-steps-apikey}
-        ANTHROPIC_AUTH_TOKEN=${config.sops.placeholder.llm-steps-apikey}
-        ANTHROPIC_MODEL=${cfg.llm.steps.model}
+        export STEPFUN_BASE_URL=${lib.escapeShellArg cfg.llm.steps.url}
+        export API_KEY=${lib.escapeShellArg config.sops.placeholder.llm-steps-apikey}
+        export STEPFUN_API_KEY=${lib.escapeShellArg config.sops.placeholder.llm-steps-apikey}
+        export ANTHROPIC_BASE_URL=${lib.escapeShellArg cfg.llm.steps.url}
+        export ANTHROPIC_API_KEY=${lib.escapeShellArg config.sops.placeholder.llm-steps-apikey}
+        export ANTHROPIC_AUTH_TOKEN=${lib.escapeShellArg config.sops.placeholder.llm-steps-apikey}
+        export ANTHROPIC_MODEL=${lib.escapeShellArg cfg.llm.steps.model}
       '';
     };
 
