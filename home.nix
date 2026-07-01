@@ -1,5 +1,10 @@
 { config, pkgs, cfg, lib, sys, ... }:
 
+let
+  stepsCfg = cfg.llm.steps or {};
+  stepsUrl = stepsCfg.url or "";
+in
+
 {
   imports = [
     ./modules/cores
@@ -21,9 +26,9 @@
       sopsFile = ./secrets/secrets.yaml;
       key = "proxy/url";
     };
-    sops.secrets.llm-dashscope-apikey = {
+    sops.secrets.llm-steps-apikey = {
       sopsFile = ./secrets/secrets.yaml;
-      key = "llm/dashscope/apikey";
+      key = "llm/steps/apikey";
     };
     sops.secrets.llm-deepseek-apikey = {
       sopsFile = ./secrets/secrets.yaml;
@@ -33,9 +38,12 @@
     # --- sops templates for env vars ---
     sops.templates."env-secrets" = {
       content = ''
-        API_KEY=${config.sops.placeholder.llm-dashscope-apikey}
-        DASHSCOPE_API_KEY=${config.sops.placeholder.llm-dashscope-apikey}
-        ANTHROPIC_API_KEY=${config.sops.placeholder.llm-dashscope-apikey}
+        STEPFUN_BASE_URL=${stepsUrl}
+        API_KEY=${config.sops.placeholder.llm-steps-apikey}
+        STEPFUN_API_KEY=${config.sops.placeholder.llm-steps-apikey}
+        ANTHROPIC_BASE_URL=${stepsUrl}
+        ANTHROPIC_API_KEY=${config.sops.placeholder.llm-steps-apikey}
+        ANTHROPIC_AUTH_TOKEN=${config.sops.placeholder.llm-steps-apikey}
       '';
     };
 
@@ -46,10 +54,10 @@
         log_debug "sops secret paths:"
         log_debug "  home-passwd: ${config.sops.secrets.home-passwd.path}"
         log_debug "  proxy-url: ${config.sops.secrets.proxy-url.path}"
-        log_debug "  llm-dashscope-apikey: ${config.sops.secrets.llm-dashscope-apikey.path}"
+        log_debug "  llm-steps-apikey: ${config.sops.secrets.llm-steps-apikey.path}"
         log_debug "  llm-deepseek-apikey: ${config.sops.secrets.llm-deepseek-apikey.path}"
         log_debug "  env-secrets template: ${config.sops.templates."env-secrets".path}"
-        for p in ${config.sops.secrets.home-passwd.path} ${config.sops.secrets.proxy-url.path} ${config.sops.secrets.llm-dashscope-apikey.path} ${config.sops.secrets.llm-deepseek-apikey.path}; do
+        for p in ${config.sops.secrets.home-passwd.path} ${config.sops.secrets.proxy-url.path} ${config.sops.secrets.llm-steps-apikey.path} ${config.sops.secrets.llm-deepseek-apikey.path}; do
           if [ -f "$p" ]; then
             log_debug "  $p EXISTS"
           else

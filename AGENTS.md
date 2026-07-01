@@ -8,9 +8,9 @@ Nix-based dotfiles for macOS (aarch64-darwin), using nix-darwin + home-manager +
 
 ### Two-layer secret system
 
-**Non-sensitive config** (`config.nix`): user name, paths, git info, proxy status, LLM URLs/models. Referenced as `cfg.xxx` in all modules. Loaded at Nix eval time from `~/.config/dotfiles/config.nix` (symlinked from repo). Passed via `extraSpecialArgs` and `_module.args`.
+**Non-sensitive config** (`config.nix`): user name, paths, git info, proxy status, and local LLM URLs/models. Referenced as `cfg.xxx` in all modules. Loaded at Nix eval time from `~/.config/dotfiles/config.nix` (symlinked from repo). Passed via `extraSpecialArgs` and `_module.args`.
 
-**Encrypted secrets** (`secrets/secrets.yaml`): passwords, API keys, proxy URLs with tokens. Managed by sops-nix, encrypted with age key. Referenced as `config.sops.secrets.xxx` (file path) or `config.sops.placeholder.xxx` (for templates). Decrypted only at activation time — **never available as string values at Nix eval time**.
+**Encrypted secrets** (`secrets/secrets.yaml`): passwords, API keys, and proxy URLs with tokens. Managed by sops-nix, encrypted with age key. Referenced as `config.sops.secrets.xxx` (file path) or `config.sops.placeholder.xxx` (for templates). Decrypted only at activation time — **never available as string values at Nix eval time**.
 
 ### Key files
 
@@ -39,10 +39,10 @@ modules/
 
 | Context | Format | Example |
 |---|---|---|
-| Non-sensitive config | `cfg.xxx.yyy` (Nix dot path) | `cfg.llm.dashscope.url` |
-| sops secret name | `xxx-yyy-zzz` (hyphen-separated) | `sops.secrets.llm-dashscope-apikey` |
-| sops secret key in YAML | `xxx/yyy/zzz` (slash-separated) | `llm/dashscope/apikey` |
-| sops placeholder | Same as secret name | `config.sops.placeholder.llm-dashscope-apikey` |
+| Non-sensitive config | `cfg.xxx.yyy` (Nix dot path) | `cfg.llm.steps.url` |
+| sops secret name | `xxx-yyy-zzz` (hyphen-separated) | `sops.secrets.llm-steps-apikey` |
+| sops secret key in YAML | `xxx/yyy/zzz` (slash-separated) | `llm/steps/apikey` |
+| sops placeholder | Same as secret name | `config.sops.placeholder.llm-steps-apikey` |
 
 ### Secret flow
 

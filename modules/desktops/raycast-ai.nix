@@ -1,31 +1,25 @@
 { pkgs, config, cfg, lib, sys, ... }:
 
+let
+  stepsCfg = cfg.llm.steps or {};
+  stepsUrl = stepsCfg.url or "";
+  stepsModel = stepsCfg.model or "step-3.7-flash";
+in
+
 {
   # --- sops template: raycast AI providers with encrypted keys ---
   sops.templates."raycast-providers" = {
     content = ''
       providers:
-        - id: anthropic-dashscope
-          name: Anthropic (DashScope)
-          base_url: ${cfg.llm.dashscope.url}
+        - id: stepfun
+          name: StepFun
+          base_url: ${stepsUrl}
           api_keys:
-            dashscope: ${config.sops.placeholder.llm-dashscope-apikey}
+            stepfun: ${config.sops.placeholder.llm-steps-apikey}
           models:
-            - id: ${cfg.llm.dashscope.model}
-              name: GLM 5.1
-              context: 200000
-              abilities:
-                temperature:
-                  supported: true
-                vision:
-                  supported: true
-                system_message:
-                  supported: true
-                tools:
-                  supported: true
-            - id: deepseek-v4-pro
-              name: DeepSeek V4 Pro
-              context: 200000
+            - id: ${stepsModel}
+              name: Step 3.7 Flash
+              context: 256000
               abilities:
                 temperature:
                   supported: true
