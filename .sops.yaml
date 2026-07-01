@@ -2,7 +2,7 @@ keys:
   # Device keys - managed by envy key commands
   - &macbook_air age100a8gf8lxg20cghenkaw9hjr48a364ngvpvuh962pwv55yzmkucslusvh6
   - &recovery age1kjr29kl3xkh658x9n436ahvtfj322ufjl9s60tw2csyrutqr9v7sft7cer
-  - &jyxc_dz_0101541demacbook_pro age1kjr29kl3xkh658x9n436ahvtfj322ufjl9s60tw2csyrutqr9v7sft7cer
+  - &jyxc_dz_0101541demacbook_pro age1ylzyf40zckj7ftxr6pas4kzev8k4g3mxre6m6g3xh9285ajw7f4q8suefx
 
 creation_rules:
   - path_regex: secrets/secrets\.yaml$
