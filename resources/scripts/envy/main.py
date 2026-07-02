@@ -6,7 +6,9 @@ from click.shell_completion import CompletionItem
 from typing import Optional
 
 from envy import log
+from envy import _check_schema_api
 from envy.config import app as config_app, refine_all
+from envy.doctor import app as doctor_app
 from envy.key import app as key_app
 from envy.utils import (
     DOTFILES_DIR, SETUP_SCRIPT, PLATFORM,
@@ -58,6 +60,7 @@ def main_callback(
     """envy — dotfiles manager"""
     if debug:
         os.environ["ENVY_DEBUG"] = "1"
+    _check_schema_api()
 
 
 def _refine_before_apply() -> None:
@@ -305,3 +308,7 @@ cli.add_typer(config_app, name="c", rich_help_panel="Aliases")
 # Register key subgroup — "k" alias registered separately
 cli.add_typer(key_app, name="key")
 cli.add_typer(key_app, name="k", rich_help_panel="Aliases")
+
+# Register doctor subgroup — "dr" alias registered separately
+cli.add_typer(doctor_app, name="doctor")
+cli.add_typer(doctor_app, name="dr", rich_help_panel="Aliases")
