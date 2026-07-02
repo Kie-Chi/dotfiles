@@ -1,8 +1,10 @@
-{ pkgs, config, cfg, lib, sys, ... }:
+{ config, cfg, lib, sys, ... }:
 
 {
   # --- sops template: raycast AI providers with encrypted keys ---
   sops.templates."raycast-providers" = {
+    path = "${config.home.homeDirectory}/.config/raycast/ai/providers.yaml";
+    mode = "0644";
     content = ''
       providers:
         - id: stepfun
@@ -44,15 +46,12 @@
     '';
   };
 
-  home.activation.deployRaycastProviders = sys.task.activation {
-    name = "deployRaycastProviders";
-    pre = ''
-      mkdir -p "$HOME/.config/raycast/ai/backups"
-    '';
-    script = ''
-      TARGET="$HOME/.config/raycast/ai/providers.yaml"
-      ${sys.cmds.mkdir} -p "$(dirname "$TARGET")"
-      esudo ${sys.cmds.install} -m 0644 "${config.sops.templates."raycast-providers".path}" "$TARGET"
-    '';
-  };
+  home.activation.fixRaycastProvidersOwnership = lib.hm.dag.entryBetween [ "sopsDecrypt" ] [ "writeBoundary" ] ''
+    _LOG_CTX="fixRaycastProvidersOwnership"
+    TARGET="$HOME/.config/raycast/ai/providers.yaml"
+    if [ -e "$TARGET" ] && [ ! -O "$TARGET" ]; then
+      log_info "Fixing ownership for existing Raycast providers file"
+      esudo ${sys.cmds.chown} "$(${sys.cmds.id} -u):$(${sys.cmds.id} -g)" "$TARGET"
+    fi
+  '';
 }

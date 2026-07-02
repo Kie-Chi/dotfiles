@@ -1,10 +1,12 @@
-{ config, pkgs, cfg, lib, sys, ... }:
+{ config, cfg, lib, ... }:
 
 let
   proxyStatus = cfg.proxy.status or "manual";
 in
 {
   sops.templates."mihomo-config" = lib.mkIf (proxyStatus != "none") {
+    path = "${config.home.homeDirectory}/.config/mihomo/config.yaml.tmpl";
+    mode = "0644";
     content = ''
       ${builtins.readFile ../../files/proxies/mihomo_tailscale.yaml}
       
@@ -37,15 +39,6 @@ in
             interval: 300
     '';
   };
-
-  home.activation.deployMihomoConfig = lib.mkIf (proxyStatus != "none") (sys.task.activation {
-    name = "deployMihomoConfig";
-    script = ''
-      TARGET="$HOME/.config/mihomo/config.yaml.tmpl"
-      ${sys.cmds.mkdir} -p "$(dirname "$TARGET")"
-      ${sys.cmds.install} -m 0644 "${config.sops.templates."mihomo-config".path}" "$TARGET"
-    '';
-  });
 
   xdg.configFile."proxychains/proxychains.conf" = lib.mkIf (proxyStatus != "none") {
     text = ''

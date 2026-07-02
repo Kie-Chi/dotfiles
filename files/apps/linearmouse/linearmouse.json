@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.linearmouse.app/0.10.2",
+  "schemes": [
+    {
+      "if": {
+        "device": {
+          "category": "mouse",
+          "productID": "0xb031",
+          "productName": "LIFT",
+          "serialNumber": "787F47CF",
+          "vendorID": "0x46d"
+        }
+      },
+      "scrolling": {
+        "acceleration": {
+          "vertical": 1
+        },
+        "distance": {
+          "vertical": "auto"
+        },
+        "reverse": {
+          "vertical": true
+        },
+        "speed": {
+          "vertical": 0
+        }
+      }
+    }
+  ]
+}

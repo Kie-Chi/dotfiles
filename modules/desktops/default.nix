@@ -7,8 +7,11 @@
 {
   imports = [
     ./apps.nix
+    ./karabiner.nix
+    ./linearmouse.nix
     ./dmgs.nix
     ./zips.nix
+    ./clash-verge.nix
     ./proxies.nix
     ./wallpaper.nix
     ./squirrel.nix

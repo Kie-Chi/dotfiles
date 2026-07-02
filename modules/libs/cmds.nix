@@ -10,6 +10,7 @@
   cp = "/bin/cp";
   mkdir = "/bin/mkdir";
   cat = "/bin/cat";
+  chown = "/usr/sbin/chown";
   pgrep = "/usr/bin/pgrep";
   pkill = "/usr/bin/pkill";
   killall = "/usr/bin/killall";

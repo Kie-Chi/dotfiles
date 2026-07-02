@@ -1,11 +1,6 @@
 { pkgs, ... }:
 
 {
-  programs.vscode = {
-    enable = true;
-    package = pkgs.vscode;
-  };
-
   programs.neovim = {
     enable = true;
     defaultEditor = true;

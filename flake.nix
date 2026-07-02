@@ -66,11 +66,12 @@
           sops
           age
           ssh-to-age
-          python3
-          python3Packages.typer
-          python3Packages.rich
-          python3Packages.prompt-toolkit
-          python3Packages.pyyaml
+          (python3.withPackages (ps: [
+            ps.typer
+            ps.rich
+            ps.prompt-toolkit
+            ps.pyyaml
+          ]))
           git
           curl
           gnupg
