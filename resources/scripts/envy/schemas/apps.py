@@ -25,8 +25,9 @@ class AppSpec:
     """Declarative description of an application for doctor checks."""
 
     name: str
-    bundles: list[str]
+    bundles: list[str] = field(default_factory=list)
     bundle_id: str | None = None
+    commands: list[str] = field(default_factory=list)
     processes: list[str] = field(default_factory=list)
     should_run: bool = False
     state_paths: list[Path] = field(default_factory=list)
@@ -50,6 +51,35 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
         permissions=[
             PermissionReq("kTCCServiceAccessibility", "Accessibility", "global hotkeys and automation"),
         ],
+    ),
+    "codex": AppSpec(
+        name="Codex",
+        bundles=["Codex.app"],
+        bundle_id="com.openai.codex",
+        commands=["codex"],
+        processes=["Codex", "codex"],
+        state_paths=[
+            HOME_DIR / ".codex",
+            HOME_DIR / "Library/Application Support/Codex",
+        ],
+        checkers=["codex_auth"],
+    ),
+    "claude-code": AppSpec(
+        name="Claude Code",
+        bundles=["Claude Code URL Handler.app"],
+        bundle_id="com.anthropic.claude-code-url-handler",
+        commands=["claude"],
+        processes=["claude"],
+        state_paths=[
+            HOME_DIR / ".claude.json",
+            HOME_DIR / ".claude",
+        ],
+        login_hint="Run claude once and complete login if this machine should use Claude Code.",
+    ),
+    "github-cli": AppSpec(
+        name="GitHub CLI",
+        commands=["gh"],
+        checkers=["github_cli_auth"],
     ),
     "iterm2": AppSpec(
         name="iTerm2",
@@ -89,6 +119,17 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
             PermissionReq("kTCCServiceAccessibility", "Accessibility", "mouse behavior control"),
         ],
     ),
+    "squirrel": AppSpec(
+        name="Squirrel",
+        bundles=["Squirrel.app"],
+        bundle_id="im.rime.inputmethod.Squirrel",
+        processes=["Squirrel"],
+        should_run=True,
+        state_paths=[
+            HOME_DIR / "Library/Rime/squirrel.yaml",
+            HOME_DIR / "Library/Preferences/im.rime.inputmethod.Squirrel.plist",
+        ],
+    ),
     "snipaste": AppSpec(
         name="Snipaste",
         bundles=["Snipaste.app"],
@@ -107,6 +148,26 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
             HOME_DIR / "Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/verge.yaml",
             HOME_DIR / "Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/config.yaml",
         ],
+    ),
+    "cyberduck": AppSpec(
+        name="Cyberduck",
+        bundles=["Cyberduck.app"],
+        bundle_id="ch.sudo.cyberduck",
+        processes=["Cyberduck"],
+    ),
+    "wps-office": AppSpec(
+        name="WPS Office",
+        bundles=["wpsoffice.app", "WPS Office.app"],
+        bundle_id="com.kingsoft.wpsoffice.mac",
+        processes=["wpsoffice", "WPS Office"],
+        login_hint="Open WPS Office and sign in if you use WPS Cloud or account sync.",
+    ),
+    "iina": AppSpec(
+        name="IINA",
+        bundles=["IINA.app"],
+        bundle_id="com.colliderli.iina",
+        commands=["iina"],
+        processes=["IINA"],
     ),
     "betterdisplay": AppSpec(
         name="BetterDisplay",
@@ -148,6 +209,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
         bundle_id="com.google.Chrome",
         processes=["Google Chrome"],
         state_paths=[HOME_DIR / "Library/Application Support/Google/Chrome"],
+        checkers=["chrome_account"],
     ),
     "tailscale": AppSpec(
         name="Tailscale",
@@ -155,7 +217,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
         bundle_id="io.tailscale.ipn.macsys",
         processes=["Tailscale"],
         state_paths=[HOME_DIR / "Library/Preferences/io.tailscale.ipn.macsys.plist"],
-        login_hint="Run tailscale status or open Tailscale to confirm the node is authenticated.",
+        checkers=["tailscale_auth"],
     ),
     "orbstack": AppSpec(
         name="OrbStack",
@@ -164,27 +226,64 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
         processes=["OrbStack"],
         state_paths=[HOME_DIR / ".orbstack"],
     ),
+    "okular": AppSpec(
+        name="Okular",
+        bundles=["okular.app", "Okular.app"],
+        bundle_id="org.kde.okular",
+        processes=["okular", "Okular"],
+    ),
+    "wireguard": AppSpec(
+        name="WireGuard",
+        bundles=["WireGuard.app"],
+        bundle_id="com.wireguard.macos",
+        processes=["WireGuard"],
+    ),
+    "wireshark": AppSpec(
+        name="Wireshark",
+        bundles=["Wireshark.app"],
+        bundle_id="org.wireshark.Wireshark",
+        commands=["wireshark"],
+        processes=["Wireshark"],
+    ),
+    "sing-box": AppSpec(
+        name="sing-box",
+        commands=["sing-box"],
+    ),
     "vscode": AppSpec(
         name="Visual Studio Code",
         bundles=["Visual Studio Code.app"],
         bundle_id="com.microsoft.VSCode",
+        commands=["code"],
         processes=["Code"],
         checkers=["vscode_sync", "vscode_extensions"],
     ),
 }
 
 APP_ALIASES: dict[str, str] = {
+    "codex-app": "codex",
+    "codex-desktop": "codex",
+    "openai-codex": "codex",
+    "claude": "claude-code",
+    "claude-code-url-handler": "claude-code",
+    "gh": "github-cli",
+    "github": "github-cli",
     "code": "vscode",
     "visual-studio-code": "vscode",
     "visual-studio": "vscode",
     "karabiner-elements": "karabiner",
     "linear-mouse": "linearmouse",
+    "squirrel-app": "squirrel",
+    "rime": "squirrel",
     "clash": "clash-verge",
     "clash-verge-rev": "clash-verge",
     "google-chrome": "chrome",
+    "tailscale-app": "tailscale",
     "tencentmeeting": "tencent-meeting",
     "meeting": "tencent-meeting",
     "lark": "feishu",
+    "wps": "wps-office",
+    "wpsoffice": "wps-office",
+    "wpsoffice-cn": "wps-office",
 }
 
 EXPECTED_EXTENSIONS: list[str] = [

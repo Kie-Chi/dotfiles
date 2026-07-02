@@ -8,7 +8,7 @@ Custom checkers are declared per-app via spec.checkers and looked up by name.
 from collections.abc import Callable
 
 from envy.doctor.model import CheckResult, info, ok, warn
-from envy.doctor.probes import filesystem, process, tcc
+from envy.doctor.probes import command, filesystem, process, tcc
 from envy.schemas.apps import AppSpec
 
 # Checker protocol
@@ -43,6 +43,8 @@ def _tcc_already_warned() -> bool:
 
 def check_installed(spec: AppSpec) -> list[CheckResult]:
     """Check if the app bundle is installed."""
+    if not spec.bundles:
+        return []
     bundle = filesystem.app_bundle(spec.bundles)
     if bundle:
         return [ok("apps", spec.name, f"installed at {bundle}")]
@@ -54,8 +56,32 @@ def check_installed(spec: AppSpec) -> list[CheckResult]:
     )]
 
 
+def check_commands(spec: AppSpec) -> list[CheckResult]:
+    """Check if expected CLI commands are available on PATH."""
+    if not spec.commands:
+        return []
+
+    present = [name for name in spec.commands if command.exists(name)]
+    if len(present) == len(spec.commands):
+        return [ok("apps", f"{spec.name} commands", "available: " + ", ".join(spec.commands))]
+
+    missing = sorted(set(spec.commands) - set(present))
+    message = "missing command(s): " + ", ".join(missing)
+    if present:
+        message += "; available: " + ", ".join(present)
+    return [warn(
+        "apps",
+        f"{spec.name} commands",
+        message,
+        hint="Run: envy apply  # or check Homebrew/Home Manager activation",
+    )]
+
+
 def check_running(spec: AppSpec) -> list[CheckResult]:
     """Check if the app process is running."""
+    if not spec.bundle_id and not spec.processes:
+        return []
+
     running = process.app_running(spec.bundle_id, spec.processes)
     if running:
         return [ok("apps", f"{spec.name} running", "process is active")]
@@ -127,8 +153,11 @@ def check_permissions(spec: AppSpec) -> list[CheckResult]:
             results.append(warn(
                 "permissions",
                 check_name,
-                f"not yet granted — required for {perm.reason}",
-                hint=f"System Settings -> Privacy & Security -> {perm.label}: enable {spec.name}.",
+                f"not requested/granted yet — required for {perm.reason}",
+                hint=(
+                    f"Open {spec.name} and use the feature once; if macOS prompts, allow it. "
+                    f"Then confirm System Settings -> Privacy & Security -> {perm.label} if it appears."
+                ),
             ))
         else:
             results.append(warn(
@@ -142,6 +171,7 @@ def check_permissions(spec: AppSpec) -> list[CheckResult]:
 
 GENERIC_CHECKERS: list[CheckerFn] = [
     check_installed,
+    check_commands,
     check_running,
     check_state,
     check_login,
@@ -161,9 +191,14 @@ _CUSTOM_CHECKERS: dict[str, CheckerFn] = {}
 def _load_custom_checkers() -> dict[str, CheckerFn]:
     global _custom_checkers_loaded, _CUSTOM_CHECKERS
     if not _custom_checkers_loaded:
+        from envy.doctor.checks.apps import auth as _auth
         from envy.doctor.checks.apps import vscode as _vscode
 
         _CUSTOM_CHECKERS = {
+            "chrome_account": _auth.check_chrome_account,
+            "codex_auth": _auth.check_codex_auth,
+            "github_cli_auth": _auth.check_github_cli_auth,
+            "tailscale_auth": _auth.check_tailscale_auth,
             "vscode_sync": _vscode.check_sync,
             "vscode_extensions": _vscode.check_extensions,
         }
