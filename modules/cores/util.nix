@@ -41,7 +41,26 @@ let
       curl
     ]);
     text = ''
-      export PYTHONPATH="${scriptsSrc}:$${PYTHONPATH:-}"
+      bundled="${scriptsSrc}"
+      repo="''${ENVY_DOTFILES:-}"
+
+      # Resolve repo path: env var > config file > default
+      if [ -z "$repo" ]; then
+        if [ -f "$HOME/.config/dotfiles/config.nix" ]; then
+          repo=$(sed -n 's/.*dotfiles\.path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$HOME/.config/dotfiles/config.nix" 2>/dev/null || true)
+        fi
+      fi
+      if [ -z "$repo" ]; then
+        repo="$HOME/.dotfiles"
+      fi
+
+      # Prefer repo source unless explicitly using bundled
+      if [ -d "$repo/resources/scripts/envy" ] && [ "''${ENVY_USE_BUNDLED:-0}" != "1" ]; then
+        export PYTHONPATH="$repo/resources/scripts:$bundled:''${PYTHONPATH:-}"
+      else
+        export PYTHONPATH="$bundled:''${PYTHONPATH:-}"
+      fi
+
       exec python3 -m envy "$@"
     '';
   };
