@@ -81,6 +81,11 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
         commands=["gh"],
         checkers=["github_cli_auth"],
     ),
+    "lark-cli": AppSpec(
+        name="Lark CLI",
+        commands=["lark-cli"],
+        checkers=["lark_cli_auth"],
+    ),
     "iterm2": AppSpec(
         name="iTerm2",
         bundles=["iTerm.app", "iTerm2.app"],
@@ -267,6 +272,9 @@ APP_ALIASES: dict[str, str] = {
     "claude-code-url-handler": "claude-code",
     "gh": "github-cli",
     "github": "github-cli",
+    "feishu-cli": "lark-cli",
+    "larkcli": "lark-cli",
+    "larksuite-cli": "lark-cli",
     "code": "vscode",
     "visual-studio-code": "vscode",
     "visual-studio": "vscode",

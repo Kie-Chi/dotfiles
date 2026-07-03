@@ -7,7 +7,18 @@ Custom checkers are declared per-app via spec.checkers and looked up by name.
 
 from collections.abc import Callable
 
-from envy.doctor.model import CheckResult, info, ok, warn
+from envy.doctor.model import (
+    SECTION_AUTH,
+    SECTION_INSTALL,
+    SECTION_PRIVACY,
+    SECTION_RUNTIME,
+    SECTION_STATE,
+    SECTION_SYSTEM,
+    CheckResult,
+    info,
+    ok,
+    warn,
+)
 from envy.doctor.probes import command, filesystem, process, tcc
 from envy.schemas.apps import AppSpec
 
@@ -47,9 +58,9 @@ def check_installed(spec: AppSpec) -> list[CheckResult]:
         return []
     bundle = filesystem.app_bundle(spec.bundles)
     if bundle:
-        return [ok("apps", spec.name, f"installed at {bundle}")]
+        return [ok(SECTION_INSTALL, spec.name, f"installed at {bundle}")]
     return [warn(
-        "apps",
+        SECTION_INSTALL,
         spec.name,
         "app bundle not found",
         hint="Run: envy apply  # or check the Homebrew cask name",
@@ -63,14 +74,14 @@ def check_commands(spec: AppSpec) -> list[CheckResult]:
 
     present = [name for name in spec.commands if command.exists(name)]
     if len(present) == len(spec.commands):
-        return [ok("apps", f"{spec.name} commands", "available: " + ", ".join(spec.commands))]
+        return [ok(SECTION_INSTALL, f"{spec.name} commands", "available: " + ", ".join(spec.commands))]
 
     missing = sorted(set(spec.commands) - set(present))
     message = "missing command(s): " + ", ".join(missing)
     if present:
         message += "; available: " + ", ".join(present)
     return [warn(
-        "apps",
+        SECTION_INSTALL,
         f"{spec.name} commands",
         message,
         hint="Run: envy apply  # or check Homebrew/Home Manager activation",
@@ -84,15 +95,15 @@ def check_running(spec: AppSpec) -> list[CheckResult]:
 
     running = process.app_running(spec.bundle_id, spec.processes)
     if running:
-        return [ok("apps", f"{spec.name} running", "process is active")]
+        return [ok(SECTION_RUNTIME, f"{spec.name} running", "process is active")]
     if spec.should_run:
         return [warn(
-            "apps",
+            SECTION_RUNTIME,
             f"{spec.name} running",
             "expected background app is not running",
             hint=f"Open {spec.name} once and enable launch-at-login if needed.",
         )]
-    return [info("apps", f"{spec.name} running", "not running")]
+    return [info(SECTION_RUNTIME, f"{spec.name} running", "not running")]
 
 
 def check_state(spec: AppSpec) -> list[CheckResult]:
@@ -101,9 +112,9 @@ def check_state(spec: AppSpec) -> list[CheckResult]:
         return []
     state_path = filesystem.first_existing(spec.state_paths)
     if state_path:
-        return [ok("apps", f"{spec.name} state", f"found {state_path}")]
+        return [ok(SECTION_STATE, f"{spec.name} state", f"found {state_path}")]
     return [warn(
-        "apps",
+        SECTION_STATE,
         f"{spec.name} state",
         "expected state/config path is missing",
         hint=f"Open {spec.name} once, then rerun envy apply if the file is managed.",
@@ -120,7 +131,7 @@ def check_login(spec: AppSpec) -> list[CheckResult]:
     if running and state_ok:
         return []
     return [info(
-        "apps",
+        SECTION_AUTH,
         f"{spec.name} login",
         spec.login_hint,
     )]
@@ -136,7 +147,7 @@ def check_permissions(spec: AppSpec) -> list[CheckResult]:
         if _tcc_already_warned():
             return []
         return [warn(
-            "permissions",
+            SECTION_SYSTEM,
             "TCC database",
             "Full Disk Access required — cannot verify app permissions",
             hint="System Settings -> Privacy & Security -> Full Disk Access: enable your terminal app.",
@@ -148,10 +159,10 @@ def check_permissions(spec: AppSpec) -> list[CheckResult]:
         client = perm.tcc_client or spec.bundle_id
         value = records.get((perm.service, client))
         if value == 2:
-            results.append(ok("permissions", check_name, f"allowed for {perm.reason}"))
+            results.append(ok(SECTION_PRIVACY, check_name, f"allowed for {perm.reason}"))
         elif value is None:
             results.append(warn(
-                "permissions",
+                SECTION_PRIVACY,
                 check_name,
                 f"not requested/granted yet — required for {perm.reason}",
                 hint=(
@@ -161,7 +172,7 @@ def check_permissions(spec: AppSpec) -> list[CheckResult]:
             ))
         else:
             results.append(warn(
-                "permissions",
+                SECTION_PRIVACY,
                 check_name,
                 f"permission denied (auth_value={value})",
                 hint=f"System Settings -> Privacy & Security -> {perm.label}: re-enable {spec.name}.",
@@ -198,6 +209,7 @@ def _load_custom_checkers() -> dict[str, CheckerFn]:
             "chrome_account": _auth.check_chrome_account,
             "codex_auth": _auth.check_codex_auth,
             "github_cli_auth": _auth.check_github_cli_auth,
+            "lark_cli_auth": _auth.check_lark_cli_auth,
             "tailscale_auth": _auth.check_tailscale_auth,
             "vscode_sync": _vscode.check_sync,
             "vscode_extensions": _vscode.check_extensions,

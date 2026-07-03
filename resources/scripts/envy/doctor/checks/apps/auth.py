@@ -9,7 +9,17 @@ import os
 from pathlib import Path
 from typing import Any
 
-from envy.doctor.model import CheckResult, info, ok, warn
+from envy.doctor.model import (
+    SECTION_AUTH,
+    SECTION_INSTALL,
+    SECTION_RUNTIME,
+    SECTION_STATE,
+    SECTION_SYNC,
+    CheckResult,
+    info,
+    ok,
+    warn,
+)
 from envy.doctor.probes import command, filesystem
 from envy.schemas.apps import AppSpec
 from envy.utils import HOME_DIR
@@ -25,8 +35,8 @@ def check_chrome_account(spec: AppSpec) -> list[CheckResult]:
     profiles = _chrome_profile_preferences(local_state)
     if not profiles:
         return [warn(
-            "apps",
-            f"{spec.name} account",
+            SECTION_STATE,
+            f"{spec.name} profile state",
             "Chrome profile preferences are missing",
             hint="Open Chrome once, sign in from the profile avatar, then rerun envy doctor apps --only chrome.",
         )]
@@ -48,26 +58,26 @@ def check_chrome_account(spec: AppSpec) -> list[CheckResult]:
     if signed_in == 0:
         if signin_disabled:
             return [warn(
-                "apps",
+                SECTION_AUTH,
                 f"{spec.name} account",
                 "Chrome sign-in appears disabled and no signed-in profile marker was found",
                 hint="Open Chrome settings and re-enable browser sign-in if this machine should use a Google account.",
             )]
         return [warn(
-            "apps",
+            SECTION_AUTH,
             f"{spec.name} account",
             "no signed-in Chrome profile marker found",
             hint="Open Chrome -> profile avatar -> sign in or turn on sync.",
         )]
 
     results: list[CheckResult] = [
-        ok("apps", f"{spec.name} account", f"signed-in marker found in {signed_in} profile(s)"),
+        ok(SECTION_AUTH, f"{spec.name} account", f"signed-in marker found in {signed_in} profile(s)"),
     ]
     if sync_ready:
-        results.append(ok("apps", f"{spec.name} sync", f"sync marker found in {sync_ready} profile(s)"))
+        results.append(ok(SECTION_SYNC, f"{spec.name} sync", f"sync marker found in {sync_ready} profile(s)"))
     else:
         results.append(info(
-            "apps",
+            SECTION_SYNC,
             f"{spec.name} sync",
             "signed-in profile found, but no Chrome sync completion marker was found",
             hint="Turn on Chrome Sync if bookmarks, passwords, and settings should follow this machine.",
@@ -79,8 +89,8 @@ def check_tailscale_auth(spec: AppSpec) -> list[CheckResult]:
     """Check Tailscale authentication via the CLI status API."""
     if not command.exists("tailscale"):
         return [warn(
-            "apps",
-            f"{spec.name} auth",
+            SECTION_INSTALL,
+            f"{spec.name} commands",
             "tailscale command not found; cannot verify node authentication",
             hint="Run: envy apply  # tailscale-app should install the CLI helper",
         )]
@@ -88,15 +98,15 @@ def check_tailscale_auth(spec: AppSpec) -> list[CheckResult]:
     result = command.run(["tailscale", "status", "--json"], timeout=3)
     if result.returncode == 124:
         return [warn(
-            "apps",
-            f"{spec.name} auth",
+            SECTION_RUNTIME,
+            f"{spec.name} status",
             "tailscale status timed out",
             hint="Open Tailscale, confirm the VPN service is responsive, then rerun envy doctor apps --only tailscale.",
         )]
     if result.returncode != 0:
         return [warn(
-            "apps",
-            f"{spec.name} auth",
+            SECTION_RUNTIME,
+            f"{spec.name} status",
             "could not read tailscale status",
             hint="Run: tailscale status  # or open Tailscale and sign in",
         )]
@@ -105,38 +115,45 @@ def check_tailscale_auth(spec: AppSpec) -> list[CheckResult]:
         state = json.loads(result.stdout or "{}")
     except json.JSONDecodeError:
         return [warn(
-            "apps",
-            f"{spec.name} auth",
+            SECTION_RUNTIME,
+            f"{spec.name} status",
             "tailscale status returned invalid JSON",
             hint="Run: tailscale status  # confirm the CLI is healthy",
         )]
 
     backend = state.get("BackendState")
     if backend == "Running" and state.get("Self"):
-        return [ok("apps", f"{spec.name} auth", "node is authenticated and backend is running")]
+        return [ok(SECTION_AUTH, f"{spec.name} auth", "node is authenticated")]
     if backend == "NeedsLogin":
         return [warn(
-            "apps",
+            SECTION_AUTH,
             f"{spec.name} auth",
             "node is not authenticated",
             hint="Run: tailscale login  # or open Tailscale and sign in",
         )]
+    if backend == "Running":
+        return [warn(
+            SECTION_AUTH,
+            f"{spec.name} auth",
+            "backend is running, but node identity is missing",
+            hint="Run: tailscale status  # or open Tailscale and sign in",
+        )]
     return [warn(
-        "apps",
-        f"{spec.name} auth",
+        SECTION_RUNTIME,
+        f"{spec.name} backend",
         f"backend state is {backend or 'unknown'}",
-        hint="Open Tailscale and confirm the node is signed in and connected.",
+        hint="Open Tailscale and confirm the backend service is running.",
     )]
 
 
 def check_codex_auth(spec: AppSpec) -> list[CheckResult]:
     """Check whether Codex has a usable local authentication marker."""
     if os.environ.get("OPENAI_API_KEY"):
-        return [ok("apps", f"{spec.name} auth", "OPENAI_API_KEY is set in the current environment")]
+        return [ok(SECTION_AUTH, f"{spec.name} auth", "OPENAI_API_KEY is set in the current environment")]
 
     if not CODEX_AUTH.exists():
         return [warn(
-            "apps",
+            SECTION_AUTH,
             f"{spec.name} auth",
             "Codex auth file is missing",
             hint="Run: codex login  # or configure OPENAI_API_KEY for API-key auth",
@@ -144,10 +161,10 @@ def check_codex_auth(spec: AppSpec) -> list[CheckResult]:
 
     auth = _read_dict(CODEX_AUTH)
     if _codex_has_auth_marker(auth):
-        return [ok("apps", f"{spec.name} auth", "local Codex auth marker is present")]
+        return [ok(SECTION_AUTH, f"{spec.name} auth", "local Codex auth marker is present")]
 
     return [warn(
-        "apps",
+        SECTION_AUTH,
         f"{spec.name} auth",
         "Codex auth file has no known auth marker",
         hint="Run: codex login  # or refresh the Codex desktop login",
@@ -161,20 +178,76 @@ def check_github_cli_auth(spec: AppSpec) -> list[CheckResult]:
 
     result = command.run(["gh", "auth", "status"], timeout=5)
     if result.returncode == 0:
-        return [ok("apps", f"{spec.name} auth", "GitHub CLI authentication is available")]
+        return [ok(SECTION_AUTH, f"{spec.name} auth", "GitHub CLI authentication is available")]
     if result.returncode == 124:
         return [warn(
-            "apps",
+            SECTION_AUTH,
             f"{spec.name} auth",
             "gh auth status timed out",
             hint="Run: gh auth status  # then rerun envy doctor apps --only gh",
         )]
     return [warn(
-        "apps",
+        SECTION_AUTH,
         f"{spec.name} auth",
         "GitHub CLI is not authenticated",
         hint="Run: gh auth login",
     )]
+
+
+def check_lark_cli_auth(spec: AppSpec) -> list[CheckResult]:
+    """Check Lark CLI configuration and identity state without printing account details."""
+    if not command.exists("lark-cli"):
+        return []
+
+    config_result = command.run(["lark-cli", "config", "show"], timeout=5)
+    config_data = _parse_command_json(config_result)
+    if config_result.returncode == 124:
+        return [warn(
+            SECTION_STATE,
+            f"{spec.name} config",
+            "lark-cli config check timed out",
+            hint="Run: lark-cli config show  # then rerun envy doctor apps --only lark-cli",
+        )]
+    if config_result.returncode != 0:
+        return [_lark_cli_config_warning(spec, config_data)]
+    if not _truthy(config_data.get("appId")):
+        return [warn(
+            SECTION_STATE,
+            f"{spec.name} config",
+            "active app configuration is missing or incomplete",
+            hint="Run: lark-cli config init --new",
+        )]
+
+    results: list[CheckResult] = [
+        ok(SECTION_STATE, f"{spec.name} config", "active app configuration is present"),
+    ]
+
+    auth_result = command.run(["lark-cli", "auth", "status"], timeout=5)
+    auth_data = _parse_command_json(auth_result)
+    if auth_result.returncode == 124:
+        results.append(warn(
+            SECTION_AUTH,
+            f"{spec.name} auth",
+            "lark-cli auth status timed out",
+            hint="Run: lark-cli auth status  # then rerun envy doctor apps --only lark-cli",
+        ))
+        return results
+    if auth_result.returncode != 0:
+        results.append(_lark_cli_auth_warning(spec, auth_data))
+        return results
+
+    identity = str(auth_data.get("identity") or "none")
+    if identity in {"user", "bot"}:
+        results.append(ok(SECTION_AUTH, f"{spec.name} auth", f"usable {identity} identity is available"))
+        return results
+
+    results.append(warn(
+        SECTION_AUTH,
+        f"{spec.name} auth",
+        "no usable identity is available",
+        hint="Run: lark-cli auth login  # or configure bot credentials for bot-only API calls",
+    ))
+    return results
 
 
 def _read_dict(path: Path) -> dict[str, Any]:
@@ -182,6 +255,63 @@ def _read_dict(path: Path) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     return {}
+
+
+def _parse_json_object(text: str) -> dict[str, Any]:
+    try:
+        value = json.loads(text or "{}")
+    except json.JSONDecodeError:
+        return {}
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _parse_command_json(result: Any) -> dict[str, Any]:
+    for text in (getattr(result, "stdout", ""), getattr(result, "stderr", "")):
+        data = _parse_json_object(text)
+        if data:
+            return data
+    return {}
+
+
+def _lark_cli_config_warning(spec: AppSpec, data: dict[str, Any]) -> CheckResult:
+    if _typed_error(data) == ("config", "not_configured"):
+        return warn(
+            SECTION_STATE,
+            f"{spec.name} config",
+            "lark-cli is not configured",
+            hint="Run: lark-cli config init --new",
+        )
+    return warn(
+        SECTION_STATE,
+        f"{spec.name} config",
+        "could not read lark-cli configuration",
+        hint="Run: lark-cli config show",
+    )
+
+
+def _lark_cli_auth_warning(spec: AppSpec, data: dict[str, Any]) -> CheckResult:
+    if _typed_error(data) == ("config", "not_configured"):
+        return warn(
+            SECTION_AUTH,
+            f"{spec.name} auth",
+            "cannot check auth before lark-cli is configured",
+            hint="Run: lark-cli config init --new",
+        )
+    return warn(
+        SECTION_AUTH,
+        f"{spec.name} auth",
+        "could not read lark-cli auth status",
+        hint="Run: lark-cli auth status  # or refresh with lark-cli auth login",
+    )
+
+
+def _typed_error(data: dict[str, Any]) -> tuple[str, str]:
+    error = data.get("error")
+    if not isinstance(error, dict):
+        return ("", "")
+    return (str(error.get("type") or ""), str(error.get("subtype") or ""))
 
 
 def _chrome_profile_preferences(local_state: dict[str, Any]) -> list[tuple[str, Path]]:

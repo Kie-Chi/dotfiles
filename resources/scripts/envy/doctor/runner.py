@@ -1,12 +1,26 @@
 """Doctor orchestration and terminal rendering."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from rich.table import Table
 
 from envy import log
 from envy.doctor.checks import apps, config
-from envy.doctor.model import CheckResult
+from envy.doctor.model import (
+    SECTION_AUTH,
+    SECTION_CONFIG,
+    SECTION_DOCTOR,
+    SECTION_INSTALL,
+    SECTION_PRIVACY,
+    SECTION_RUNTIME,
+    SECTION_SECRETS,
+    SECTION_STATE,
+    SECTION_SYNC,
+    SECTION_SYSTEM,
+    CheckResult,
+    DoctorSection,
+)
+from envy.doctor.selection import DoctorSelection, filter_results, parse_only, selection_errors
 
 CheckFn = Callable[[], list[CheckResult]]
 
@@ -16,21 +30,61 @@ CHECKS: dict[str, CheckFn] = {
 }
 
 
-def run_sections(sections: list[str]) -> list[CheckResult]:
+CONFIG_RESULT_SECTIONS: set[DoctorSection] = {
+    SECTION_DOCTOR,
+    SECTION_CONFIG,
+    SECTION_SECRETS,
+}
+
+APP_RESULT_SECTIONS: set[DoctorSection] = {
+    SECTION_INSTALL,
+    SECTION_RUNTIME,
+    SECTION_STATE,
+    SECTION_AUTH,
+    SECTION_SYNC,
+    SECTION_PRIVACY,
+    SECTION_SYSTEM,
+}
+
+
+def run_sections(sections: list[str], selected: Iterable[str] | None = None) -> list[CheckResult]:
+    selection = parse_only(selected)
+    allow_apps = "apps" in sections
+    errors = selection_errors(selection, allow_apps=allow_apps)
+    if selection.has_parse_errors:
+        return errors
+
     results: list[CheckResult] = []
     for section in sections:
+        if not _scope_needed(section, selection):
+            continue
         check = CHECKS[section]
         log.step("doctor", f"checking {section}")
-        results.extend(check())
-    return results
+        if section == "apps":
+            results.extend(apps.run_checks(selection=selection))
+        else:
+            results.extend(check())
+    return errors + filter_results(results, selection)
+
+
+def _scope_needed(section: str, selection: DoctorSelection) -> bool:
+    if selection.apps and section != "apps":
+        return False
+    if not selection.sections:
+        return True
+    if section == "config":
+        return bool(selection.sections & CONFIG_RESULT_SECTIONS)
+    if section == "apps":
+        return bool(selection.sections & APP_RESULT_SECTIONS)
+    return True
 
 
 def render(results: list[CheckResult]) -> None:
-    table = Table(title="envy doctor")
-    table.add_column("Status", no_wrap=True)
-    table.add_column("Section", no_wrap=True)
-    table.add_column("Check", no_wrap=True)
-    table.add_column("Result")
+    table = Table(title="envy doctor", expand=True)
+    table.add_column("Status", width=6, no_wrap=True)
+    table.add_column("Section", width=11, no_wrap=True)
+    table.add_column("Check", min_width=18, max_width=28, no_wrap=True, overflow="ellipsis")
+    table.add_column("Result", min_width=24, no_wrap=True, overflow="ellipsis", ratio=1)
 
     style = {
         "ok": "green",

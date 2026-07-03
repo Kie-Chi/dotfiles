@@ -7,7 +7,10 @@ from envy.schemas.apps import ALL_APP_SPECS, APP_ALIASES
 
 def run_single_app(key: str) -> list[CheckResult]:
     """Run all checkers for a single app by key."""
-    return run_app_checks(ALL_APP_SPECS[key])
+    results = run_app_checks(ALL_APP_SPECS[key])
+    for result in results:
+        result.details.setdefault("app", key)
+    return results
 
 
 def normalize_app_key(value: str) -> str:

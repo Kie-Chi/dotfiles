@@ -8,26 +8,48 @@
 envy doctor
 envy dr
 envy doctor config
+envy doctor config --only secr
 envy doctor apps
 envy doctor apps --only chrome,codex,gh,tailscale
-envy doctor permissions
+envy doctor apps --only codex,vscode --only auth,sync
+envy doctor apps --only perm
 envy doctor apps --strict
 ```
 
-`--only` accepts canonical app keys and aliases from `APP_ALIASES`. Values can be repeated or comma-separated.
+`--only` accepts section tokens, canonical app keys, and aliases from `APP_ALIASES`. Values can be repeated or comma-separated. App selections are ORed with other apps; section selections are ORed with other sections; app and section selections are ANDed together.
 
 ## File Map
 
 | File | Role |
 |---|---|
-| `resources/scripts/envy/doctor/app.py` | Typer commands for `envy doctor`, `envy dr`, `apps`, `config`, and `permissions`. |
+| `resources/scripts/envy/doctor/app.py` | Typer commands for `envy doctor`, `envy dr`, `all`, `apps`, and `config`. |
 | `resources/scripts/envy/doctor/runner.py` | Runs sections, renders the Rich table, computes exit codes. |
-| `resources/scripts/envy/doctor/model.py` | Shared `CheckResult` model and `ok/warn/error/info` helpers. |
+| `resources/scripts/envy/doctor/model.py` | Shared `CheckResult` model, section constants, and `ok/warn/error/info` helpers. |
+| `resources/scripts/envy/doctor/selection.py` | Unified `--only` parser for section/app filters. |
 | `resources/scripts/envy/schemas/apps.py` | Declarative app registry and app aliases. Start here when adding app coverage. |
 | `resources/scripts/envy/doctor/checks/apps/checkers.py` | Generic app checks and custom checker registry. |
 | `resources/scripts/envy/doctor/checks/apps/auth.py` | App-specific auth/login checks such as Chrome, Codex, GitHub CLI, and Tailscale. |
 | `resources/scripts/envy/doctor/checks/apps/vscode.py` | VS Code Settings Sync, auth, Copilot, and extension checks. |
 | `resources/scripts/envy/doctor/probes/` | Low-level filesystem, process, command, TCC, and VS Code probes. |
+
+## Section Semantics
+
+Doctor commands are entrypoint scopes; result row sections are semantic check categories. For example, `envy doctor apps` still runs app checks, but its rows can appear under `apps`, `runs`, `stat`, `auth`, `sync`, `perm`, or `host`.
+
+| Section | Aliases | Meaning |
+|---|---|---|
+| `self` | `doctor`, `doc` | Doctor tool metadata and invocation input, such as version, source, source priority, or unknown `--only` selections. |
+| `conf` | `config`, `cfg` | Non-sensitive config values and dotfiles config files. |
+| `secr` | `secrets`, `secret`, `sec` | age, sops, `secrets.yaml`, and decryptability. |
+| `apps` | `install`, `inst` | Installed/visible artifacts: app bundles, CLI commands, code CLI, and VS Code extensions. |
+| `runs` | `runtime`, `run` | Running processes, daemons, backend states, and unreadable runtime/status APIs. |
+| `stat` | `state` | Local app state/config files and readable state markers. |
+| `auth` |  | Login, account, API key, identity, and account-like markers such as Copilot state. |
+| `sync` |  | Explicit data/settings sync capability, such as Chrome Sync and VS Code Settings Sync. |
+| `perm` | `privacy`, `priv`, `permission`, `permissions`, `perms`, `pers` | App-owned macOS TCC permissions such as Camera, Microphone, Screen Recording, and Accessibility. |
+| `host` | `system`, `sys` | Global host prerequisites not owned by one app, such as being unable to read the macOS TCC database. |
+
+Use `section:<token>` and `app:<token>` to disambiguate if a future app alias overlaps with a section token.
 
 ## AppSpec Fields
 
@@ -71,7 +93,7 @@ Prefer declarative fields first. Write a custom checker only when the app has a 
 5. If the app has TCC permissions, add `PermissionReq` entries and validate with:
 
    ```bash
-   envy doctor permissions
+   envy doctor apps --only perm
    envy doctor apps --only <app-key>
    ```
 
@@ -88,6 +110,7 @@ Current custom auth checks:
 | Google Chrome | `chrome_account` | Reads local Chrome profile preferences and Local State markers for signed-in account and sync state. |
 | Codex | `codex_auth` | Checks `OPENAI_API_KEY` or marker presence in `~/.codex/auth.json`. |
 | GitHub CLI | `github_cli_auth` | Runs `gh auth status`. |
+| Lark CLI | `lark_cli_auth` | Runs `lark-cli config show` and `lark-cli auth status`, reading only structured status fields. |
 | Tailscale | `tailscale_auth` | Runs `tailscale status --json` with a timeout and checks backend/self state. |
 | VS Code | `vscode_sync` | Reads VS Code state database keys for Settings Sync, auth, and Copilot markers. |
 
@@ -140,7 +163,7 @@ For Tencent Meeting and Feishu, it is normal not to see Camera, Microphone, or S
 
 ```bash
 envy doctor apps --only tencent-meeting
-envy doctor permissions
+envy doctor apps --only tencent-meeting --only perm
 ```
 
 If doctor reports `TCC database: Full Disk Access required`, enable Full Disk Access for the terminal app you use to run `envy`:
@@ -198,6 +221,7 @@ Before committing doctor changes:
 python3 -m compileall -q resources/scripts/envy
 envy doctor apps --only <changed-app>
 envy doctor apps --only chrome,codex,gh,tailscale
+envy doctor apps --only perm
 git diff --check
 ```
 
