@@ -12,7 +12,6 @@ from typing import Any
 from envy.doctor.model import (
     SECTION_AUTH,
     SECTION_INSTALL,
-    SECTION_RUNTIME,
     SECTION_STATE,
     SECTION_SYNC,
     CheckResult,
@@ -98,16 +97,16 @@ def check_tailscale_auth(spec: AppSpec) -> list[CheckResult]:
     result = command.run(["tailscale", "status", "--json"], timeout=3)
     if result.returncode == 124:
         return [warn(
-            SECTION_RUNTIME,
-            f"{spec.name} status",
-            "tailscale status timed out",
+            SECTION_AUTH,
+            f"{spec.name} auth",
+            "could not verify auth: tailscale status timed out",
             hint="Open Tailscale, confirm the VPN service is responsive, then rerun envy doctor apps --only tailscale.",
         )]
     if result.returncode != 0:
         return [warn(
-            SECTION_RUNTIME,
-            f"{spec.name} status",
-            "could not read tailscale status",
+            SECTION_AUTH,
+            f"{spec.name} auth",
+            "could not verify auth: could not read tailscale status",
             hint="Run: tailscale status  # or open Tailscale and sign in",
         )]
 
@@ -115,9 +114,9 @@ def check_tailscale_auth(spec: AppSpec) -> list[CheckResult]:
         state = json.loads(result.stdout or "{}")
     except json.JSONDecodeError:
         return [warn(
-            SECTION_RUNTIME,
-            f"{spec.name} status",
-            "tailscale status returned invalid JSON",
+            SECTION_AUTH,
+            f"{spec.name} auth",
+            "could not verify auth: tailscale status returned invalid JSON",
             hint="Run: tailscale status  # confirm the CLI is healthy",
         )]
 
@@ -139,10 +138,10 @@ def check_tailscale_auth(spec: AppSpec) -> list[CheckResult]:
             hint="Run: tailscale status  # or open Tailscale and sign in",
         )]
     return [warn(
-        SECTION_RUNTIME,
-        f"{spec.name} backend",
-        f"backend state is {backend or 'unknown'}",
-        hint="Open Tailscale and confirm the backend service is running.",
+        SECTION_AUTH,
+        f"{spec.name} auth",
+        f"could not verify auth: backend state is {backend or 'unknown'}",
+        hint="Open Tailscale and confirm the backend service is running, then sign in if needed.",
     )]
 
 

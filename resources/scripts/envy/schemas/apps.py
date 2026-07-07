@@ -219,8 +219,6 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     "tailscale": AppSpec(
         name="Tailscale",
         bundles=["Tailscale.app"],
-        bundle_id="io.tailscale.ipn.macsys",
-        processes=["Tailscale"],
         state_paths=[HOME_DIR / "Library/Preferences/io.tailscale.ipn.macsys.plist"],
         checkers=["tailscale_auth"],
     ),
