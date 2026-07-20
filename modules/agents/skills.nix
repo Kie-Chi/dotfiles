@@ -1,10 +1,10 @@
 { config, lib, ... }:
 
 let
-  cfg = config.agents.skills;
+  skillsConfig = config.agents.skills;
   enabledCatalog = lib.filterAttrs
-    (name: _: builtins.elem name cfg.active)
-    cfg.catalog;
+    (name: _: builtins.elem name skillsConfig.active)
+    skillsConfig.catalog;
 
   filesFor = target: homePrefix:
     lib.mapAttrs'
@@ -14,9 +14,9 @@ let
         })
       (lib.filterAttrs (_: skill: builtins.elem target skill.targets) enabledCatalog);
 
-  unknownSkills = lib.subtractLists (builtins.attrNames cfg.catalog) cfg.active;
+  unknownSkills = lib.subtractLists (builtins.attrNames skillsConfig.catalog) skillsConfig.active;
   missingManifests = lib.filter
-    (name: !(builtins.pathExists (cfg.catalog.${name}.source + "/SKILL.md")))
+    (name: !(builtins.pathExists (skillsConfig.catalog.${name}.source + "/SKILL.md")))
     (builtins.attrNames enabledCatalog);
 in
 {
@@ -49,7 +49,7 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf skillsConfig.enable {
     assertions = [
       {
         assertion = unknownSkills == [ ];

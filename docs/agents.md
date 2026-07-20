@@ -57,3 +57,26 @@ Use a single shared source when both agents accept the same workflow. Split it i
 Each provider gets its own module (`claude.nix`, later `codex.nix`, `gemini.nix`, and so on). A provider module may install packages, create a stable command wrapper, and link non-secret configuration. API keys and tokens continue to flow through sops-nix activation-time files/templates and must never become Nix evaluation-time strings.
 
 The Claude wrapper deliberately invokes nixpkgs' `claude` wrapper, not its internal `.claude-wrapped` binary. Nixpkgs uses the outer wrapper to set required runtime environment variables and `PATH`; bypassing it would make this repository responsible for duplicating upstream packaging details.
+
+## Agent profile configuration
+
+The provider modules use Home Manager's `config.agents.*` option tree internally. Agent installation, wrapper behavior, security-sensitive arguments, and skill discovery are repository-owned machine profile settings; they are configured in `modules/agents/default.nix`, not in the external `config.nix` managed by `envy`.
+
+The current profile is intentionally explicit:
+
+```nix
+agents = {
+  claude = {
+    enable = true;
+    extraArgs = [ "--dangerously-skip-permissions" ];
+    ccliAlias = true;
+  };
+
+  skills = {
+    enable = true;
+    active = [ ];
+  };
+};
+```
+
+The Claude package selection, prompt path, and skill catalog remain Nix-only implementation settings. Authentication, history, caches, sessions, and other application-owned state are not managed by this module.

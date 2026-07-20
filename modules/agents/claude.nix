@@ -1,13 +1,14 @@
 { config, lib, pkgs, ... }:
 
 let
-  cfg = config.agents.claude;
+  agentConfig = config.agents.claude;
+  promptFile = ".config/ccli/prompt";
 
   claudeWithDefaults = pkgs.writeShellApplication {
     name = "claude";
     text = ''
       system_prompt="''${CCLI_SYSTEM_PROMPT:-}"
-      prompt_file="$HOME/${cfg.systemPromptFile}"
+      prompt_file="$HOME/${promptFile}"
 
       if [[ -z "$system_prompt" && -f "$prompt_file" ]]; then
         system_prompt=$(<"$prompt_file")
@@ -15,8 +16,8 @@ let
 
       # Call nixpkgs' wrapper by absolute path. It prepares Claude Code's
       # runtime before handing off to its internal .claude-wrapped binary.
-      cmd=("${lib.getExe cfg.package}")
-      ${lib.concatMapStringsSep "\n" (arg: "cmd+=(${lib.escapeShellArg arg})") cfg.extraArgs}
+      cmd=("${lib.getExe agentConfig.package}")
+      ${lib.concatMapStringsSep "\n" (arg: "cmd+=(${lib.escapeShellArg arg})") agentConfig.extraArgs}
 
       if [[ -n "$system_prompt" ]]; then
         cmd+=(--system-prompt "$system_prompt")
@@ -36,21 +37,9 @@ in
 
     package = lib.mkPackageOption pkgs "claude-code" { };
 
-    wrap = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Wrap claude with the configured prompt and extra arguments.";
-    };
-
-    systemPromptFile = lib.mkOption {
-      type = lib.types.str;
-      default = ".config/ccli/prompt";
-      description = "System prompt path relative to the user's home directory.";
-    };
-
     extraArgs = lib.mkOption {
       type = with lib.types; listOf str;
-      default = [ "--dangerously-skip-permissions" ];
+      default = [ ];
       description = "Arguments injected before caller-provided Claude arguments.";
     };
 
@@ -61,11 +50,11 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf agentConfig.enable {
     home.packages = [
-      (if cfg.wrap then claudeWithDefaults else cfg.package)
-    ] ++ lib.optional cfg.ccliAlias ccli;
+      claudeWithDefaults
+    ] ++ lib.optional agentConfig.ccliAlias ccli;
 
-    home.file.${cfg.systemPromptFile}.source = ../../files/ccli/prompt;
+    home.file.${promptFile}.source = ../../files/ccli/prompt;
   };
 }
