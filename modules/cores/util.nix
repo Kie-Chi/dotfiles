@@ -9,8 +9,8 @@ let
     in
     lib.mapAttrsToList
       (scriptName: fileType:
-        if scriptName == "envy" then
-          null  # handled separately as envyPackage
+        if builtins.elem scriptName [ "envy" "ccli" ] then
+          null  # handled by a dedicated package/module
         else if fileType == "regular" then
           pkgs.writeShellScriptBin scriptName (builtins.readFile (dirPath + "/${scriptName}"))
         else
@@ -70,5 +70,4 @@ let
 in
 {
   home.packages = packagedScripts ++ [ envyPackage ];
-  home.file.".config/ccli/prompt".source = ../../files/ccli/prompt;
 }

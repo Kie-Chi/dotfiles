@@ -2,6 +2,7 @@
 
 {
   imports = [
+    ./modules/agents
     ./modules/cores
     ./modules/devps
     ./modules/desktops

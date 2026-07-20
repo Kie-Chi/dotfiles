@@ -1,5 +1,6 @@
 { ... }: {
   imports = [
+    ../agents/darwin.nix
     ./base.nix
     ./apps.nix
     ./terminal.nix

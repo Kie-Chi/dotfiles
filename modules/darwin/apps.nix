@@ -25,9 +25,8 @@
 
     casks = [
       # "uuremote" # Game for Windows
+      "telegram-desktop"
       "clash-verge-rev"
-      "codex"
-      "codex-app"
       "cyberduck"
       "betterdisplay"
       # "skim"
@@ -41,7 +40,7 @@
       "tailscale-app"
       # "moonlight"
       "raycast"
-      # "wechat"
+      "wechat"
       "google-chrome"
       "feishu"
       "tencent-meeting"

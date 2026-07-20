@@ -1,4 +1,4 @@
-{ pkgs, config, ... }:
+{ pkgs, ... }:
 
 {
   home.packages = with pkgs; [
@@ -6,7 +6,6 @@
     desktoppr
 
     # apps
-    claude-code
     sing-box
   ];
 }
