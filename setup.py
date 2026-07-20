@@ -22,7 +22,7 @@ from envy import log
 from envy.key import (
     AGE_KEY_DIR, AGE_KEY_FILE, SECRETS_FILE,
     read_sops_yaml_keys, write_sops_yaml_keys,
-    get_current_device_public_key, get_device_label, set_device_label,
+    get_current_device_public_key, ensure_device_label,
     run_sops_updatekeys, git_commit_sops_files, key_import,
 )
 from envy.config import (
@@ -430,7 +430,7 @@ def save_all(values: dict) -> None:
 
         t2 = progress.add_task("Updating .sops.yaml...", total=None)
         keys = read_sops_yaml_keys()
-        label = get_device_label()
+        label = ensure_device_label()
 
         sops_updated = False  # track whether .sops.yaml was actually written
 
@@ -494,6 +494,12 @@ def save_all(values: dict) -> None:
 # ==========================================
 
 def main():
+    # Persist the existing device identity even when the user opens setup and
+    # exits without changing any config fields. Newly generated/imported keys
+    # are handled again in save_all after key setup completes.
+    if AGE_KEY_FILE.exists():
+        ensure_device_label()
+
     existing_config = read_config_nix()
     existing_secrets, decrypt_ok = read_secrets_yaml()
 

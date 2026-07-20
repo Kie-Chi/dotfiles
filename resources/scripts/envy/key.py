@@ -115,13 +115,44 @@ def write_sops_yaml_keys(keys: Dict[str, str]) -> None:
 
 def get_device_label() -> str:
     if DEVICE_LABEL_FILE.exists():
-        return DEVICE_LABEL_FILE.read_text().strip()
+        label = DEVICE_LABEL_FILE.read_text().strip()
+        if label:
+            return sanitize_label(label)
     hostname = run_cmd(["hostname", "-s"], check=False, capture=True)
     return sanitize_label(hostname) if hostname else "unknown"
 
 
 def set_device_label(label: str) -> None:
-    DEVICE_LABEL_FILE.write_text(label)
+    normalized = sanitize_label(label) or "unknown"
+    DEVICE_LABEL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DEVICE_LABEL_FILE.write_text(normalized + "\n")
+
+
+def ensure_device_label() -> str:
+    """Return and persist a stable device label for the current machine."""
+    stored = DEVICE_LABEL_FILE.read_text().strip() if DEVICE_LABEL_FILE.exists() else ""
+    if stored:
+        label = get_device_label()
+        if stored != label:
+            set_device_label(label)
+        return label
+
+    # Recover the label from .sops.yaml when the local marker was deleted.
+    # This avoids replacing a deliberate label with the hostname on an
+    # existing device.
+    current_pub = get_current_device_public_key()
+    if current_pub:
+        matching_labels = [
+            label for label, pubkey in read_sops_yaml_keys().items()
+            if label != "recovery" and pubkey == current_pub and sanitize_label(label) == label
+        ]
+        if matching_labels:
+            set_device_label(matching_labels[0])
+            return matching_labels[0]
+
+    label = get_device_label()
+    set_device_label(label)
+    return label
 
 # ==========================================
 # KEY STATE
@@ -892,7 +923,7 @@ def key_rotate(recovery: bool = False) -> None:
         log.hint("Run: envy key import")
         return
 
-    label = get_device_label()
+    label = ensure_device_label()
     if current_pub not in keys.values():
         log.error("key", "current device key not in .sops.yaml, cannot rotate")
         return

@@ -33,6 +33,7 @@ creation_rules:
 ```
 
 每台设备的身份标签存储在 gitignored 的 `.device-label` 文件中（默认为 hostname 的 sanitized 版本）。
+`envy setup` 在已有设备密钥时会确保该标记被持久化；如果本地标记丢失但当前公钥仍能在 `.sops.yaml` 中匹配到设备标签，会优先恢复该标签。
 
 ## 常见场景
 
