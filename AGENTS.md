@@ -21,6 +21,8 @@ Nix-based dotfiles for macOS (aarch64-darwin), using nix-darwin + home-manager +
 | `secrets/secrets.yaml` | sops-encrypted YAML with nested structure. Gitignored. |
 | `.sops.yaml` | sops creation rules with age public key(s). |
 | `home.nix` | Home-manager config: sops secrets declarations, templates, activation debug. |
+| `modules/agents/` | Agent installers, provider wrappers, declarative skill catalog, and per-machine skill selection. |
+| `docs/agents.md` | Architecture and maintenance guide for agent providers and skill subpackages. |
 | `setup.py` | Python rich + prompt_toolkit sequential CLI for initial setup and config editing. Reuses `envy.config` schema/read-write helpers, prompts each field in order, shows changes summary, then saves + encrypts + commits .sops.yaml. |
 | `resources/scripts/envy/config.py` | Single source of truth for config/secret fields, validation, local refine/check commands, and safe config.nix/secrets.yaml I/O. |
 | `resources/scripts/envy/schemas/apps.py` | Single source of truth for app doctor specs: bundles, commands, processes, state paths, login hints, permissions, aliases, and custom checkers. |
@@ -34,6 +36,7 @@ Nix-based dotfiles for macOS (aarch64-darwin), using nix-darwin + home-manager +
 
 ```
 modules/
+  agents/    — LLM agent installers, wrappers, and skill discovery
   cores/     — base packages, shell, git, ssh, utils
   devps/     — editor (neovim)
   desktops/  — apps, proxies, raycast-ai, wallpaper, squirrel
@@ -125,6 +128,8 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 - The `.sops.yaml` file CAN be committed once it has real age public keys.
 - When adding new secret fields: add to `SECRET_FIELDS` in `resources/scripts/envy/config.py`, declare in `home.nix` under `sops.secrets`, and let `envy config refine` create the `yaml_path` entry in `secrets.yaml`.
 - When adding new non-sensitive config: add to `CONFIG_FIELDS` in `resources/scripts/envy/config.py`, and it will be used by setup plus `envy config refine`.
+- When adding an LLM agent/provider: keep its installer and stable command wrapper in `modules/agents`; never manage application-owned auth, history, cache, or session files declaratively.
+- When adding a reusable skill: create `modules/agents/skills/<skill-name>/SKILL.md`, register it in `skills/catalog.nix`, and select it through `agents.skills.active`. Keep detailed references and scripts inside the skill and load them only when needed.
 - When adding a new app doctor target: add an `AppSpec` in `resources/scripts/envy/schemas/apps.py`, add aliases in `APP_ALIASES` when useful, and prefer generic fields before writing a custom checker.
 - When adding a new login/auth check: implement it in `resources/scripts/envy/doctor/checks/apps/auth.py` or another focused module, register it in `_load_custom_checkers()`, and never print account names, emails, tokens, API keys, cookies, or raw secret values.
 - When adding a new app permission check: add `PermissionReq` entries in `AppSpec.permissions`. Remember that missing TCC records may mean "not requested yet", not necessarily "denied".
