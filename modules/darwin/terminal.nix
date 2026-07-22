@@ -54,7 +54,7 @@ in
             "Use Ligatures" = true;
 
             "Window Type" = 1;      
-            "Screen" = -1;
+            "Screen" = -2; # Follow the screen containing the mouse cursor.
             "Space" = -1;
             
             "Transparency" = 0.25;
