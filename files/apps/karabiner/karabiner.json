@@ -3,24 +3,63 @@
     {
       "name": "Default profile",
       "selected": true,
-      "simple_modifications": [
+      "devices": [
         {
-          "from": {
-            "apple_vendor_top_case_key_code": "keyboard_fn"
+          "identifiers": {
+            "is_keyboard": true,
+            "is_built_in_keyboard": true
           },
-          "to": [
+          "simple_modifications": [
             {
-              "key_code": "left_control"
+              "from": {
+                "apple_vendor_top_case_key_code": "keyboard_fn"
+              },
+              "to": [
+                {
+                  "key_code": "left_control"
+                }
+              ]
+            },
+            {
+              "from": {
+                "key_code": "left_control"
+              },
+              "to": [
+                {
+                  "apple_vendor_top_case_key_code": "keyboard_fn"
+                }
+              ]
             }
           ]
         },
         {
-          "from": {
-            "key_code": "left_control"
+          "identifiers": {
+            "is_keyboard": true,
+            "is_pointing_device": true,
+            "vendor_id": 14000,
+            "product_id": 12292
           },
-          "to": [
+          "ignore": false,
+          "simple_modifications": [
             {
-              "apple_vendor_top_case_key_code": "keyboard_fn"
+              "from": {
+                "key_code": "left_command"
+              },
+              "to": [
+                {
+                  "key_code": "left_option"
+                }
+              ]
+            },
+            {
+              "from": {
+                "key_code": "left_option"
+              },
+              "to": [
+                {
+                  "key_code": "left_command"
+                }
+              ]
             }
           ]
         }
