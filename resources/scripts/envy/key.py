@@ -70,11 +70,11 @@ def sanitize_label(name: str) -> str:
 
 
 def confirm(prompt_text: str) -> bool:
-    """Ask user for y/N confirmation. Auto-answers yes if --yes/-y was set."""
+    """Require explicit y/n confirmation. Auto-answer yes with --yes/-y."""
     if _yes_flag:
         log.hint(f"{prompt_text} → auto-yes")
         return True
-    return Confirm.ask(prompt_text, console=log.console, default=False)
+    return Confirm.ask(prompt_text, console=log.console)
 
 # ==========================================
 # SOPS YAML I/O
@@ -186,6 +186,66 @@ def run_sops_updatekeys() -> None:
     log.ok("key", "secrets re-encrypted with updated key list")
 
 
+def _stage_repo_files(files: list[Path]) -> list[str]:
+    """Stage explicit repository files and return changed relative pathspecs."""
+    if not (DOTFILES_DIR / ".git").exists():
+        return []
+
+    repository = DOTFILES_DIR.resolve()
+    changed: list[str] = []
+    seen: set[str] = set()
+    for file in files:
+        if not file.exists():
+            continue
+        try:
+            relative = str(file.resolve().relative_to(repository))
+        except ValueError:
+            log.error("git", "refusing to stage a file outside the dotfiles repository", path=str(file))
+            continue
+        if relative in seen:
+            continue
+        seen.add(relative)
+
+        stage = subprocess.run(
+            ["git", "add", "--", relative],
+            capture_output=True, text=True, check=False,
+            cwd=str(DOTFILES_DIR),
+        )
+        if stage.returncode != 0:
+            log.error("git", "failed to stage managed file", path=relative)
+            continue
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet", "--", relative],
+            capture_output=True, text=True, check=False,
+            cwd=str(DOTFILES_DIR),
+        )
+        if diff.returncode == 1:
+            changed.append(relative)
+        elif diff.returncode != 0:
+            log.error("git", "failed to inspect staged managed file", path=relative)
+    return changed
+
+
+def _commit_staged_files(changed: list[str], message: str) -> None:
+    display = ", ".join(changed)
+    if not confirm(f"Commit {display} to git?"):
+        log.warn("git", "managed changes staged but not committed")
+        log.hint("Review with: envy git diff --cached")
+        log.hint("Commit later with: envy git commit")
+        return
+
+    result = subprocess.run(
+        ["git", "commit", "-m", message, "--", *changed],
+        capture_output=True, text=True, check=False,
+        cwd=str(DOTFILES_DIR),
+    )
+    if result.returncode != 0:
+        log.error("git", "commit failed", exit_code=result.returncode)
+        log.hint("The managed files remain staged; inspect them with: envy git diff --cached")
+        return
+    log.ok("git", "committed", files=display)
+
+
 def git_commit_sops_files(operation: str = "") -> None:
     if not (DOTFILES_DIR / ".git").exists():
         return
@@ -193,20 +253,7 @@ def git_commit_sops_files(operation: str = "") -> None:
     label = get_sops_label()
     scope = f"sops/{operation}" if operation else "sops"
 
-    files = [str(SOPS_YAML), str(SECRETS_FILE), str(RECOVERY_KEY_FILE)]
-    changed = []
-
-    for f in files:
-        if not Path(f).exists():
-            continue
-        run_cmd(["git", "add", f], check=False, capture=True)
-        rc = subprocess.run(
-            ["git", "diff", "--cached", "--quiet", "--", f],
-            capture_output=True, text=True, check=False,
-            cwd=str(DOTFILES_DIR),
-        ).returncode
-        if rc == 1:
-            changed.append(f)
+    changed = _stage_repo_files([SOPS_YAML, SECRETS_FILE, RECOVERY_KEY_FILE])
 
     if not changed:
         log.hint("sops files: no changes to commit")
@@ -214,12 +261,30 @@ def git_commit_sops_files(operation: str = "") -> None:
 
     names = [Path(f).name for f in changed]
     msg = f"chore({scope}): update keys on {label} ({', '.join(names)})"
-    if not confirm(f"Commit {', '.join(names)} to git?"):
-        log.warn("key", "changes not committed")
-        log.hint("Run: envy git add . && envy git commit")
+    _commit_staged_files(changed, msg)
+
+
+def git_commit_setup_files(machine_path: Path) -> None:
+    """Offer one scoped commit for files managed by an envy setup save."""
+    if not (DOTFILES_DIR / ".git").exists():
         return
-    run_cmd(["git", "commit", "-m", msg, "--"] + changed, check=False, capture=True)
-    log.ok("key", "committed", files=', '.join(names))
+
+    changed = _stage_repo_files([
+        machine_path,
+        SOPS_YAML,
+        SECRETS_FILE,
+        RECOVERY_KEY_FILE,
+    ])
+    if not changed:
+        log.hint("setup files: no changes to commit")
+        return
+
+    names = [Path(path).name for path in changed]
+    message = (
+        f"chore(setup): update {machine_path.stem} configuration "
+        f"({', '.join(names)})"
+    )
+    _commit_staged_files(changed, message)
 
 # ==========================================
 # RECOVERY KEY MANAGEMENT

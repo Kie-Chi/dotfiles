@@ -1,0 +1,454 @@
+"""Machine-local software exclusions and their managed Nix source block."""
+
+import hashlib
+import os
+import re
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import typer
+from rich.table import Table
+from rich.text import Text
+
+from envy import log
+from envy.evaluation import machine_manifest, manifest_selection_rows
+from envy.utils import DOTFILES_DIR, current_machine_id
+
+
+MANAGED_START = "  # BEGIN ENVY MANAGED EXCLUSIONS"
+MANAGED_END = "  # END ENVY MANAGED EXCLUSIONS"
+
+
+@dataclass(frozen=True)
+class SelectionGroup:
+    key: str
+    option: str
+    label: str
+
+
+GROUPS = (
+    SelectionGroup("packages.home", "envy.packages.home", "Home packages"),
+    SelectionGroup("packages.system", "envy.packages.system", "System packages"),
+    SelectionGroup("packages.fonts", "envy.packages.fonts", "Fonts"),
+    SelectionGroup("homebrew.brews", "envy.homebrew.brews", "Homebrew brews"),
+    SelectionGroup("homebrew.casks", "envy.homebrew.casks", "Homebrew casks"),
+    SelectionGroup("homebrew.taps", "envy.homebrew.taps", "Homebrew taps"),
+)
+GROUP_BY_KEY = {group.key: group for group in GROUPS}
+GROUP_BY_OPTION = {group.option: group for group in GROUPS}
+
+
+@dataclass(frozen=True)
+class SoftwareItem:
+    name: str
+    included: bool
+    checked: bool
+    managed: bool
+    locked: bool
+    stale: bool
+    changed: bool
+
+
+class SoftwarePolicyError(ValueError):
+    """Raised when the managed exclusion block cannot be safely handled."""
+
+
+class ConcurrentMachineEdit(SoftwarePolicyError):
+    """Raised when machine.nix changed while an editor session was open."""
+
+
+def machine_file(machine_id: str | None = None) -> Path:
+    selected = machine_id or current_machine_id()
+    return DOTFILES_DIR / "hosts" / "machines" / f"{selected}.nix"
+
+
+def empty_exclusions() -> dict[str, list[str]]:
+    return {group.key: [] for group in GROUPS}
+
+
+def normalize_exclusions(values: dict[str, list[str]] | None) -> dict[str, list[str]]:
+    normalized = empty_exclusions()
+    for group in GROUPS:
+        seen: set[str] = set()
+        for raw in (values or {}).get(group.key, []):
+            name = str(raw)
+            _validate_name(name)
+            if name not in seen:
+                seen.add(name)
+                normalized[group.key].append(name)
+    return normalized
+
+
+def source_digest(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def read_managed_exclusions(path: Path | None = None) -> dict[str, list[str]]:
+    target = path or machine_file()
+    if not target.exists():
+        raise SoftwarePolicyError(f"machine configuration is missing: {target}")
+    text = target.read_text()
+    match = _managed_match(text)
+    if match is None:
+        return empty_exclusions()
+    return _parse_block(match.group(0))
+
+
+def render_managed_exclusions(values: dict[str, list[str]]) -> str:
+    normalized = normalize_exclusions(values)
+    lines = [
+        MANAGED_START + "\n",
+        "  # `envy setup` owns only these machine-local exclusion lists.\n",
+    ]
+    for group in GROUPS:
+        names = normalized[group.key]
+        if not names:
+            continue
+        lines.append(f"\n  {group.option}.exclude = [\n")
+        for name in names:
+            lines.append(f'    "{_escape_nix_string(name)}"\n')
+        lines.append("  ];\n")
+    lines.append(MANAGED_END)
+    return "".join(lines)
+
+
+def update_machine_source(text: str, values: dict[str, list[str]]) -> str:
+    normalized = normalize_exclusions(values)
+    has_values = any(normalized[group.key] for group in GROUPS)
+    match = _managed_match(text)
+
+    if match is not None:
+        if has_values:
+            updated = text[:match.start()] + render_managed_exclusions(normalized) + text[match.end():]
+        else:
+            updated = text[:match.start()].rstrip() + "\n\n" + text[match.end():].lstrip("\n")
+        return updated if updated.endswith("\n") else updated + "\n"
+
+    if not has_values:
+        return text
+
+    anchor = "  # END ENVY MANAGED CONFIG"
+    anchor_index = text.find(anchor)
+    if anchor_index >= 0:
+        insert_at = text.find("\n", anchor_index)
+        if insert_at < 0:
+            insert_at = len(text)
+        else:
+            insert_at += 1
+    else:
+        insert_at = text.rfind("\n}")
+        if insert_at < 0:
+            raise SoftwarePolicyError("cannot locate the top-level closing brace in machine configuration")
+        insert_at += 1
+
+    prefix = text[:insert_at].rstrip()
+    suffix = text[insert_at:].lstrip("\n")
+    updated = prefix + "\n\n" + render_managed_exclusions(normalized) + "\n\n" + suffix
+    return updated if updated.endswith("\n") else updated + "\n"
+
+
+def write_managed_exclusions(
+    values: dict[str, list[str]],
+    path: Path | None = None,
+    *,
+    expected_digest: str | None = None,
+) -> None:
+    target = path or machine_file()
+    original = target.read_text()
+    if expected_digest is not None and source_digest(original) != expected_digest:
+        raise ConcurrentMachineEdit(f"machine configuration changed while setup was open: {target}")
+    updated = update_machine_source(original, values)
+    if updated != original:
+        _atomic_write(target, updated)
+
+
+def restore_machine_source(text: str, path: Path | None = None) -> None:
+    """Atomically restore a previously captured machine source document."""
+    _atomic_write(path or machine_file(), text)
+
+
+def write_and_validate_exclusions(
+    values: dict[str, list[str]],
+    path: Path | None = None,
+    *,
+    expected_digest: str | None = None,
+) -> dict[str, Any]:
+    """Write exclusions, roll back when the selected Nix machine stops evaluating."""
+    target = path or machine_file()
+    original = target.read_text()
+    if expected_digest is not None and source_digest(original) != expected_digest:
+        raise ConcurrentMachineEdit(f"machine configuration changed while setup was open: {target}")
+
+    updated = update_machine_source(original, values)
+    if updated != original:
+        _atomic_write(target, updated)
+    machine_manifest.cache_clear()
+    manifest = machine_manifest()
+    if manifest is None:
+        if updated != original:
+            _atomic_write(target, original)
+        machine_manifest.cache_clear()
+        raise SoftwarePolicyError("Nix evaluation failed; restored the original machine configuration")
+    return manifest
+
+
+def build_software_items(
+    manifest: dict[str, Any] | None,
+    managed: dict[str, list[str]],
+    original_managed: dict[str, list[str]] | None = None,
+    query: str = "",
+) -> dict[str, list[SoftwareItem]]:
+    """Build checkbox state from evaluated policy plus pending machine exclusions."""
+    current = normalize_exclusions(managed)
+    original = normalize_exclusions(original_managed if original_managed is not None else managed)
+    rows = {path.removeprefix("envy."): (include, exclude, effective)
+            for path, include, exclude, effective in manifest_selection_rows(manifest)}
+    result: dict[str, list[SoftwareItem]] = {}
+    needle = query.casefold().strip()
+
+    for group in GROUPS:
+        include, final_exclude, _ = rows.get(group.key, ([], [], []))
+        include_set = set(include)
+        original_set = set(original[group.key])
+        current_set = set(current[group.key])
+        external_set = set(final_exclude) - original_set
+        predicted_excluded = external_set | current_set
+        names = _ordered_unique([*include, *final_exclude, *original[group.key], *current[group.key]])
+        items = []
+        for name in names:
+            if needle and needle not in name.casefold():
+                continue
+            included = name in include_set
+            locked = name in external_set
+            managed_here = name in current_set
+            items.append(SoftwareItem(
+                name=name,
+                included=included,
+                checked=included and name not in predicted_excluded,
+                managed=managed_here,
+                locked=locked,
+                stale=not included and name in predicted_excluded,
+                changed=(name in current_set) != (name in original_set),
+            ))
+        result[group.key] = items
+    return result
+
+
+def set_excluded(values: dict[str, list[str]], group_key: str, name: str, excluded: bool) -> None:
+    group = require_group(group_key)
+    _validate_name(name)
+    current = normalize_exclusions(values)
+    names = current[group.key]
+    if excluded and name not in names:
+        names.append(name)
+    elif not excluded and name in names:
+        names.remove(name)
+    values.clear()
+    values.update(current)
+
+
+def require_group(value: str) -> SelectionGroup:
+    key = value.removeprefix("envy.").removesuffix(".exclude")
+    group = GROUP_BY_KEY.get(key)
+    if group is None:
+        allowed = ", ".join(item.key for item in GROUPS)
+        raise typer.BadParameter(f"unknown software group: {value}; choose one of: {allowed}")
+    return group
+
+
+def software_changes(
+    original: dict[str, list[str]], current: dict[str, list[str]],
+) -> list[tuple[str, list[str], list[str]]]:
+    before = normalize_exclusions(original)
+    after = normalize_exclusions(current)
+    changes = []
+    for group in GROUPS:
+        disabled = [name for name in after[group.key] if name not in before[group.key]]
+        enabled = [name for name in before[group.key] if name not in after[group.key]]
+        if disabled or enabled:
+            changes.append((group.label, disabled, enabled))
+    return changes
+
+
+def _managed_match(text: str) -> re.Match[str] | None:
+    start_count = text.count(MANAGED_START)
+    end_count = text.count(MANAGED_END)
+    if start_count != end_count or start_count > 1:
+        raise SoftwarePolicyError("managed exclusions block markers are missing or duplicated")
+    if start_count == 0:
+        return None
+    pattern = re.compile(
+        rf"(?ms)^{re.escape(MANAGED_START)}$.*?^{re.escape(MANAGED_END)}$"
+    )
+    match = pattern.search(text)
+    if match is None:
+        raise SoftwarePolicyError("cannot parse managed exclusions block")
+    return match
+
+
+def _parse_block(block: str) -> dict[str, list[str]]:
+    values = empty_exclusions()
+    seen: set[str] = set()
+    body = block.split("\n", 1)[1].rsplit("\n", 1)[0]
+    body = re.sub(r"(?m)^\s*#.*$", "", body)
+    assignment = re.compile(
+        r"(?ms)^\s*(envy\.(?:packages\.(?:home|system|fonts)|homebrew\.(?:brews|casks|taps)))"
+        r"\.exclude\s*=\s*\[(.*?)\]\s*;[ \t]*(?:\n|$)"
+    )
+    cursor = 0
+    for match in assignment.finditer(body):
+        if body[cursor:match.start()].strip():
+            raise SoftwarePolicyError("unsupported content in managed exclusions block")
+        group = GROUP_BY_OPTION[match.group(1)]
+        if group.key in seen:
+            raise SoftwarePolicyError(f"duplicate exclusion assignment: {group.option}.exclude")
+        seen.add(group.key)
+        values[group.key] = _parse_string_list(match.group(2))
+        cursor = match.end()
+    if body[cursor:].strip():
+        raise SoftwarePolicyError("unsupported content in managed exclusions block")
+    return normalize_exclusions(values)
+
+
+def _parse_string_list(body: str) -> list[str]:
+    strings = re.compile(r'"((?:\\.|[^"\\])*)"')
+    values = []
+    cursor = 0
+    for match in strings.finditer(body):
+        if body[cursor:match.start()].strip():
+            raise SoftwarePolicyError("exclusion lists may contain only quoted strings")
+        values.append(_unescape_nix_string(match.group(1)))
+        cursor = match.end()
+    if body[cursor:].strip():
+        raise SoftwarePolicyError("exclusion lists may contain only quoted strings")
+    return values
+
+
+def _validate_name(name: str) -> None:
+    if not name or name != name.strip() or any(char in name for char in ('"', "\\", "\n", "\r", "\t")):
+        raise SoftwarePolicyError(f"invalid software name: {name!r}")
+
+
+def _escape_nix_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _unescape_nix_string(value: str) -> str:
+    return value.replace('\\"', '"').replace("\\\\", "\\")
+
+
+def _ordered_unique(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    mode = path.stat().st_mode & 0o777
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", dir=path.parent, prefix=f".{path.name}.envy-", delete=False
+    )
+    temporary = Path(handle.name)
+    try:
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.chmod(mode)
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+app = typer.Typer(
+    name="software",
+    help="Inspect and manage machine-local software exclusions",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
+
+@app.callback()
+def cmd_software(ctx: typer.Context):
+    """List evaluated software policy when no subcommand is supplied."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _print_policy()
+
+
+@app.command(name="list")
+def cmd_list():
+    """List checkbox state for all software groups."""
+    _print_policy()
+
+
+@app.command(name="disable")
+def cmd_disable(group: str, name: str):
+    """Exclude one contributed item on the selected machine."""
+    _change_one(group, name, excluded=True)
+
+
+@app.command(name="enable")
+def cmd_enable(group: str, name: str):
+    """Remove one machine-local exclusion."""
+    _change_one(group, name, excluded=False)
+
+
+def _change_one(group_value: str, name: str, *, excluded: bool) -> None:
+    group = require_group(group_value)
+    values = read_managed_exclusions()
+    manifest = machine_manifest()
+    if manifest is None:
+        log.error("software", "cannot evaluate the selected machine")
+        raise typer.Exit(code=1)
+    items = {
+        item.name: item
+        for item in build_software_items(manifest, values)[group.key]
+    }
+    item = items.get(name)
+    if excluded:
+        if item is None or not item.included:
+            log.error("software", "item is not contributed by the selected machine", group=group.key, name=name)
+            raise typer.Exit(code=1)
+        if item.locked:
+            log.error("software", "item is already excluded outside the managed machine block", group=group.key, name=name)
+            raise typer.Exit(code=1)
+        if item.managed:
+            log.ok("software", "already disabled", group=group.key, name=name)
+            return
+    elif name not in values[group.key]:
+        log.error("software", "item is not excluded by the managed machine block", group=group.key, name=name)
+        log.hint("External or hand-written exclusions must be edited at their source.")
+        raise typer.Exit(code=1)
+
+    set_excluded(values, group.key, name, excluded)
+    try:
+        manifest = write_and_validate_exclusions(values)
+    except SoftwarePolicyError as exc:
+        log.error("software", str(exc))
+        raise typer.Exit(code=1) from exc
+    action = "disabled" if excluded else "enabled"
+    log.ok("software", action, group=group.key, name=name, machine=manifest.get("id", "current"))
+
+
+def _print_policy() -> None:
+    manifest = machine_manifest()
+    if manifest is None:
+        log.error("software", "cannot evaluate the selected machine")
+        raise typer.Exit(code=1)
+    managed = read_managed_exclusions()
+    items_by_group = build_software_items(manifest, managed)
+    table = Table(title=f"Machine software — {manifest.get('id', current_machine_id())}")
+    table.add_column("Group")
+    table.add_column("State")
+    table.add_column("Name")
+    table.add_column("Source")
+    for group in GROUPS:
+        for item in items_by_group[group.key]:
+            state = Text("[x]" if item.checked else ("[-]" if item.locked else "[ ]"))
+            source = "machine exclusion" if item.managed else ("external exclusion" if item.locked else "included")
+            if item.stale:
+                source = "stale exclusion"
+            table.add_row(group.label, state, item.name, source)
+    log.console.print(table)

@@ -356,7 +356,7 @@ def cmd_push(
             log.hint(path)
         if affected:
             log.info("host", "affected machine targets", machines=", ".join(affected))
-        if not yes and not typer.confirm(f"Commit these changes on {current_branch} and push?", default=False):
+        if not yes and not typer.confirm(f"Commit these changes on {current_branch} and push?", default=None):
             raise typer.Abort()
 
         _run_checked_git(["add", "-A"], "staging")
@@ -446,11 +446,14 @@ def cmd_clean():
 def cmd_setup():
     """Run the setup script to configure secrets."""
     log.step("setup", "running setup")
-    subprocess.run(["/bin/bash", str(SETUP_SCRIPT)])
+    result = subprocess.run(["/bin/bash", str(SETUP_SCRIPT)], check=False)
+    if result.returncode != 0:
+        log.error("setup", "configuration failed", exit_code=result.returncode)
+        raise typer.Exit(code=result.returncode)
     machine_path = current_machine_file()
     if PLATFORM == "darwin" and not machine_path.exists():
         log.warn("host", "machine configuration is missing", path=str(machine_path))
-        if sys.stdin.isatty() and typer.confirm("Create it from hosts/default.nix now?", default=True):
+        if sys.stdin.isatty() and typer.confirm("Create it from hosts/default.nix now?", default=None):
             mode = typer.prompt("Creation mode (import/copy)", default="import")
             initialize_machine(machine_path.stem, mode)
         else:

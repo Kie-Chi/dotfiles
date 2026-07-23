@@ -24,6 +24,12 @@ from envy.schemas.config import (
     OBSOLETE_SECRET_PATHS,
     SECRET_FIELDS,
 )
+from envy.software import (
+    MANAGED_START as SOFTWARE_MANAGED_START,
+    SoftwarePolicyError,
+    app as software_app,
+    read_managed_exclusions,
+)
 from envy.utils import (
     AGE_KEY_FILE,
     DEVICE_LABEL_FILE,
@@ -443,6 +449,26 @@ def refine_config(*, write: bool = True, strict: bool = False) -> RefineReport:
     return report
 
 
+def refine_software_policy(*, strict: bool = False) -> RefineReport:
+    """Validate the optional setup-owned machine exclusion block."""
+    report = RefineReport()
+    path = machine_config_file()
+    try:
+        values = read_managed_exclusions(path)
+    except (OSError, SoftwarePolicyError) as exc:
+        report.errors.append(str(path))
+        log.error("software", str(exc))
+        log.hint("Fix the managed exclusions block or remove it and reopen envy setup.")
+        return report
+
+    if SOFTWARE_MANAGED_START in path.read_text():
+        count = sum(len(names) for names in values.values())
+        log.ok("software", "managed machine exclusions are valid", excluded=count)
+    if strict and report.errors:
+        log.error("software", "software policy validation failed")
+    return report
+
+
 def refine_secrets(*, write: bool = True, strict: bool = False, prune: bool = False) -> RefineReport:
     report = RefineReport()
     data, decrypt_ok = read_secrets_data()
@@ -513,6 +539,7 @@ def refine_all(*, write: bool = True, strict: bool = False, include_secrets: boo
             log.error("config", "refine failed")
         return report
     report.extend(refine_config(write=write, strict=strict))
+    report.extend(refine_software_policy(strict=strict))
     if include_secrets:
         report.extend(refine_secrets(write=write, strict=strict, prune=prune))
     if report.ok:
@@ -557,6 +584,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
     no_args_is_help=True,
 )
+app.add_typer(software_app, name="software")
 
 
 @app.command(name="check")

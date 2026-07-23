@@ -39,9 +39,10 @@ fi
 if [ -n "$IN_NIX_SHELL" ]; then
     # Already in devShell, just run setup.py
     echo "[DEBUG] Already in Nix dev shell"
+    export PYTHONPATH="$BASE_DIR/resources/scripts:${PYTHONPATH:-}"
     exec python3 "$BASE_DIR/setup.py"
 else
     # Enter nix develop and re-exec
     echo "[INFO] Entering Nix dev shell for setup environment..."
-    exec nix develop "$BASE_DIR" --command bash "$BASE_DIR/setup.sh"
+    exec nix develop "path:$BASE_DIR" --command bash "$BASE_DIR/setup.sh"
 fi

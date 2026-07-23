@@ -86,7 +86,7 @@ def initialize_machine(machine_id: str, mode: str, force: bool = False) -> Path:
         raise typer.Exit(code=1)
 
     if target.exists():
-        if not typer.confirm(f"Replace {target}?", default=False):
+        if not typer.confirm(f"Replace {target}?", default=None):
             raise typer.Abort()
         backup = target.with_suffix(target.suffix + ".bak")
         shutil.copy2(target, backup)
