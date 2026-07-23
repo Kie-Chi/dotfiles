@@ -6,7 +6,7 @@
 
 ```text
 modules/agents/
-├── default.nix          # machine profile: enabled providers and skills
+├── default.nix          # shared provider defaults and skill selection
 ├── darwin.nix           # system-level agent installers (Homebrew casks)
 ├── claude.nix           # Claude package, wrapper defaults, and ccli alias
 ├── skills.nix           # skill catalog/selection Home Manager module
@@ -27,7 +27,7 @@ There are two distinct selection stages:
 1. `agents.skills.active` controls which catalog entries are linked into `~/.codex/skills` and/or `~/.claude/skills` during Home Manager activation.
 2. For a discovered skill, the agent sees its `name` and `description` metadata first. It reads the `SKILL.md` body only when the task triggers that skill, then reads referenced resources as needed.
 
-This keeps machine capabilities declarative while preserving progressive, task-driven context loading. Changing the physically discoverable set requires a rebuild; ordinary task-level loading does not.
+This keeps agent capabilities declarative while preserving progressive, task-driven context loading. Changing the physically discoverable set requires a rebuild; ordinary task-level loading does not.
 
 ## Adding a skill subpackage
 
@@ -65,22 +65,20 @@ Each provider gets its own module (`claude.nix`, later `codex.nix`, `gemini.nix`
 
 The Claude wrapper deliberately invokes nixpkgs' `claude` wrapper, not its internal `.claude-wrapped` binary. Nixpkgs uses the outer wrapper to set required runtime environment variables and `PATH`; bypassing it would make this repository responsible for duplicating upstream packaging details.
 
-## Agent profile configuration
+## Shared agent configuration
 
-The provider modules use Home Manager's `config.agents.*` option tree internally. Agent installation, wrapper behavior, security-sensitive arguments, and skill discovery are repository-owned machine profile settings; they are configured in `modules/agents/default.nix`, not in the external `config.nix` managed by `envy`.
+The provider modules use Home Manager's `config.agents.*` option tree internally. Wrapper behavior, security-sensitive arguments, and skill discovery are shared repository settings configured in `modules/agents/default.nix`, not machine-specific values managed by `envy config`.
 
-The current profile is intentionally explicit:
+The current shared configuration is intentionally explicit:
 
 ```nix
 agents = {
   claude = {
-    enable = true;
     extraArgs = [ "--dangerously-skip-permissions" ];
     ccliAlias = true;
   };
 
   skills = {
-    enable = true;
     active = [
       "academic-research-suite"
       "academic-paper"
@@ -92,4 +90,4 @@ agents = {
 };
 ```
 
-The Claude package selection, prompt path, and skill catalog remain Nix-only implementation settings. Authentication, history, caches, sessions, and other application-owned state are not managed by this module.
+The Claude package selection, prompt path, and skill catalog remain Nix-only implementation settings. A machine that cannot install Claude excludes the stable package name with `envy.packages.home.exclude = [ "claude" ];`; no provider-specific enable option is needed. Authentication, history, caches, sessions, and other application-owned state are not managed by this module.

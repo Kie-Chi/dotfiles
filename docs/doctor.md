@@ -26,6 +26,7 @@ envy doctor apps --strict
 | `resources/scripts/envy/doctor/runner.py` | Runs sections, renders the Rich table, computes exit codes. |
 | `resources/scripts/envy/doctor/model.py` | Shared `CheckResult` model, section constants, and `ok/warn/error/info` helpers. |
 | `resources/scripts/envy/doctor/selection.py` | Unified `--only` parser for section/app filters. |
+| `resources/scripts/envy/doctor/policy.py` | Evaluates the selected machine manifest and decides whether an app is expected on this machine. |
 | `resources/scripts/envy/schemas/apps.py` | Declarative app registry and app aliases. Start here when adding app coverage. |
 | `resources/scripts/envy/doctor/checks/apps/checkers.py` | Generic app checks and custom checker registry. |
 | `resources/scripts/envy/doctor/checks/apps/auth.py` | App-specific auth/login checks such as Chrome, Codex, GitHub CLI, and Tailscale. |
@@ -67,8 +68,23 @@ Use `section:<token>` and `app:<token>` to disambiguate if a future app alias ov
 | `login_hint` | Human instruction shown when login cannot be verified automatically. |
 | `permissions` | `PermissionReq` entries for macOS TCC checks. |
 | `checkers` | Custom checker names loaded by `_load_custom_checkers()`. |
+| `casks` | Homebrew cask names that make this app expected on the selected machine. |
+| `brews` | Homebrew formula names that make this command expected on the selected machine. |
+| `packages` | Nix package names, as exposed by the evaluated machine manifest. |
 
 Prefer declarative fields first. Write a custom checker only when the app has a reliable local status API or file format that generic checks cannot express.
+
+## Machine Policy
+
+Before running an app check, doctor evaluates:
+
+```text
+darwinConfigurations.<envy.machine.id>.config.envy.machine.manifest
+```
+
+The manifest contains effective Home Manager, system, font, brew, cask, and tap lists together with the explicit machine exclusions. If all selectors for an app are explicitly excluded, doctor emits an `INFO` row explaining that the app is disabled for the selected machine and skips its install/runtime/auth checks.
+
+This distinction is important on restricted machines: excluding Zotero, Okular, WireGuard, or another app is intentional policy, not a failed installation. If manifest evaluation fails or times out, doctor falls back to the previous conservative behavior and runs the normal checks.
 
 ## Adding A New App Check
 
@@ -81,6 +97,8 @@ Prefer declarative fields first. Write a custom checker only when the app has a 
    ```
 
 2. Add an `AppSpec` to `ALL_APP_SPECS` in `resources/scripts/envy/schemas/apps.py`.
+
+   Also declare `casks`, `brews`, or `packages` when the app is controlled by machine software policy.
 
 3. Add aliases to `APP_ALIASES` for Homebrew cask names, common shorthand, or legacy names.
 

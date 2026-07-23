@@ -1,129 +1,122 @@
 # Chi's Darwin Dotfiles
 
-> 基于 **Nix Flakes**、**nix-darwin** 与 **Home Manager** 构建的声明式 macOS 开发环境
+基于 Nix Flakes、nix-darwin、Home Manager 与 sops-nix 的声明式 macOS 配置。所有机器共享 `darwin` 分支，但每台机器拥有独立的 `hosts/machines/<machine-id>.nix`，因此不需要维护一组长期存在的机器分支。
 
-## Features
+## 设计概览
 
-### Core
-- **pkg management**: 使用 [Nix Flakes](https://nixos.wiki/wiki/Flakes) 进行包管理
-- **system management**: 使用 [nix-darwin](https://github.com/LnL7/nix-darwin) 管理 macOS 系统配置
-- **environment management**: [Home Manager](https://github.com/nix-community/home-manager) 管理用户环境配置
-- **Shell**: Zsh + [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
-- **SSH**: 自动化生成 SSH 密钥对与配置
+配置分成三类：
 
-### DevOps
-- **Editor**: 
-    - **Vim**: 轻量化配置，集成 NERDTree, Airline, ALE 
-    - **VS Code**: 声明式安装与配置
-- **Env**: 开发环境与工具链管理
-
-### macOS Applications & Services
-- **Terminal**: iTerm2 + 自定义配色与字体配置
-- **Proxy**: Mihomo (Clash Meta) 代理服务自动化配置
-- **Apps**: 声明式安装常用 macOS 应用程序
-- **System**: macOS 系统偏好设置与快捷键配置
-
----
-
-## Tree
+- `hosts/machines/<machine-id>.nix` 是单台设备所有非敏感配置的唯一来源，包括用户、路径、Git identity、代理模式、编辑器模式、LLM Base URL 和软件差异。
+- `secrets/secrets.yaml` 保存密码和 API Key，由 sops 加密；密钥只在激活阶段解密。
+- 仓库内的 Nix 模块保存可共享策略。软件及自定义 derivation 仍在原业务模块中定义，`modules/envy/` 只声明最小的选择 schema、聚合最终安装列表并生成 machine manifest。
 
 ```text
-.
-├── flake.nix           # 项目入口，定义 nix-darwin 与 Home Manager 配置
-├── home.nix            # Home Manager 主配置
-├── setup.sh            # 引导脚本：安装依赖、生成密钥与 Secrets
-├── secrets.nix         # 个人身份信息 (由 setup.sh 生成，Git 忽略)
-├── modules/            # 模块化配置
-│   ├── cores/          # 基础工具、Git、Shell、SSH
-│   ├── darwin/         # macOS 系统配置、应用程序、终端、代理
-│   ├── desktops/       # 桌面环境相关配置
-│   └── devps/          # 开发工具与编辑器
-├── files/              # 原始配置文件模板 (vimrc, mihomo.yaml 等)
-└── resources/          # 脚本工具与静态资源 (envy, ppack, spk 等)
+flake.nix
+├── hosts/default.nix                     # 可继承的共享默认策略
+├── hosts/machines/<machine-id>.nix       # 单台机器的全部非敏感 envy.* 配置
+├── modules/envy/                         # options、聚合与验证
+├── modules/cores/                        # CLI、Shell、Git、SSH
+├── modules/darwin/                       # macOS、Homebrew、终端、代理
+├── modules/desktops/                     # 桌面应用及自定义 app derivation
+├── modules/devps/                        # 编辑器与开发环境
+└── modules/agents/                       # Agent、包装器与 skills
 ```
 
----
+`flake.nix` 会自动扫描 `hosts/machines/*.nix`，并为每个文件生成同名的 `darwinConfigurations.<machine-id>`。Git 忽略的 `.device-label` 是本机 TOML 元数据，只保存所选 machine ID 和 sops key label，不保存机器策略。
 
-## Quick Start
-
-### 1. Git installation
-
-在干净的 macOS 系统上运行以下命令，脚本会自动安装 Nix、配置环境依赖并生成个人信息：
+## 快速开始
 
 ```bash
-git clone https://github.com/Kie-Chi/.dotfiles.git ~/.dotfiles
+git clone -b darwin https://github.com/Kie-Chi/.dotfiles.git ~/.dotfiles
 cd ~/.dotfiles
-chmod +x setup.sh
-./setup.sh
+bash setup.sh
 ```
 
-### 2. Curl installation
+首次设置会收集本地配置与 secrets。若所选 Machine ID 尚无配置文件，只会继续询问如何创建该文件：
+
+- `import`：创建一个很小的 machine 文件并导入 `hosts/default.nix`，以后自动继承共享默认值更新。
+- `copy`：复制当前默认策略作为独立快照，以后不自动继承 `hosts/default.nix` 的变化。
+
+创建 machine 文件不会替用户选择软件。package、brew 和 cask 的增减都由用户随后在该 machine 文件中填写。
+
+也可以单独创建或检查机器配置：
 
 ```bash
-curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s -- -b darwin
-```
-- `-r/--remote`: 指定远程仓库，默认本仓库的 https 地址
-- `-b/--branch`: 指定分支，默认 `master`（此处使用`darwin`分支）
-- `-g/--git`: 使用本仓库的 git 地址进行安装
-
-### Setup
-
-安装完成后，使用以下命令应用配置：
-
-```bash
-./setup.sh # bash ./setup.sh
+envy host init <machine-id>
+envy host list
+envy host status
+envy host check <machine-id>
+envy host select <machine-id>
+envy config edit
 ```
 
-### Maintenance
+完整说明和示例见 [docs/machines.md](docs/machines.md)。
 
-项目内置了包装脚本 `envy`，方便管理 Home Manager 状态：
+## 日常维护
 
 | 命令 | 说明 |
-| :--- | :--- |
-| `envy apply` | 应用当前配置状态  |
-| `envy apply` | 应用当前配置（darwin-rebuild switch） |
-| `envy sync` | 拉取 Git 远程更新并应用配置 |
-| `envy edit` | 使用 $EDITOR 快速编辑配置文件 |
-| `envy update` | 更新 `flake.lock` (升级软件包) |
-## Modules
+|---|---|
+| `envy apply` | refine 当前版本化 machine 配置并应用所选 target。 |
+| `envy sync` | 要求工作区干净，fast-forward `origin/darwin`，然后应用当前机器。 |
+| `envy sync --no-apply` | 只同步共享分支。 |
+| `envy sync --build-only` | 同步后只构建当前机器，不激活。 |
+| `envy push "<message>"` | 默认只接受 `darwin` 分支；展示变更范围和受影响机器，确认后提交并推送；远端领先时会在提交前拒绝。 |
+| `envy doctor` / `envy dr` | 检查配置、secrets、应用、登录状态和 macOS 权限。 |
+| `envy config check` | 只读检查 `.device-label`、所选 machine 文件和 secrets。 |
+| `envy config refine` | 迁移/补全设备元数据、machine 受控区块和 secret schema。 |
+| `envy config edit` | 用 `$EDITOR` 打开所选 machine 文件。 |
+| `envy config show` | 显示 Nix 求值后的最终 machine 值，以及 package/Homebrew 的 include、exclude、effective。 |
+| `envy update` | 更新 flake inputs 和 Homebrew 元数据。 |
 
-### `secrets.nix`
-为了保证仓库模板的通用性，所有敏感/个性化信息（如用户名、Git Email）都从 `secrets.nix` 读取。该文件在 `setup.sh` 运行期间生成，存储位置为 `~/.config/dotfiles/secrets.nix`：
+所有机器都在同一个 `darwin` 分支上同步。只修改 `hosts/machines/<id>.nix` 时，影响范围仅为该机器；修改共享模块或 `hosts/default.nix` 时，影响所有继承它的机器。`envy push` 会在确认前显示这一判断。
+
+## Machine 覆盖示例
 
 ```nix
-# secrets.nix 示例
+{ ... }:
+
 {
-  home.user = "chi";
-  home.dir = "/Users/chi";  # macOS 用户目录
-  dotfiles.path = "/Users/chi/.dotfiles";  # dotfiles 本地路径
-  git.name = "Kie-Chi";
-  git.email = "example@email.com";
-  proxy.url = "https://xxx";
-  proxy.status = "keep"; # "keep" | "manual" | "none"
+  imports = [ ../default.nix ];
+
+  # 按稳定名称排除原业务模块声明的软件。
+  envy.packages.home.exclude = [
+    "okular"
+    "sing-box"
+    "wireguard-macos-app"
+    "wireshark-qt"
+  ];
+  envy.homebrew.casks.exclude = [
+    "telegram-desktop"
+    "tencent-meeting"
+  ];
 }
 ```
 
-### home modules
-只需修改 `home.nix` 中的 `imports` 列表，即可实现功能模块的插拔：
+安装源没有被搬到 machine 配置：例如 Okular 仍在 `modules/desktops/dmgs.nix` 定义，WireGuard 仍在 `modules/desktops/zips.nix` 定义，Lark CLI 仍在 `modules/libs/bins/lark-cli.nix` 定义。
 
-```nix
-# home.nix
-imports = [
-  ./modules/cores     # 必须
-  ./modules/desktops  # 如果是服务器环境可注释此行
-  ./modules/devps     # 开发工具
-];
+## Secrets
+
+- 非敏感值：`hosts/machines/<id>.nix` 中的 `envy.*` options，通过 `config.envy.*` 在 Nix 求值阶段使用。
+- 敏感值：`secrets/secrets.yaml`，通过 `config.sops.secrets.*.path` 或 sops template 在激活阶段使用。
+- age key：macOS 下位于 `~/Library/Application Support/sops/age/keys.txt`。
+
+不要把 API Key、密码或带 token 的 URL 放进 Nix eval-time expression。新设备需要把 age public key 加入 `.sops.yaml`，再运行：
+
+```bash
+sops updatekeys secrets/secrets.yaml
 ```
 
----
+## 诊断
 
-## Tools
+```bash
+envy doctor
+envy doctor apps --only chrome,chatgpt,zotero
+envy doctor apps --only perm
+```
 
-- **`scrctl`**: 屏幕分辨率与缩放控制工具（支持 GNOME 整数缩放）。
-- **`quake`**: 窗口呼出/隐藏辅助脚本，支持将 Tilix 等终端变为 Quake 模式。
-- **`spk`**: 快速将本地公钥推送至远程服务器的授权列表。
+Doctor 会读取当前 machine 的求值后 manifest。明确排除的应用显示为 `INFO`，不会被误报为缺失。详细维护说明见 [docs/doctor.md](docs/doctor.md)。
 
----
+`setup.py` 的可视化界面同样读取求值后的值，因此会包含 `hosts/default.nix` 和共享模块。按 `p` 可以查看软件策略摘要；该页只读，复杂的 Nix package 表达式仍通过 `envy config edit` 修改。
 
 ## License
 
