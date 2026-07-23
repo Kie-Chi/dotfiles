@@ -10,6 +10,14 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     sops-nix.url = "github:Mic92/sops-nix";
+    academic-research-skills = {
+      url = "github:Imbad0202/academic-research-skills";
+      flake = false;
+    };
+    academic-research-skills-codex = {
+      url = "github:Imbad0202/academic-research-skills-codex";
+      flake = false;
+    };
   };
 
 
@@ -46,6 +54,8 @@
             home-manager.backupFileExtension = "backup";
             home-manager.extraSpecialArgs = {
               cfg = debugCfg;
+              academicResearchSkills = inputs.academic-research-skills;
+              academicResearchSkillsCodex = inputs.academic-research-skills-codex;
             };
             _module.args.cfg = debugCfg;
             home-manager.sharedModules = [

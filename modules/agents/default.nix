@@ -1,4 +1,4 @@
-{ ... }:
+{ academicResearchSkills, academicResearchSkillsCodex, ... }:
 
 {
   imports = [
@@ -19,8 +19,16 @@
 
     skills = {
       enable = true;
-      catalog = import ./skills/catalog.nix;
-      active = [ ];
+      catalog = import ./skills/catalog.nix {
+        inherit academicResearchSkills academicResearchSkillsCodex;
+      };
+      active = [
+        "academic-research-suite"
+        "academic-paper"
+        "academic-paper-reviewer"
+        "academic-pipeline"
+        "deep-research"
+      ];
     };
   };
 }

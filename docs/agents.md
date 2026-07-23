@@ -52,6 +52,13 @@ agents.skills.active = [ "dotfiles-maintainer" ];
 
 Use a single shared source when both agents accept the same workflow. Split it into provider-specific skills only when frontmatter or behavior genuinely differs.
 
+External skill repositories should be pinned as non-flake inputs in `flake.nix`,
+passed to Home Manager through `extraSpecialArgs`, and registered from their
+store paths in `skills/catalog.nix`. Keep provider-native packaging intact: for
+example, Academic Research Skills exposes four coordinated Claude skills, while
+its Codex sibling exposes one `academic-research-suite` router skill. Updating an
+external skill is then an explicit `nix flake update <input-name>` operation.
+
 ## Provider boundary
 
 Each provider gets its own module (`claude.nix`, later `codex.nix`, `gemini.nix`, and so on). A provider module may install packages, create a stable command wrapper, and link non-secret configuration. API keys and tokens continue to flow through sops-nix activation-time files/templates and must never become Nix evaluation-time strings.
@@ -74,7 +81,13 @@ agents = {
 
   skills = {
     enable = true;
-    active = [ ];
+    active = [
+      "academic-research-suite"
+      "academic-paper"
+      "academic-paper-reviewer"
+      "academic-pipeline"
+      "deep-research"
+    ];
   };
 };
 ```

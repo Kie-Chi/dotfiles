@@ -1,5 +1,37 @@
 {
   "nodes": {
+    "academic-research-skills": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784692492,
+        "narHash": "sha256-bgMhA7nycdikmClpvTeRjLy4Fa8AFA/za1RtCF2qo2E=",
+        "owner": "Imbad0202",
+        "repo": "academic-research-skills",
+        "rev": "828ef3b613b0e8b91830da3328a1e33d4eb5ab4c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Imbad0202",
+        "repo": "academic-research-skills",
+        "type": "github"
+      }
+    },
+    "academic-research-skills-codex": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784382230,
+        "narHash": "sha256-wkCRiSY4zqcp32ZcJNkL9G/oar5Bf81PFTDlfG0s/Mw=",
+        "owner": "Imbad0202",
+        "repo": "academic-research-skills-codex",
+        "rev": "16696ba231c1a4063d5abf40349dbf00e5a753b2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Imbad0202",
+        "repo": "academic-research-skills-codex",
+        "type": "github"
+      }
+    },
     "darwin": {
       "inputs": {
         "nixpkgs": [
@@ -74,6 +106,8 @@
     },
     "root": {
       "inputs": {
+        "academic-research-skills": "academic-research-skills",
+        "academic-research-skills-codex": "academic-research-skills-codex",
         "darwin": "darwin",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
