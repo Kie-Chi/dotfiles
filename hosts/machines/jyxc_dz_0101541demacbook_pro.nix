@@ -31,5 +31,21 @@
   envy.vscode.mode = "remote";
   # END ENVY MANAGED CONFIG
 
+  # BEGIN ENVY MANAGED EXCLUSIONS
+  # `envy setup` owns only these machine-local exclusion lists.
+
+  envy.homebrew.casks.exclude = [
+    "uuremote"
+    "microsoft-remote-desktop"
+    "ticktick"
+    "trae"
+    "moonlight"
+    "dingtalk"
+    "neteasemusic"
+    "skim"
+    "iina"
+  ];
+  # END ENVY MANAGED EXCLUSIONS
+
   # Add hand-maintained machine-specific envy.* policy below this line.
 }
