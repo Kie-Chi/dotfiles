@@ -95,14 +95,23 @@ def _git_output(*args: str) -> str:
 
 
 def _git_changed_paths() -> list[str]:
+    result = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=str(DOTFILES_DIR), capture_output=True, text=True, check=False,
+    )
     paths: list[str] = []
-    for line in _git_output("status", "--porcelain=v1", "--untracked-files=all").splitlines():
-        if len(line) < 4:
+    entries = result.stdout.split("\0")
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        if len(entry) < 4:
+            index += 1
             continue
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.append(path.strip('"'))
+        status = entry[:2]
+        paths.append(entry[3:])
+        # In -z format a rename/copy is followed by a second NUL-delimited
+        # source path. The first path is the destination we want to classify.
+        index += 2 if "R" in status or "C" in status else 1
     return paths
 
 
@@ -192,11 +201,11 @@ def _show_push_impact(
     shared: bool,
     branch: str,
 ) -> None:
-    scope = "shared" if shared else ("machine-only" if paths else "history-only")
+    change_scope = "shared" if shared else ("machine-only" if paths else "history-only")
     log.info(
         "git",
         "push impact",
-        scope=scope,
+        change_scope=change_scope,
         files=len(paths),
         worktree=len(worktree_paths),
         outgoing_commits=len(outgoing_commits),

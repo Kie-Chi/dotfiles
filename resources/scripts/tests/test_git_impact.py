@@ -1,14 +1,50 @@
+from io import StringIO
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import typer
+from rich.console import Console
 from typer.testing import CliRunner
 
 from envy import main
 
 
 class GitImpactTests(unittest.TestCase):
+    def test_changed_paths_preserve_first_character_spaces_and_rename_destination(self):
+        completed = SimpleNamespace(
+            stdout=(
+                " M resources/scripts/envy/main.py\0"
+                "?? docs/file with spaces.md\0"
+                "R  hosts/machines/new-name.nix\0"
+                "hosts/machines/old-name.nix\0"
+            ),
+            returncode=0,
+        )
+        with patch.object(main.subprocess, "run", return_value=completed):
+            paths = main._git_changed_paths()
+        self.assertEqual(paths, [
+            "resources/scripts/envy/main.py",
+            "docs/file with spaces.md",
+            "hosts/machines/new-name.nix",
+        ])
+
+    def test_push_impact_logging_uses_non_conflicting_scope_field(self):
+        output = StringIO()
+        with patch.object(
+            main.log, "console", Console(file=output, color_system=None, width=160)
+        ):
+            main._show_push_impact(
+                paths=["modules/cores/base.nix"],
+                worktree_paths=[],
+                outgoing_commits={"c1"},
+                counts={"origin": 1},
+                affected=["one", "two"],
+                shared=True,
+                branch="darwin",
+            )
+        self.assertIn("change_scope=shared", output.getvalue())
+
     def test_push_help_exposes_scope_guards(self):
         result = CliRunner().invoke(main.cli, ["push", "--help"])
         self.assertEqual(result.exit_code, 0, result.output)
