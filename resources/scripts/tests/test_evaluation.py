@@ -28,9 +28,19 @@ class EvaluationTests(unittest.TestCase):
         manifest = {
             "platform": "darwin",
             "packages": {"home": ["git"]},
-            "homebrew": {},
-            "inclusions": {"packages": {"home": ["git", "okular"]}},
-            "exclusions": {"packages": {"home": ["okular"]}},
+            "homebrew": {"brews": ["gh"], "casks": ["iterm2"], "taps": []},
+            "inclusions": {
+                "packages": {"home": ["git", "okular"]},
+                "homebrew": {
+                    "brews": ["gh"],
+                    "casks": ["iterm2", "uuremote"],
+                    "taps": [],
+                },
+            },
+            "exclusions": {
+                "packages": {"home": ["okular"]},
+                "homebrew": {"brews": [], "casks": ["uuremote"], "taps": []},
+            },
         }
 
         rows = {path: (include, exclude, effective) for path, include, exclude, effective
@@ -39,6 +49,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(
             rows["envy.packages.home"],
             (["git", "okular"], ["okular"], ["git"]),
+        )
+        self.assertEqual(
+            rows["envy.darwin.homebrew.brews"],
+            (["gh"], [], ["gh"]),
+        )
+        self.assertEqual(
+            rows["envy.darwin.homebrew.casks"],
+            (["iterm2", "uuremote"], ["uuremote"], ["iterm2"]),
         )
 
     def test_platform_specific_selection_paths_are_not_exposed_on_linux(self):

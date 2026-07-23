@@ -43,6 +43,68 @@ class SetupUiTests(unittest.TestCase):
         self.assertIn("machine exclusion", rendered)
         setup.build_application(state)
 
+    def test_darwin_cask_toggle_changes_checkbox_to_checked(self):
+        setup = _load_setup_module()
+        manifest = {
+            "id": "test-mac",
+            "platform": "darwin",
+            "packages": {"home": [], "system": [], "fonts": []},
+            "homebrew": {"brews": ["gh"], "casks": ["iterm2"], "taps": []},
+            "inclusions": {
+                "packages": {"home": [], "system": [], "fonts": []},
+                "homebrew": {
+                    "brews": ["gh"],
+                    "casks": ["iterm2", "uuremote"],
+                    "taps": [],
+                },
+            },
+            "exclusions": {
+                "packages": {"home": [], "system": [], "fonts": []},
+                "homebrew": {"brews": [], "casks": ["uuremote"], "taps": []},
+            },
+        }
+        state = setup.AppState({}, manifest, {"homebrew.casks": ["uuremote"]})
+        state.mode = "policy"
+        state.policy_group = next(
+            index
+            for index, group in enumerate(state.policy_groups)
+            if group.key == "homebrew.casks"
+        )
+        state.policy_cursor = 1
+
+        before = "".join(part for _, part in setup._policy_text(state))
+        self.assertIn("[ ] uuremote", before)
+        self.assertNotIn("stale exclusion", before)
+
+        setup._toggle_policy_item(state)
+
+        after = "".join(part for _, part in setup._policy_text(state))
+        self.assertIn("[x] uuremote", after)
+        self.assertIn("pending", after)
+
+    def test_linux_policy_view_has_only_common_group(self):
+        setup = _load_setup_module()
+        manifest = {
+            "id": "test-linux",
+            "platform": "linux",
+            "packages": {"home": ["git"]},
+            "homebrew": {"brews": ["gh"], "casks": ["iterm2"], "taps": []},
+            "inclusions": {
+                "packages": {"home": ["git"]},
+                "homebrew": {"brews": ["gh"], "casks": ["iterm2"]},
+            },
+            "exclusions": {},
+        }
+        state = setup.AppState({}, manifest, {})
+        state.mode = "policy"
+
+        rendered = "".join(part for _, part in setup._policy_text(state))
+
+        self.assertEqual([group.key for group in state.policy_groups], ["packages.home"])
+        self.assertIn("Home packages  (1/1)", rendered)
+        self.assertIn("[x] git", rendered)
+        self.assertNotIn("Homebrew", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

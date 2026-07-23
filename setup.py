@@ -35,9 +35,9 @@ from envy.host import initialize_machine, machine_file, validate_machine_id
 from envy.schemas.config import ALL_FIELDS, MACHINE_FIELDS, SECRET_FIELDS, FieldDef
 from envy.software import (
     ConcurrentMachineEdit,
-    GROUPS,
     SoftwarePolicyError,
     build_software_items,
+    groups_for_platform,
     normalize_exclusions,
     read_managed_exclusions,
     restore_machine_source,
@@ -134,8 +134,10 @@ class AppState:
     ):
         self.values = values
         self.manifest = manifest
-        self.original_exclusions = normalize_exclusions(exclusions)
-        self.exclusions = normalize_exclusions(exclusions)
+        manifest_platform = manifest.get("platform") if manifest else PLATFORM
+        self.policy_groups = groups_for_platform(str(manifest_platform or PLATFORM))
+        self.original_exclusions = normalize_exclusions(exclusions, self.policy_groups)
+        self.exclusions = normalize_exclusions(exclusions, self.policy_groups)
         self.mode = "list"  # list | policy | policy_search | edit_text | edit_choice
         self.cursor = 0
         self.editing_field: Optional[FieldDef] = None
@@ -226,16 +228,45 @@ def _list_text(state: AppState) -> list:
 
 
 def _policy_items(state: AppState):
-    group = GROUPS[state.policy_group]
+    group = state.policy_groups[state.policy_group]
     items = build_software_items(
         state.manifest,
         state.exclusions,
         state.original_exclusions,
         state.policy_query,
+        groups=state.policy_groups,
     )[group.key]
     if state.policy_cursor >= len(items):
         state.policy_cursor = max(0, len(items) - 1)
     return items
+
+
+def _toggle_policy_item(state: AppState) -> None:
+    items = _policy_items(state)
+    if not items:
+        return
+    item = items[state.policy_cursor]
+    group = state.policy_groups[state.policy_group]
+    if item.locked:
+        state.policy_notice = f"{item.name} is excluded outside the managed machine block."
+    elif item.checked:
+        set_excluded(
+            state.exclusions,
+            group.key,
+            item.name,
+            True,
+            groups=state.policy_groups,
+        )
+        state.policy_notice = f"{item.name} will be disabled on this machine."
+    else:
+        set_excluded(
+            state.exclusions,
+            group.key,
+            item.name,
+            False,
+            groups=state.policy_groups,
+        )
+        state.policy_notice = f"{item.name} will be enabled on this machine."
 
 
 def _policy_text(state: AppState) -> list:
@@ -245,14 +276,14 @@ def _policy_text(state: AppState) -> list:
             ("class:hint", "  Fix the machine evaluation, then reopen setup.\n"),
         ]
 
-    group = GROUPS[state.policy_group]
+    group = state.policy_groups[state.policy_group]
     items = _policy_items(state)
     disabled = sum(not item.checked for item in items)
     machine_id = state.manifest.get("id", "current")
     query = state.policy_query or "<none>"
     notice = state.policy_notice or "Space toggles this machine's exclusion list."
     lines = [
-        ("class:group", f"  {group.label}  ({state.policy_group + 1}/{len(GROUPS)})\n"),
+        ("class:group", f"  {group.label}  ({state.policy_group + 1}/{len(state.policy_groups)})\n"),
         ("class:dim", f"  Machine: {machine_id}  Items: {len(items)}  Disabled: {disabled}\n"),
         ("class:hint", f"  Search: {query}\n"),
         (("class:error" if state.policy_notice else "class:hint"), f"  {notice}\n"),
@@ -479,38 +510,29 @@ def build_application(state: AppState) -> Application:
 
     @kb.add("left", filter=is_policy)
     def _(event):
-        state.policy_group = (state.policy_group - 1) % len(GROUPS)
+        state.policy_group = (state.policy_group - 1) % len(state.policy_groups)
         state.policy_cursor = 0
         state.policy_notice = ""
         event.app.invalidate()
 
     @kb.add("right", filter=is_policy)
     def _(event):
-        state.policy_group = (state.policy_group + 1) % len(GROUPS)
+        state.policy_group = (state.policy_group + 1) % len(state.policy_groups)
         state.policy_cursor = 0
         state.policy_notice = ""
         event.app.invalidate()
 
     @kb.add(" ", filter=is_policy)
     def _(event):
-        items = _policy_items(state)
-        if not items:
-            return
-        item = items[state.policy_cursor]
-        group = GROUPS[state.policy_group]
-        if item.locked:
-            state.policy_notice = f"{item.name} is excluded outside the managed machine block."
-        elif item.checked:
-            set_excluded(state.exclusions, group.key, item.name, True)
-            state.policy_notice = f"{item.name} will be disabled on this machine."
-        else:
-            set_excluded(state.exclusions, group.key, item.name, False)
-            state.policy_notice = f"{item.name} will be enabled on this machine."
+        _toggle_policy_item(state)
         event.app.invalidate()
 
     @kb.add("r", filter=is_policy)
     def _(event):
-        state.exclusions = normalize_exclusions(state.original_exclusions)
+        state.exclusions = normalize_exclusions(
+            state.original_exclusions,
+            state.policy_groups,
+        )
         state.policy_notice = "Pending software changes reset."
         event.app.invalidate()
 

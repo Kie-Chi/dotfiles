@@ -31,7 +31,8 @@ class SoftwarePolicyTests(unittest.TestCase):
     def test_round_trip_writes_only_non_empty_groups(self):
         values = software.empty_exclusions()
         values["packages.home"] = ["okular", "sing-box"]
-        values["homebrew.casks"] = ["uuremote"]
+        if "homebrew.casks" in values:
+            values["homebrew.casks"] = ["uuremote"]
 
         software.write_managed_exclusions(values, self.machine)
         parsed = software.read_managed_exclusions(self.machine)
@@ -40,7 +41,8 @@ class SoftwarePolicyTests(unittest.TestCase):
         self.assertEqual(parsed, values)
         self.assertIn(software.MANAGED_START, text)
         self.assertIn('"okular"', text)
-        self.assertIn('"uuremote"', text)
+        if "homebrew.casks" in values:
+            self.assertIn('"uuremote"', text)
         self.assertNotIn("envy.darwin.packages.system.exclude", text)
         self.assertIn("# Hand-written policy remains here.", text)
 
@@ -113,6 +115,87 @@ class SoftwarePolicyTests(unittest.TestCase):
         self.assertTrue(items["git"].changed)
         self.assertTrue(items["okular"].checked)
         self.assertTrue(items["okular"].changed)
+
+    def test_darwin_homebrew_paths_and_pending_toggle_are_mapped(self):
+        groups = software.groups_for_platform("darwin")
+        manifest = {
+            "platform": "darwin",
+            "packages": {"home": [], "system": [], "fonts": []},
+            "homebrew": {"brews": ["gh"], "casks": ["iterm2"], "taps": []},
+            "inclusions": {
+                "packages": {"home": [], "system": [], "fonts": []},
+                "homebrew": {
+                    "brews": ["gh"],
+                    "casks": ["iterm2", "uuremote"],
+                    "taps": [],
+                },
+            },
+            "exclusions": {
+                "packages": {"home": [], "system": [], "fonts": []},
+                "homebrew": {"brews": [], "casks": ["uuremote"], "taps": []},
+            },
+        }
+        original = software.empty_exclusions(groups)
+        original["homebrew.casks"] = ["uuremote"]
+        current = software.normalize_exclusions(original, groups)
+
+        before = software.build_software_items(
+            manifest,
+            current,
+            original,
+            groups=groups,
+        )
+        brews = {item.name: item for item in before["homebrew.brews"]}
+        casks = {item.name: item for item in before["homebrew.casks"]}
+
+        self.assertTrue(brews["gh"].checked)
+        self.assertTrue(casks["uuremote"].included)
+        self.assertFalse(casks["uuremote"].checked)
+        self.assertFalse(casks["uuremote"].stale)
+
+        software.set_excluded(
+            current,
+            "homebrew.casks",
+            "uuremote",
+            False,
+            groups=groups,
+        )
+        after = {
+            item.name: item
+            for item in software.build_software_items(
+                manifest,
+                current,
+                original,
+                groups=groups,
+            )["homebrew.casks"]
+        }
+        self.assertTrue(after["uuremote"].checked)
+        self.assertTrue(after["uuremote"].changed)
+
+    def test_linux_manifest_exposes_only_cross_platform_groups(self):
+        manifest = {
+            "platform": "linux",
+            "packages": {"home": ["git"], "system": [], "fonts": []},
+            "homebrew": {"brews": ["gh"], "casks": ["iterm2"], "taps": []},
+            "inclusions": {
+                "packages": {"home": ["git", "okular"]},
+                "homebrew": {"brews": ["gh"], "casks": ["iterm2"]},
+            },
+            "exclusions": {"packages": {"home": ["okular"]}},
+        }
+        groups = software.groups_for_platform("linux")
+        original = software.empty_exclusions(groups)
+        original["packages.home"] = ["okular"]
+
+        items = software.build_software_items(manifest, original, original)
+
+        self.assertEqual(list(items), ["packages.home"])
+        self.assertEqual([group.key for group in groups], ["packages.home"])
+        self.assertFalse({"homebrew.brews", "homebrew.casks"} & set(items))
+        by_name = {item.name: item for item in items["packages.home"]}
+        self.assertTrue(by_name["git"].checked)
+        self.assertFalse(by_name["okular"].checked)
+        self.assertFalse(by_name["okular"].stale)
 
     def test_invalid_managed_content_is_rejected(self):
         self.machine.write_text(

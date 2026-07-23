@@ -42,7 +42,13 @@ DARWIN_GROUPS = (
     SelectionGroup("homebrew.casks", "envy.darwin.homebrew.casks", "Homebrew casks"),
     SelectionGroup("homebrew.taps", "envy.darwin.homebrew.taps", "Homebrew taps"),
 )
-GROUPS = COMMON_GROUPS + (DARWIN_GROUPS if platform_name() == "darwin" else ())
+
+
+def groups_for_platform(platform: str) -> tuple[SelectionGroup, ...]:
+    return COMMON_GROUPS + (DARWIN_GROUPS if platform == "darwin" else ())
+
+
+GROUPS = groups_for_platform(platform_name())
 GROUP_BY_KEY = {group.key: group for group in GROUPS}
 GROUP_BY_OPTION = {group.option: group for group in GROUPS}
 if platform_name() == "darwin":
@@ -78,13 +84,20 @@ def machine_file(machine_id: str | None = None) -> Path:
     return machine_config_file(machine_id)
 
 
-def empty_exclusions() -> dict[str, list[str]]:
-    return {group.key: [] for group in GROUPS}
+def empty_exclusions(
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> dict[str, list[str]]:
+    active_groups = groups if groups is not None else GROUPS
+    return {group.key: [] for group in active_groups}
 
 
-def normalize_exclusions(values: dict[str, list[str]] | None) -> dict[str, list[str]]:
-    normalized = empty_exclusions()
-    for group in GROUPS:
+def normalize_exclusions(
+    values: dict[str, list[str]] | None,
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> dict[str, list[str]]:
+    active_groups = groups if groups is not None else GROUPS
+    normalized = empty_exclusions(active_groups)
+    for group in active_groups:
         seen: set[str] = set()
         for raw in (values or {}).get(group.key, []):
             name = str(raw)
@@ -212,16 +225,27 @@ def build_software_items(
     managed: dict[str, list[str]],
     original_managed: dict[str, list[str]] | None = None,
     query: str = "",
+    *,
+    groups: tuple[SelectionGroup, ...] | None = None,
 ) -> dict[str, list[SoftwareItem]]:
     """Build checkbox state from evaluated policy plus pending machine exclusions."""
-    current = normalize_exclusions(managed)
-    original = normalize_exclusions(original_managed if original_managed is not None else managed)
-    rows = {path.removeprefix("envy."): (include, exclude, effective)
-            for path, include, exclude, effective in manifest_selection_rows(manifest)}
+    manifest_platform = manifest.get("platform") if isinstance(manifest, dict) else None
+    active_groups = groups or groups_for_platform(str(manifest_platform or platform_name()))
+    current = normalize_exclusions(managed, active_groups)
+    original = normalize_exclusions(
+        original_managed if original_managed is not None else managed,
+        active_groups,
+    )
+    option_to_key = {group.option: group.key for group in active_groups}
+    rows = {}
+    for path, include, exclude, effective in manifest_selection_rows(manifest):
+        group_key = option_to_key.get(path)
+        if group_key is not None:
+            rows[group_key] = (include, exclude, effective)
     result: dict[str, list[SoftwareItem]] = {}
     needle = query.casefold().strip()
 
-    for group in GROUPS:
+    for group in active_groups:
         include, final_exclude, _ = rows.get(group.key, ([], [], []))
         include_set = set(include)
         original_set = set(original[group.key])
@@ -249,10 +273,17 @@ def build_software_items(
     return result
 
 
-def set_excluded(values: dict[str, list[str]], group_key: str, name: str, excluded: bool) -> None:
-    group = require_group(group_key)
+def set_excluded(
+    values: dict[str, list[str]],
+    group_key: str,
+    name: str,
+    excluded: bool,
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> None:
+    active_groups = groups if groups is not None else GROUPS
+    group = require_group(group_key, active_groups)
     _validate_name(name)
-    current = normalize_exclusions(values)
+    current = normalize_exclusions(values, active_groups)
     names = current[group.key]
     if excluded and name not in names:
         names.append(name)
@@ -262,12 +293,21 @@ def set_excluded(values: dict[str, list[str]], group_key: str, name: str, exclud
     values.update(current)
 
 
-def require_group(value: str) -> SelectionGroup:
+def require_group(
+    value: str,
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> SelectionGroup:
+    active_groups = groups if groups is not None else GROUPS
+    group_by_key = {group.key: group for group in active_groups}
+    group_by_option = {group.option: group for group in active_groups}
+    for group in active_groups:
+        if group.option.startswith("envy.darwin."):
+            group_by_option[group.option.replace("envy.darwin.", "envy.", 1)] = group
     option = value.removesuffix(".exclude")
     key = option.removeprefix("envy.")
-    group = GROUP_BY_OPTION.get(option) or GROUP_BY_KEY.get(key)
+    group = group_by_option.get(option) or group_by_key.get(key)
     if group is None:
-        allowed = ", ".join(item.key for item in GROUPS)
+        allowed = ", ".join(item.key for item in active_groups)
         raise typer.BadParameter(f"unknown software group: {value}; choose one of: {allowed}")
     return group
 
