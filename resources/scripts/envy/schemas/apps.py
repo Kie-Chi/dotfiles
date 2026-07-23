@@ -53,11 +53,11 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
         ],
     ),
     "codex": AppSpec(
-        name="Codex",
-        bundles=["Codex.app"],
+        name="ChatGPT",
+        bundles=["ChatGPT.app"],
         bundle_id="com.openai.codex",
         commands=["codex"],
-        processes=["Codex", "codex"],
+        processes=["ChatGPT", "Codex", "codex"],
         state_paths=[
             HOME_DIR / ".codex",
             HOME_DIR / "Library/Application Support/Codex",
@@ -274,6 +274,8 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
 }
 
 APP_ALIASES: dict[str, str] = {
+    "chatgpt": "codex",
+    "chatgpt-app": "codex",
     "codex-app": "codex",
     "codex-desktop": "codex",
     "openai-codex": "codex",

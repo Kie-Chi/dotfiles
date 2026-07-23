@@ -5,6 +5,6 @@
   # general desktop application list.
   homebrew.casks = [
     "codex"
-    "codex-app"
+    "chatgpt"
   ];
 }
