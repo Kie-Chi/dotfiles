@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
-"""Dotfiles setup CLI — menuconfig-like UI for config.nix + sops secrets."""
+"""Dotfiles setup CLI for the selected machine file and sops secrets."""
 
 import os
-import re
 import subprocess
-import tempfile
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Callable, List, Optional
+from dataclasses import dataclass
+from typing import Optional
 
-import yaml
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window, HSplit, FormattedTextControl, ConditionalContainer
 from prompt_toolkit.layout.controls import BufferControl
@@ -24,125 +20,45 @@ from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.widgets import Frame
 from prompt_toolkit import prompt as pt_prompt
 
+from envy import log
 from envy.key import (
-    AGE_KEY_DIR, AGE_KEY_FILE, SOPS_YAML, SECRETS_FILE, SECRETS_DIR,
-    run_cmd as key_run_cmd, console as key_console,
+    AGE_KEY_DIR, AGE_KEY_FILE, SECRETS_FILE,
     read_sops_yaml_keys, write_sops_yaml_keys,
-    get_current_device_public_key, get_device_label, set_device_label,
-    run_sops_updatekeys, git_commit_sops_files, key_import,
+    get_current_device_public_key, ensure_sops_label,
+    run_sops_updatekeys, git_commit_setup_files, key_import,
 )
-from envy.utils import RECOVERY_KEY_FILE, backup_sensitive_file
-
-
-# ==========================================
-# PATHS (shared with key.py)
-# ==========================================
-
-BASE_DIR = Path(__file__).resolve().parent
-HOME_DIR = Path.home()
-CONFIG_FILE = BASE_DIR / "config.nix"
-
-# SOPS paths imported from key.py: AGE_KEY_DIR, AGE_KEY_FILE, SOPS_YAML, SECRETS_DIR, SECRETS_FILE
-
-console = Console()
-
-
-# ==========================================
-# FIELD DEFINITIONS
-# ==========================================
-
-def non_empty(val: str) -> Optional[str]:
-    if not val.strip():
-        return "Value cannot be empty"
-    return None
-
-def is_email(val: str) -> Optional[str]:
-    if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', val):
-        return "Please enter a valid email address"
-    return None
-
-def is_url(val: str) -> Optional[str]:
-    if val and not val.startswith("http://") and not val.startswith("https://"):
-        return "URL must start with http:// or https://"
-    return None
-
-
-@dataclass
-class FieldDef:
-    group: str
-    dest: str
-    path: str
-    yaml_path: str = ""
-    prompt: str = ""
-    default_fn: Callable = field(default_factory=lambda: lambda: "")
-    choices: List[str] = field(default_factory=list)
-    condition: Optional[Callable] = None
-    validators: List[Callable] = field(default_factory=list)
-    error_msg: str = ""
-    ignore: bool = False
-
-
-CONFIG_FIELDS = [
-    FieldDef(group="BASE", dest="config", path="home.option", prompt="System option",
-             default_fn=lambda: "desktop", choices=["desktop", "server"]),
-    FieldDef(group="BASE", dest="config", path="home.desktop", prompt="Desktop option",
-             default_fn=lambda: "all", choices=["all", "gnome", "niri", "none"],
-             condition=lambda v: v.get("home.option") != "server"),
-    FieldDef(group="BASE", dest="config", path="home.user", prompt="System username",
-             default_fn=lambda: os.getenv("USER", "chi"), validators=[non_empty]),
-    FieldDef(group="BASE", dest="config", path="home.dir", prompt="Home directory",
-             default_fn=lambda: str(HOME_DIR), validators=[non_empty]),
-    FieldDef(group="GIT", dest="config", path="git.name", prompt="Git user name",
-             default_fn=lambda: os.getenv("USER", "chi"), validators=[non_empty]),
-    FieldDef(group="GIT", dest="config", path="git.email", prompt="Git user email",
-             default_fn=lambda: f"{os.getenv('USER','chi')}@{subprocess.getoutput('hostname -f')}",
-             validators=[is_email]),
-    FieldDef(group="PROXY", dest="config", path="proxy.status", prompt="Proxy status",
-             default_fn=lambda: "none", choices=["none", "manual", "keep"]),
-    FieldDef(group="PROXY", dest="config", path="proxy.tun", prompt="Proxy TUN status",
-             default_fn=lambda: "true", choices=["true", "false"],
-             condition=lambda v: v.get("proxy.status") != "none"),
-    FieldDef(group="ENV", dest="config", path="dotfiles.path", prompt="Dotfiles local path",
-             default_fn=lambda: str(BASE_DIR), ignore=True),
-    FieldDef(group="LLM", dest="config", path="llm.dashscope.url", prompt="DashScope API base URL",
-             default_fn=lambda: "https://dashscope.aliyuncs.com/apps/anthropic"),
-    FieldDef(group="LLM", dest="config", path="llm.dashscope.model", prompt="DashScope default model",
-             default_fn=lambda: "glm-5.1"),
-    FieldDef(group="LLM", dest="config", path="llm.deepseek.url", prompt="DeepSeek API base URL",
-             default_fn=lambda: "https://api.deepseek.com/v1"),
-    FieldDef(group="LLM", dest="config", path="llm.deepseek.model", prompt="DeepSeek default model",
-             default_fn=lambda: "deepseek-v4-pro"),
-]
-
-SECRET_FIELDS = [
-    FieldDef(group="SECRET", dest="secret", yaml_path="home/passwd", path="home_passwd",
-             prompt="System password",
-             default_fn=lambda: os.getenv("USER", ""), validators=[non_empty]),
-    FieldDef(group="SECRET", dest="secret", yaml_path="proxy/url", path="proxy_url",
-             prompt="Proxy URL", default_fn=lambda: "",
-             condition=lambda v: v.get("proxy.status") != "none",
-             validators=[is_url]),
-    FieldDef(group="SECRET", dest="secret", yaml_path="llm/dashscope/apikey", path="llm_dashscope_apikey",
-             prompt="DashScope API Key",
-             default_fn=lambda: os.getenv("API_KEY", "")),
-    FieldDef(group="SECRET", dest="secret", yaml_path="llm/deepseek/apikey", path="llm_deepseek_apikey",
-             prompt="DeepSeek API Key",
-             default_fn=lambda: ""),
-]
-
-ALL_FIELDS = CONFIG_FIELDS + SECRET_FIELDS
+from envy.config import (
+    read_machine_nix, read_secrets_yaml, write_machine_nix, write_secrets_yaml,
+)
+from envy.evaluation import invalidate_machine_manifest, machine_manifest, manifest_settings
+from envy.host import initialize_machine, machine_file, validate_machine_id
+from envy.schemas.config import ALL_FIELDS, MACHINE_FIELDS, SECRET_FIELDS, FieldDef
+from envy.software import (
+    ConcurrentMachineEdit,
+    GROUPS,
+    SoftwarePolicyError,
+    build_software_items,
+    normalize_exclusions,
+    read_managed_exclusions,
+    restore_machine_source,
+    set_excluded,
+    software_changes,
+    source_digest,
+    write_and_validate_exclusions,
+)
+from envy.utils import (
+    HOME_DIR,
+    PLATFORM,
+    backup_sensitive_file,
+    current_machine_id,
+    run_cmd,
+    set_device_machine_id,
+)
 
 
 # ==========================================
 # CRYPTO — age key + sops (delegated to key.py)
 # ==========================================
-
-def run_cmd(cmd: List[str], stdin_data: Optional[str] = None, check: bool = True) -> str:
-    env = os.environ.copy()
-    if AGE_KEY_FILE.exists():
-        env["SOPS_AGE_KEY_FILE"] = str(AGE_KEY_FILE)
-    result = subprocess.run(cmd, input=stdin_data, capture_output=True, text=True, check=check, env=env)
-    return result.stdout.strip()
 
 
 def setup_age_key() -> str:
@@ -161,26 +77,26 @@ def setup_age_key() -> str:
             if ssh_key.exists():
                 try:
                     ssh_pub_input = ssh_key.with_suffix(".pub").read_text()
-                    ssh_derived_pub = run_cmd(["ssh-to-age"], stdin_data=ssh_pub_input)
+                    ssh_derived_pub = run_cmd(["ssh-to-age"], stdin_data=ssh_pub_input, capture=True)
                     if ssh_derived_pub == current_pub:
-                        console.print("[yellow]Your age key was derived from SSH and doesn't match .sops.yaml.[/yellow]")
-                        console.print("[yellow]This usually means your SSH key was rotated on a new device.[/yellow]")
+                        log.warn("setup", "age key was derived from SSH and doesn't match .sops.yaml")
+                        log.hint("This usually means your SSH key was rotated on a new device.")
                 except subprocess.CalledProcessError:
                     pass
 
-            console.print("[yellow]Age key exists but is not in .sops.yaml for this device.[/yellow]")
-            console.print("[yellow]It will be added during save.[/yellow]")
+            log.warn("setup", "age key exists but is not in .sops.yaml for this device")
+            log.hint("It will be added during save.")
             return current_pub
 
     # No age key file — try SSH derivation or generate new
     ssh_key = HOME_DIR / ".ssh" / "id_ed25519"
     if ssh_key.exists():
         try:
-            result = run_cmd(["ssh-to-age", "-private-key", "-i", str(ssh_key)])
+            result = run_cmd(["ssh-to-age", "-private-key", "-i", str(ssh_key)], capture=True)
             AGE_KEY_FILE.write_text(result + "\n")
             with open(str(ssh_key) + ".pub") as f:
                 pub_input = f.read()
-            public_key = run_cmd(["ssh-to-age"], stdin_data=pub_input)
+            public_key = run_cmd(["ssh-to-age"], stdin_data=pub_input, capture=True)
             if public_key:
                 AGE_KEY_FILE.chmod(0o600)
                 return public_key
@@ -188,164 +104,63 @@ def setup_age_key() -> str:
             pass
 
     backup_sensitive_file(AGE_KEY_FILE)
-    run_cmd(["age-keygen", "-o", str(AGE_KEY_FILE)])
-    public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)])
+    run_cmd(["age-keygen", "-o", str(AGE_KEY_FILE)], capture=True)
+    public_key = run_cmd(["age-keygen", "-y", str(AGE_KEY_FILE)], capture=True)
     AGE_KEY_FILE.chmod(0o600)
     return public_key
 
 
-# ==========================================
-# CONFIG I/O
-# ==========================================
-
-def read_config_nix() -> dict:
-    values = {}
-    if not CONFIG_FILE.exists():
-        return values
-    pattern = re.compile(r'(\S+)\s*=\s*"([^"]*)"')
-    for line in CONFIG_FILE.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("#") or not line:
-            continue
-        for key, val in pattern.findall(line):
-            values[key] = val
-    return values
-
-
-def write_config_nix(values: dict) -> None:
-    groups = sorted(set(f.group for f in CONFIG_FIELDS))
-    lines = ["{\n"]
-    for group in groups:
-        lines.append(f"\n  # --- {group} CONFIG ---\n")
-        for f in CONFIG_FIELDS:
-            if f.group != group:
-                continue
-            val = values.get(f.path, "")
-            val = val.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f"  {f.path} = \"{val}\";\n")
-    lines.append("}\n")
-    CONFIG_FILE.write_text("".join(lines))
-
-    target_dir = HOME_DIR / ".config" / "dotfiles"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    symlink = target_dir / "config.nix"
-    if symlink.exists() or symlink.is_symlink():
-        symlink.unlink()
-    symlink.symlink_to(CONFIG_FILE)
-
-
-def read_secrets_yaml() -> tuple:
-    """Read secrets from sops-encrypted YAML.
-    Returns (values_dict, decrypt_success_bool).
-    """
-    values = {}
-    if not SECRETS_FILE.exists():
-        return values, False
-    # Try sops decryption first, fallback to plain YAML for unencrypted files
-    data = None
-    decrypt_ok = False
-    try:
-        plain = run_cmd(["sops", "--decrypt", str(SECRETS_FILE)])
-        data = yaml.safe_load(plain)
-        decrypt_ok = True
-    except subprocess.CalledProcessError:
-        try:
-            data = yaml.safe_load(SECRETS_FILE.read_text())
-            decrypt_ok = False  # plain YAML = not encrypted = new device can't use sops-nix
-        except Exception:
-            pass
-    if data is None:
-        return values, False
-    for f in SECRET_FIELDS:
-        if not f.yaml_path:
-            continue
-        parts = f.yaml_path.split("/")
-        d = data
-        try:
-            for part in parts[:-1]:
-                d = d[part]
-            val = d.get(parts[-1], "")
-            if val is not None:
-                values[f.path] = str(val)
-        except (KeyError, TypeError):
-            pass
-    return values, decrypt_ok
-
-
-def write_secrets_yaml(values: dict) -> None:
-    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
-
-    data = {}
-    for f in SECRET_FIELDS:
-        parts = f.yaml_path.split("/")
-        d = data
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = values.get(f.path, "")
-
-    backup = SECRETS_FILE.with_suffix(".yaml.bak")
-    had_existing = SECRETS_FILE.exists()
-
-    # Backup existing encrypted secrets before any modification
-    if had_existing:
-        os.replace(str(SECRETS_FILE), str(backup))
-
-    try:
-        # Write unencrypted data to the real path (matches .sops.yaml path_regex)
-        with open(SECRETS_FILE, "w") as fh:
-            yaml.dump(data, fh, default_flow_style=False, allow_unicode=True)
-
-        # Encrypt in-place; filename matches creation rules so sops can find config
-        keys = read_sops_yaml_keys()
-        age_recipients = ",".join(keys.values())
-        run_cmd(["sops", "--encrypt", "--in-place", "--age", age_recipients, str(SECRETS_FILE)])
-    except Exception:
-        # Encryption failed — rollback to backup immediately
-        console.print("[red]sops encryption failed[/red]")
-        console.print("[red]ABORTING: secrets.yaml will NOT be written unencrypted.[/red]")
-        if had_existing and backup.exists():
-            os.replace(str(backup), str(SECRETS_FILE))
-            console.print("[green]Rolled back to previous encrypted secrets.yaml[/green]")
-        else:
-            # No backup means secrets.yaml didn't exist before — remove the unencrypted file
-            if SECRETS_FILE.exists():
-                os.unlink(str(SECRETS_FILE))
-            console.print("[yellow]No previous secrets.yaml to restore — unencrypted file removed.[/yellow]")
-        raise RuntimeError("sops encryption failed — refusing to leave secrets unencrypted")
-
-    # Success — discard backup
-    if backup.exists():
-        os.unlink(str(backup))
-
-
-# git_commit_sops_files is imported from key.py
+# setup/key Git helpers are imported from key.py
 
 
 # ==========================================
 # MENUCONFIG UI — single Application with mode switching
 # ==========================================
 
+
+@dataclass
+class SetupResult:
+    values: dict
+    exclusions: dict[str, list[str]]
+
+
 class AppState:
     """State for the menuconfig Application."""
-    def __init__(self, values: dict):
+    def __init__(
+        self,
+        values: dict,
+        manifest: dict | None = None,
+        exclusions: dict[str, list[str]] | None = None,
+    ):
         self.values = values
-        self.mode = "list"  # "list" | "edit_text" | "edit_choice"
+        self.manifest = manifest
+        self.original_exclusions = normalize_exclusions(exclusions)
+        self.exclusions = normalize_exclusions(exclusions)
+        self.mode = "list"  # list | policy | policy_search | edit_text | edit_choice
         self.cursor = 0
         self.editing_field: Optional[FieldDef] = None
         self.edit_buffer = Buffer()
+        self.search_buffer = Buffer()
         self.choice_cursor = 0
+        self.policy_group = 0
+        self.policy_cursor = 0
+        self.policy_query = ""
+        self.policy_notice = ""
         self.error_msg = ""
-        self.result: Optional[dict] = None  # set on save/quit
+        self.result: Optional[SetupResult] = None  # set on save/quit
 
 
 def init_values() -> dict:
-    existing_config = read_config_nix()
+    existing_config = read_machine_nix()
+    evaluated_config = manifest_settings(machine_manifest())
     existing_secrets, _ = read_secrets_yaml()
     values = {}
     for f in ALL_FIELDS:
         if f.condition and not f.condition(values):
             continue
-        if f.dest == "config" and f.path in existing_config:
+        if f.dest == "machine" and f.path in evaluated_config:
+            values[f.path] = evaluated_config[f.path]
+        elif f.dest == "machine" and f.path in existing_config:
             values[f.path] = existing_config[f.path]
         elif f.dest == "secret" and f.path in existing_secrets:
             values[f.path] = existing_secrets[f.path]
@@ -357,7 +172,7 @@ def init_values() -> dict:
 def handle_decrypt_failure() -> dict:
     """Layered guidance when sops decryption fails on a new device.
     Delegates to key_import() interactive mode from key.py."""
-    console.print(Panel(
+    log.console.print(Panel(
         "[bold red]sops decryption failed[/bold red]\n\n"
         "This usually means you're on a [bold]new device[/bold] and the age key\n"
         "doesn't match the one that encrypted secrets.yaml.\n\n"
@@ -368,12 +183,12 @@ def handle_decrypt_failure() -> dict:
     if pub:
         secrets, ok = read_secrets_yaml()
         if ok:
-            console.print("[bold green]Decryption successful! Existing secrets restored.[/bold green]")
+            log.ok("setup", "decryption successful — existing secrets restored")
             return secrets
         else:
-            console.print("[yellow]Key imported but decryption still failed. Try another key.[/yellow]")
+            log.warn("setup", "key imported but decryption still failed, try another key")
 
-    console.print("[yellow]Proceeding with empty secrets — you must re-enter all values in the menuconfig UI.[/yellow]")
+    log.warn("setup", "proceeding with empty secrets — re-enter all values in the menuconfig UI")
     return {}
 
 
@@ -407,6 +222,61 @@ def _list_text(state: AppState) -> list:
             lines.append(("class:cursor", f"  ► {tag}{f.prompt}: {val}\n"))
         else:
             lines.append(("class:normal", f"    {tag}{f.prompt}: {val}\n"))
+    return lines
+
+
+def _policy_items(state: AppState):
+    group = GROUPS[state.policy_group]
+    items = build_software_items(
+        state.manifest,
+        state.exclusions,
+        state.original_exclusions,
+        state.policy_query,
+    )[group.key]
+    if state.policy_cursor >= len(items):
+        state.policy_cursor = max(0, len(items) - 1)
+    return items
+
+
+def _policy_text(state: AppState) -> list:
+    if not state.manifest:
+        return [
+            ("class:error", "\n  Nix evaluation is unavailable.\n"),
+            ("class:hint", "  Fix the machine evaluation, then reopen setup.\n"),
+        ]
+
+    group = GROUPS[state.policy_group]
+    items = _policy_items(state)
+    disabled = sum(not item.checked for item in items)
+    machine_id = state.manifest.get("id", "current")
+    query = state.policy_query or "<none>"
+    notice = state.policy_notice or "Space toggles this machine's exclusion list."
+    lines = [
+        ("class:group", f"  {group.label}  ({state.policy_group + 1}/{len(GROUPS)})\n"),
+        ("class:dim", f"  Machine: {machine_id}  Items: {len(items)}  Disabled: {disabled}\n"),
+        ("class:hint", f"  Search: {query}\n"),
+        (("class:error" if state.policy_notice else "class:hint"), f"  {notice}\n"),
+    ]
+    if not items:
+        lines.append(("class:hint", "\n  No matching software items.\n"))
+        return lines
+
+    for index, item in enumerate(items):
+        marker = "[x]" if item.checked else ("[-]" if item.locked else "[ ]")
+        annotations = []
+        if item.changed:
+            annotations.append("pending")
+        if item.locked:
+            annotations.append("external exclusion")
+        elif item.stale:
+            annotations.append("stale exclusion")
+        elif item.managed:
+            annotations.append("machine exclusion")
+        suffix = f"  ({', '.join(annotations)})" if annotations else ""
+        style = "class:cursor" if index == state.policy_cursor else (
+            "class:dim" if item.locked else "class:normal"
+        )
+        lines.append((style, f"  {marker} {item.name}{suffix}\n"))
     return lines
 
 
@@ -444,17 +314,45 @@ def _choice_text(state: AppState) -> list:
 def build_application(state: AppState) -> Application:
     """Build a single Application with mode-switching layout."""
     is_list = Condition(lambda: state.mode == "list")
+    is_policy = Condition(lambda: state.mode == "policy")
+    is_policy_search = Condition(lambda: state.mode == "policy_search")
     is_edit_text = Condition(lambda: state.mode == "edit_text")
     is_edit_choice = Condition(lambda: state.mode == "edit_choice")
 
     # --- Title bar (always visible) ---
-    title_content = FormattedTextControl(lambda: [("class:title", "  Dotfiles Setup — menuconfig")])
+    title_content = FormattedTextControl(lambda: [("class:title", (
+        "  Dotfiles Setup — evaluated software policy"
+        if state.mode in {"policy", "policy_search"}
+        else "  Dotfiles Setup — menuconfig"
+    ))])
     title_window = Window(content=title_content, height=1)
 
     # --- List mode ---
-    list_content = FormattedTextControl(lambda: _list_text(state))
+    list_content = FormattedTextControl(lambda: _list_text(state), focusable=True)
     list_window = Window(content=list_content)
     list_container = ConditionalContainer(content=list_window, filter=is_list)
+
+    policy_content = FormattedTextControl(
+        lambda: _policy_text(state),
+        focusable=True,
+        get_cursor_position=lambda: Point(x=0, y=4 + state.policy_cursor),
+    )
+    policy_window = Window(content=policy_content)
+    policy_container = ConditionalContainer(content=policy_window, filter=is_policy)
+
+    search_context = FormattedTextControl(lambda: [
+        ("class:dim", f"  Current filter: {state.policy_query or '<none>'}")
+    ])
+    search_context_window = Window(content=search_context, height=1)
+    search_buffer_control = BufferControl(buffer=state.search_buffer)
+    search_buffer_window = Window(content=search_buffer_control, height=1)
+    policy_search_container = ConditionalContainer(
+        content=Frame(
+            title="Filter software names",
+            body=HSplit([search_context_window, search_buffer_window]),
+        ),
+        filter=is_policy_search,
+    )
 
     # --- Edit text mode (framed) ---
     edit_context = FormattedTextControl(lambda: _edit_context(state))
@@ -483,7 +381,11 @@ def build_application(state: AppState) -> Application:
     # --- Bottom bar (always visible, context-sensitive) ---
     def bottom_text():
         if state.mode == "list":
-            return [("class:bottom", "  Enter: edit  │  s: save & exit  │  q/Esc: quit  │  ↑↓: navigate")]
+            return [("class:bottom", "  Enter: edit  │  p: software policy  │  s: save & exit  │  q/Esc: quit  │  ↑↓: navigate")]
+        elif state.mode == "policy":
+            return [("class:bottom", "  ←→: group  │  ↑↓: move  │  Space: toggle  │  /: search  │  r: reset  │  p/Esc: back")]
+        elif state.mode == "policy_search":
+            return [("class:bottom", "  Enter: apply filter  │  Esc: cancel")]
         elif state.mode == "edit_text":
             return [("class:bottom", "  Enter: confirm  │  Esc: cancel")]
         elif state.mode == "edit_choice":
@@ -496,6 +398,8 @@ def build_application(state: AppState) -> Application:
     layout = Layout(HSplit([
         title_window,
         list_container,
+        policy_container,
+        policy_search_container,
         edit_text_container,
         choice_container,
         bottom_window,
@@ -505,21 +409,26 @@ def build_application(state: AppState) -> Application:
     kb = KeyBindings()
 
     # Navigation — only in list and choice modes
-    @kb.add("up", filter=is_list | is_edit_choice)
+    @kb.add("up", filter=is_list | is_policy | is_edit_choice)
     def _(event):
         if state.mode == "list":
             items = get_visible_fields(state.values)
             state.cursor = max(0, state.cursor - 1)
+        elif state.mode == "policy":
+            state.policy_cursor = max(0, state.policy_cursor - 1)
         elif state.mode == "edit_choice":
             choices = state.editing_field.choices
             state.choice_cursor = max(0, state.choice_cursor - 1)
         event.app.invalidate()
 
-    @kb.add("down", filter=is_list | is_edit_choice)
+    @kb.add("down", filter=is_list | is_policy | is_edit_choice)
     def _(event):
         if state.mode == "list":
             items = get_visible_fields(state.values)
             state.cursor = min(len(items) - 1, state.cursor + 1)
+        elif state.mode == "policy":
+            row_count = len(_policy_items(state))
+            state.policy_cursor = min(max(0, row_count - 1), state.policy_cursor + 1)
         elif state.mode == "edit_choice":
             choices = state.editing_field.choices
             state.choice_cursor = min(len(choices) - 1, state.choice_cursor + 1)
@@ -568,6 +477,80 @@ def build_application(state: AppState) -> Application:
         state.mode = "list"
         event.app.invalidate()
 
+    @kb.add("left", filter=is_policy)
+    def _(event):
+        state.policy_group = (state.policy_group - 1) % len(GROUPS)
+        state.policy_cursor = 0
+        state.policy_notice = ""
+        event.app.invalidate()
+
+    @kb.add("right", filter=is_policy)
+    def _(event):
+        state.policy_group = (state.policy_group + 1) % len(GROUPS)
+        state.policy_cursor = 0
+        state.policy_notice = ""
+        event.app.invalidate()
+
+    @kb.add(" ", filter=is_policy)
+    def _(event):
+        items = _policy_items(state)
+        if not items:
+            return
+        item = items[state.policy_cursor]
+        group = GROUPS[state.policy_group]
+        if item.locked:
+            state.policy_notice = f"{item.name} is excluded outside the managed machine block."
+        elif item.checked:
+            set_excluded(state.exclusions, group.key, item.name, True)
+            state.policy_notice = f"{item.name} will be disabled on this machine."
+        else:
+            set_excluded(state.exclusions, group.key, item.name, False)
+            state.policy_notice = f"{item.name} will be enabled on this machine."
+        event.app.invalidate()
+
+    @kb.add("r", filter=is_policy)
+    def _(event):
+        state.exclusions = normalize_exclusions(state.original_exclusions)
+        state.policy_notice = "Pending software changes reset."
+        event.app.invalidate()
+
+    @kb.add("/", filter=is_policy)
+    def _(event):
+        state.search_buffer.text = state.policy_query
+        state.search_buffer.cursor_position = len(state.search_buffer.text)
+        state.mode = "policy_search"
+        event.app.layout.focus(search_buffer_window)
+        event.app.invalidate()
+
+    @kb.add("enter", filter=is_policy_search)
+    def _(event):
+        state.policy_query = state.search_buffer.text.strip()
+        state.policy_cursor = 0
+        state.policy_notice = ""
+        state.mode = "policy"
+        event.app.layout.focus(policy_window)
+        event.app.invalidate()
+
+    @kb.add("escape", filter=is_policy_search)
+    def _(event):
+        state.mode = "policy"
+        event.app.layout.focus(policy_window)
+        event.app.invalidate()
+
+    @kb.add("p", filter=is_list)
+    def _(event):
+        state.mode = "policy"
+        state.policy_notice = ""
+        event.app.layout.focus(policy_window)
+        event.app.invalidate()
+
+    @kb.add("p", filter=is_policy)
+    @kb.add("escape", filter=is_policy)
+    def _(event):
+        state.mode = "list"
+        event.app.layout.focus(list_window)
+        event.app.invalidate()
+
     # Escape — cancel edit or quit from list
     @kb.add("escape", filter=is_edit_text | is_edit_choice)
     def _(event):
@@ -577,6 +560,7 @@ def build_application(state: AppState) -> Application:
 
     @kb.add("escape", filter=is_list)
     @kb.add("q", filter=is_list)
+    @kb.add("q", filter=is_policy)
     def _(event):
         state.result = None
         event.app.exit()
@@ -584,7 +568,10 @@ def build_application(state: AppState) -> Application:
     # Save — only from list mode
     @kb.add("s", filter=is_list)
     def _(event):
-        state.result = state.values
+        state.result = SetupResult(
+            values=dict(state.values),
+            exclusions=normalize_exclusions(state.exclusions),
+        )
         event.app.exit()
 
     style = PtStyle.from_dict({
@@ -603,14 +590,23 @@ def build_application(state: AppState) -> Application:
     return Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
 
 
-def menuconfig_loop(initial_values: dict) -> Optional[dict]:
-    state = AppState(values=dict(initial_values))
+def menuconfig_loop(
+    initial_values: dict,
+    manifest: dict | None = None,
+    exclusions: dict[str, list[str]] | None = None,
+) -> Optional[SetupResult]:
+    state = AppState(values=dict(initial_values), manifest=manifest, exclusions=exclusions)
     app = build_application(state)
     app.run()
     return state.result
 
 
-def show_changes(old_values: dict, new_values: dict) -> bool:
+def show_changes(
+    old_values: dict,
+    new_values: dict,
+    old_exclusions: dict[str, list[str]],
+    new_exclusions: dict[str, list[str]],
+) -> bool:
     """Display changed fields — secrets shown in plain text for verification."""
     changes = []
     for f in ALL_FIELDS:
@@ -619,11 +615,17 @@ def show_changes(old_values: dict, new_values: dict) -> bool:
         old = old_values.get(f.path, "")
         new = new_values.get(f.path, "")
         if old != new:
-            tag = "SECRET" if f.dest == "secret" else "CONFIG"
+            tag = "SECRET" if f.dest == "secret" else "MACHINE"
             changes.append((f"{tag}: {f.prompt}", old, new))
 
+    for label, disabled, enabled in software_changes(old_exclusions, new_exclusions):
+        if disabled:
+            changes.append((f"SOFTWARE: {label}", "enabled", f"disable: {', '.join(disabled)}"))
+        if enabled:
+            changes.append((f"SOFTWARE: {label}", "excluded", f"enable: {', '.join(enabled)}"))
+
     if not changes:
-        console.print("[dim]No changes detected[/dim]")
+        log.hint("No changes detected")
         return False
 
     table = Table(show_header=True, box=None, padding=(0, 2))
@@ -633,27 +635,57 @@ def show_changes(old_values: dict, new_values: dict) -> bool:
     for row in changes:
         table.add_row(*row)
 
-    console.print(Panel(table, title="Changes Summary", border_style="yellow"))
+    log.console.print(Panel(table, title="Changes Summary", border_style="yellow"))
     return True
 
 
+def prompt_yes_no(question: str) -> bool:
+    """Require an explicit yes or no; blank and invalid answers retry."""
+    while True:
+        try:
+            answer = pt_prompt(f"? {question} [y/n]: ").strip().casefold()
+        except (EOFError, KeyboardInterrupt):
+            return False
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"n", "no"}:
+            return False
+        log.warn("input", "please answer y/yes or n/no")
+
+
 def confirm_save() -> bool:
-    """Simple Y/N confirmation using prompt_toolkit."""
+    """Require an explicit confirmation before writing setup changes."""
+    return prompt_yes_no("Apply changes and save?")
+
+
+def save_all(
+    values: dict,
+    exclusions: dict[str, list[str]],
+    original_machine_source: str,
+) -> None:
+    target = machine_file(current_machine_id())
+    if source_digest(target.read_text()) != source_digest(original_machine_source):
+        raise ConcurrentMachineEdit(
+            f"machine configuration changed while setup was open: {target}"
+        )
+
+    log.step("machine", "writing machine values and software exclusions")
     try:
-        answer = pt_prompt("? Apply changes and save? [y/N]: ")
-        return answer.lower().startswith("y")
-    except (EOFError, KeyboardInterrupt):
-        return False
+        write_machine_nix(values)
+        write_and_validate_exclusions(exclusions, target)
+    except Exception:
+        restore_machine_source(original_machine_source, target)
+        invalidate_machine_manifest()
+        raise
+    log.ok("machine", "machine configuration evaluated successfully", path=str(target))
 
-
-def save_all(values: dict) -> None:
     # Read existing secrets before any writes to detect changes
     existing_secrets, _ = read_secrets_yaml()
 
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console,
+        console=log.console,
     ) as progress:
 
         t1 = progress.add_task("Setting up age key...", total=None)
@@ -662,7 +694,7 @@ def save_all(values: dict) -> None:
 
         t2 = progress.add_task("Updating .sops.yaml...", total=None)
         keys = read_sops_yaml_keys()
-        label = get_device_label()
+        label = ensure_sops_label()
 
         sops_updated = False  # track whether .sops.yaml was actually written
 
@@ -690,10 +722,6 @@ def save_all(values: dict) -> None:
                 write_sops_yaml_keys(keys)
                 progress.update(t2, completed=True, description="[green].sops.yaml updated[/green]")
 
-        t3 = progress.add_task("Writing config.nix...", total=None)
-        write_config_nix(values)
-        progress.update(t3, completed=True, description="[green]config.nix saved[/green]")
-
         # Only re-encrypt secrets if values changed or key set changed
         secrets_changed = (
             not SECRETS_FILE.exists()
@@ -717,16 +745,63 @@ def save_all(values: dict) -> None:
             run_sops_updatekeys()
             progress.update(t5, completed=True)
 
-    console.print("[cyan]Committing sops files...[/cyan]")
-    git_commit_sops_files("setup")
+    log.step("setup", "checking managed files for a Git commit")
+    git_commit_setup_files(target)
 
 
 # ==========================================
 # MAIN
 # ==========================================
 
+
+def ensure_machine_configuration(machine_id: str) -> bool:
+    """Offer only the import/copy choice when this machine file is missing."""
+    selected = validate_machine_id(machine_id)
+    target = machine_file(selected)
+    if target.exists():
+        set_device_machine_id(selected)
+        return True
+
+    log.warn("host", "machine configuration is missing", path=str(target))
+    try:
+        if not prompt_yes_no("Create this machine configuration now?"):
+            log.hint(f"Create it later with: envy host init {selected}")
+            return False
+
+        while True:
+            mode = pt_prompt("? Creation mode (import/copy) [import]: ").strip().lower() or "import"
+            if mode in {"import", "copy"}:
+                break
+            log.error("host", "creation mode must be import or copy")
+        initialize_machine(selected, mode)
+        return True
+    except (EOFError, KeyboardInterrupt):
+        log.hint(f"Create it later with: envy host init {selected}")
+        return False
+
 def main():
-    existing_config = read_config_nix()
+    # Persist the existing device identity even when the user opens setup and
+    # exits without changing any config fields. Newly generated/imported keys
+    # are handled again in save_all after key setup completes.
+    if AGE_KEY_FILE.exists():
+        ensure_sops_label()
+
+    machine_id = current_machine_id()
+    if not ensure_machine_configuration(machine_id):
+        return
+
+    selected_machine_file = machine_file(machine_id)
+    original_machine_source = selected_machine_file.read_text()
+    try:
+        original_exclusions = read_managed_exclusions(selected_machine_file)
+    except SoftwarePolicyError as exc:
+        log.error("software", str(exc))
+        log.hint("Fix the managed exclusions block, then reopen envy setup.")
+        return
+
+    existing_config = read_machine_nix()
+    manifest = machine_manifest()
+    evaluated_config = manifest_settings(manifest)
     existing_secrets, decrypt_ok = read_secrets_yaml()
 
     # Layered guidance for new device: if decryption failed, try key import before menuconfig
@@ -743,7 +818,9 @@ def main():
     for f in ALL_FIELDS:
         if f.condition and not f.condition(values):
             continue
-        if f.dest == "config" and f.path in existing_config:
+        if f.dest == "machine" and f.path in evaluated_config:
+            values[f.path] = evaluated_config[f.path]
+        elif f.dest == "machine" and f.path in existing_config:
             values[f.path] = existing_config[f.path]
         elif f.dest == "secret" and f.path in existing_secrets:
             values[f.path] = existing_secrets[f.path]
@@ -751,37 +828,56 @@ def main():
             values[f.path] = f.default_fn()
     old_values = dict(values)
 
-    new_values = menuconfig_loop(old_values)
+    result = menuconfig_loop(old_values, manifest, original_exclusions)
 
-    if new_values is None:
-        console.print("[dim]Quit without saving.[/dim]")
+    if result is None:
+        log.hint("Quit without saving.")
         return
 
-    console.print()
-    has_changes = show_changes(old_values, new_values)
+    new_values = result.values
+    new_exclusions = result.exclusions
+
+    log.console.print()
+    has_changes = show_changes(
+        old_values,
+        new_values,
+        original_exclusions,
+        new_exclusions,
+    )
 
     if not has_changes:
-        console.print("[dim]No changes to apply.[/dim]")
+        missing_machine_fields = [
+            field.path for field in MACHINE_FIELDS if field.path not in existing_config
+        ]
+        if missing_machine_fields:
+            write_machine_nix(new_values)
+            log.ok(
+                "machine",
+                "wrote initial managed machine block",
+                fields=len(missing_machine_fields),
+            )
+        else:
+            log.hint("No changes to apply.")
         return
 
     if not confirm_save():
-        console.print("[red]Changes aborted.[/red]")
+        log.error("setup", "changes aborted")
         return
 
-    console.print()
-    save_all(new_values)
-    console.print()
-    console.print(Panel("[bold green]All files saved successfully![/bold green]", border_style="green"))
+    log.console.print()
+    try:
+        save_all(new_values, new_exclusions, original_machine_source)
+    except (OSError, SoftwarePolicyError, ConcurrentMachineEdit) as exc:
+        log.error("setup", str(exc))
+        return
+    log.console.print()
+    log.console.print(Panel("[bold green]All files saved successfully![/bold green]", border_style="green"))
 
     # Ask if user wants to apply immediately
-    try:
-        answer = pt_prompt("? Apply configuration now (envy apply)? [y/N]: ")
-        if answer.lower().startswith("y"):
-            console.print("[cyan]Running envy apply...[/cyan]")
-            from envy.main import cmd_apply
-            cmd_apply()
-    except (EOFError, KeyboardInterrupt):
-        pass
+    if prompt_yes_no("Apply configuration now (envy apply)?"):
+        log.step("setup", "running envy apply")
+        from envy.main import cmd_apply
+        cmd_apply()
 
 
 if __name__ == "__main__":
