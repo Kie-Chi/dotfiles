@@ -1,4 +1,4 @@
-{ pkgs, lib, ... }:
+{ config, pkgs, lib, ... }:
 
 let
   scriptsSrc = lib.cleanSource ../../resources/scripts;
@@ -9,8 +9,8 @@ let
     in
     lib.mapAttrsToList
       (scriptName: fileType:
-        if scriptName == "envy" then
-          null  # handled separately as envyPackage
+        if builtins.elem scriptName [ "envy" "ccli" ] then
+          null  # handled by a dedicated package/module
         else if fileType == "regular" then
           pkgs.writeShellScriptBin scriptName (builtins.readFile (dirPath + "/${scriptName}"))
         else
@@ -32,7 +32,6 @@ let
     runtimeInputs = [ envyPythonEnv ] ++ (with pkgs; [
       # External tools used by envy commands
       git
-      home-manager
       nix
       sops
       age
@@ -42,7 +41,19 @@ let
       curl
     ]);
     text = ''
-      export PYTHONPATH="${scriptsSrc}:$${PYTHONPATH:-}"
+      bundled="${scriptsSrc}"
+      repo="''${ENVY_DOTFILES:-}"
+      if [ -z "$repo" ]; then
+        repo=${lib.escapeShellArg config.envy.repository.path}
+      fi
+
+      # Prefer repo source unless explicitly using bundled
+      if [ -d "$repo/resources/scripts/envy" ] && [ "''${ENVY_USE_BUNDLED:-0}" != "1" ]; then
+        export PYTHONPATH="$repo/resources/scripts:$bundled:''${PYTHONPATH:-}"
+      else
+        export PYTHONPATH="$bundled:''${PYTHONPATH:-}"
+      fi
+
       exec python3 -m envy "$@"
     '';
   };
@@ -51,6 +62,5 @@ let
 
 in
 {
-  home.packages = packagedScripts ++ [ envyPackage ];
-  home.file.".config/ccli/prompt".source = ../../files/ccli/prompt;
+  envy.packages.home.include = packagedScripts ++ [ envyPackage ];
 }

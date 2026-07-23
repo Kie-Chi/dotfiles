@@ -1,12 +1,12 @@
-{ pkgs, cfg, lib, ... }:
+{ pkgs, lib, config, machinePlatform, ... }:
 
 {
   programs.git = {
     enable = true;
     settings = {
       user = {
-        name = cfg.git.name or "Somebody";
-        email = cfg.git.email or "example@email.com";
+        name = config.envy.git.name;
+        email = config.envy.git.email;
       };
 
       alias = {
@@ -26,11 +26,8 @@
       color = {
         ui = true;
       };
-
-      core = {
-        editor = "vim";
-      };
-
+    } // lib.optionalAttrs (machinePlatform == "linux") {
+      core.editor = "vim";
     };
   };
 }

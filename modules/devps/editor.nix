@@ -1,14 +1,6 @@
-{ pkgs, lib, cfg, ... }:
+{ pkgs, ... }:
 
-let
-  isDesktop = (cfg.home.option or "desktop") == "desktop";
-in
 {
-  programs.vscode = lib.mkIf isDesktop {
-    enable = true;
-    package = pkgs.vscode;
-  };
-
   programs.neovim = {
     enable = true;
     defaultEditor = true;
@@ -35,7 +27,7 @@ in
     ];
   };
 
-  # Neovim config files (symlinked from dotfiles)
+  # Neovim config files managed declaratively by Home Manager.
   xdg.configFile = {
     "nvim/init.lua".source = ../../files/editor/nvim/init.lua;
     "nvim/lua/editor.lua".source = ../../files/editor/nvim/lua/editor.lua;

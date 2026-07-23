@@ -1,21 +1,9 @@
-{ lib, cfg, ... }:
-let
-  desktop = cfg.home.desktop or "all";
-in
+{ lib, machinePlatform, ... }:
+
 {
-  imports = [
-    ./base.nix
-    ./fcitx.nix
-    ./rime.nix
-    ./font.nix
-    ./sunshine.nix
-  ]
-  ++ lib.optionals (desktop == "gnome" || desktop == "all") [
-    ./gnome.nix
-    ./terminal.nix
-  ]
-  ++ lib.optionals (desktop == "niri" || desktop == "all") [
-    ./niri.nix
-    ./niris
-  ];
+  # Desktops is the public feature entry point. Platform selection remains an
+  # implementation detail below this directory.
+  imports =
+    lib.optionals (machinePlatform == "darwin") [ ./darwin ]
+    ++ lib.optionals (machinePlatform == "linux") [ ./linux ];
 }

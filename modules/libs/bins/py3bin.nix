@@ -1,7 +1,10 @@
-{ pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 let
-  niri-scratchpad = pkgs.writers.writePython3Bin "niri-scratchpad" 
+  enabled = config.envy.linux.option == "desktop"
+    && (config.envy.linux.desktop == "niri" || config.envy.linux.desktop == "all")
+    && !(builtins.elem "niri" config.envy.packages.home.exclude);
+  niri-scratchpad-script = pkgs.writers.writePython3Bin "niri-scratchpad"
     { 
       libraries = [ ]; 
       makeWrapperArgs = [
@@ -132,7 +135,17 @@ def main():
 if __name__ == "__main__":
     main()
     '';
+  niri-scratchpad = pkgs.symlinkJoin {
+    name = "niri-scratchpad";
+    paths = [ niri-scratchpad-script ];
+    postBuild = ''
+      ln -s niri-scratchpad "$out/bin/nscratch"
+    '';
+    meta.mainProgram = "nscratch";
+  };
 in
 {
-  home.packages = [ niri-scratchpad ];
+  config = lib.mkIf enabled {
+    envy.packages.home.include = [ niri-scratchpad ];
+  };
 }

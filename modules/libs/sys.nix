@@ -1,36 +1,23 @@
 { pkgs, lib, config, ... }:
 
 let
+  isDarwin = pkgs.stdenv.isDarwin;
   sopsHomePasswdPath = config.sops.secrets.home-passwd.path;
   hasSopsSecrets = config.sops.secrets != {};
 
-  sopsDecryptScript = if hasSopsSecrets then
-    toString (builtins.head config.systemd.user.services.sops-nix.Service.ExecStart)
-  else null;
+  # Platform-specific sops decrypt script detection
+  sopsDecryptScript =
+    if !hasSopsSecrets then null
+    else if isDarwin then
+      (config.launchd.agents.sops-nix.config.Program or null)
+    else
+      let
+        execStart = config.systemd.user.services.sops-nix.Service.ExecStart or null;
+      in
+        if execStart != null then toString (builtins.head execStart) else null;
 
   sys = rec {
-    cmds = {
-      # Linux system tools (outside Nix sandbox)
-      sudo = "/usr/bin/sudo";
-      sh = "/bin/sh";
-      apt = "/usr/bin/apt";
-      grep = "${pkgs.gnugrep}/bin/grep";
-      systemctl = "/usr/bin/systemctl";
-      usermod = "/usr/sbin/usermod";
-      touch = "/usr/bin/touch";
-      dpkg = "/usr/bin/dpkg";
-      dpkgQuery = "/usr/bin/dpkg-query";
-      udevadm = "/usr/bin/udevadm";
-      modprobe = "/usr/sbin/modprobe";
-      setcap = "/usr/sbin/setcap";
-      install = "/usr/bin/install";
-      cmp = "/usr/bin/cmp";
-      mktemp = "/usr/bin/mktemp";
-      rm = "/usr/bin/rm";
-      mkdir = "/usr/bin/mkdir";
-      curl = "${pkgs.curl}/bin/curl";
-      ufw = "/usr/sbin/ufw";
-    };
+    cmds = import ./cmds.nix { inherit pkgs; };
 
     initSudoPwd = ''
       SUDO_PWD=""
@@ -96,7 +83,8 @@ let
       log_info "user script boundary ready"
     '';
 
-    pkg = rec {
+    # --- Linux-only package management functions ---
+    pkg = lib.optionalAttrs (!isDarwin) rec {
       detectManagerFn = ''
         detect_pkg_manager() {
           if [ -x "${cmds.apt}" ] || command -v apt >/dev/null 2>&1; then
@@ -309,7 +297,7 @@ let
         sys.task.root {
           inherit after name;
           script = ''
-            ${lib.optionalString (message != null) "log_info \"${message}\""}
+            ${lib.optionalString (message != null) "echo \"${message}\""}
             ${pre}
             ${deploy {
               inherit name format data target owner group mode post;
@@ -320,23 +308,21 @@ let
 
     # Global init activation - runs before writeBoundary
     # Defines log functions, esudo (which dynamically reads sops secret when available),
-    # and pkg management functions.
+    # and (on Linux) pkg management functions.
     # Secret decryption happens in sopsDecrypt (after writeBoundary), before userBoundary.
     initActivation = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
       # === Global function definitions ===
-      # Logging functions
       ${logFn}
-
-      # Sudo with password support (dynamic: reads from sops-decrypted file)
       ${initSudoPwd}
       ${esudoFn}
-
-      # Package management functions
-      ${pkg.detectManagerFn}
-      ${pkg.isInstalledFn}
-      ${pkg.updateFn}
-      ${pkg.installFn}
-      ${pkg.installFilesFn}
+      ${lib.optionalString (!isDarwin) ''
+        # Package management functions (Linux only)
+        ${pkg.detectManagerFn or ""}
+        ${pkg.isInstalledFn or ""}
+        ${pkg.updateFn or ""}
+        ${pkg.installFn or ""}
+        ${pkg.installFilesFn or ""}
+      ''}
     '';
 
     task = rec {

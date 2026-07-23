@@ -34,7 +34,7 @@ WIN_ID_HEX=$(get_win_id)
 if [ -z "$WIN_ID_HEX" ]; then
     nohup bash -c "$LAUNCH_CMD" >/dev/null 2>&1 &
     disown
-    for i in {1..20}; do
+    for _ in {1..20}; do
         sleep 0.1
         WIN_ID_HEX=$(get_win_id)
         if [ -n "$WIN_ID_HEX" ]; then

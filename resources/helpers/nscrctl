@@ -137,8 +137,8 @@ if [ -z "$DOTFILES_DIR" ]; then
     exit 1
 fi
 
-NIRI_FILE="$DOTFILES_DIR/modules/desktops/niri.nix"
-BACKUP_FILE="$DOTFILES_DIR/modules/desktops/niri.nix.back.scrctl"
+NIRI_FILE="$DOTFILES_DIR/modules/desktops/linux/niri.nix"
+BACKUP_FILE="$DOTFILES_DIR/modules/desktops/linux/niri.nix.back.scrctl"
 
 if [ ! -f "$NIRI_FILE" ]; then
     ui_error "niri.nix not found at $NIRI_FILE"

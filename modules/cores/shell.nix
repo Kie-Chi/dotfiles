@@ -1,8 +1,5 @@
-{ pkgs, lib, config, cfg, sys, ... }:
+{ pkgs, lib, config, machinePlatform, sys, ... }:
 
-let
-  isDesktop = (cfg.home.option or "desktop") == "desktop";
-in
 {
   programs.zsh = {
     enable = true;
@@ -44,38 +41,31 @@ in
 
     sessionVariables = {
       LANG = "en_US.UTF-8";
-      EDITOR = if isDesktop then "code" else "nvim";
-      DOTFILES_DIR = cfg.dotfiles.path;
-    } // lib.optionalAttrs isDesktop {
-      XMODIFIERS = "@im=fcitx";
-      GTK_IM_MODULE = "fcitx";
-      QT_IM_MODULE = "fcitx";
-      SDL_IM_MODULE = "fcitx";
+      EDITOR = "code";
+      DOTFILES_DIR = config.envy.repository.path;
     };
 
     shellAliases = {
-      zshconf = "nvim ${cfg.dotfiles.path}/modules/cores/shell.nix";
+      zshconf = "nvim ${config.envy.repository.path}/modules/cores/shell.nix";
       omzconf = "nvim ~/.oh-my-zsh";
 
       ll = "ls -alh";
       ".." = "cd ..";
       "..." = "cd ../..";
       myip = "ip -c -br a";
-      ports = "esudo ss -nultp";
+      ports = "sudo ss -nultp";
       py = "python3";
       rcat = "command cat";
       grep = "rg";
+
     };
+
 
     initContent = ''
       [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
       ${builtins.readFile ../../files/zsh/opt.zsh}
       ${builtins.readFile ../../files/zsh/func.zsh}
-
-      unset XCURSOR_PATH
-      unset XCURSOR_THEME
-      unset XCURSOR_SIZE
     '';
   };
 
@@ -91,7 +81,7 @@ in
 
   home.file.".p10k.zsh".source = ../../files/zsh/p10k.zsh;
 
-  home.activation.setZshAsDefault = sys.task.activation {
+  home.activation.setZshAsDefault = lib.mkIf (machinePlatform == "linux") (sys.task.activation {
     name = "setZshAsDefault";
     asRoot = true;
     script = ''
@@ -101,9 +91,9 @@ in
         if ! ${sys.cmds.grep} -q "$zsh_path" /etc/shells; then
           echo "$zsh_path" | esudo tee -a /etc/shells > /dev/null
         fi
-        esudo chsh -s "$zsh_path" ${cfg.home.user}
+        esudo chsh -s "$zsh_path" ${config.envy.user.name}
         log_info "Default shell changed to Zsh. Please relogin."
       fi
     '';
-  };
+  });
 }

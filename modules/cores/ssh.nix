@@ -4,21 +4,27 @@
   programs.ssh = {
     enable = true;
     enableDefaultConfig = false;
-    matchBlocks = {
+    settings = {
         "*" = {
-            compression = true;
+            Compression = true;
         };
 
         "github.com" = {
-            hostname = "ssh.github.com";
-            port = 443;
-            user = "git";
+            HostName = "ssh.github.com";
+            Port = 443;
+            User = "git";
+        };
+
+        "nas" = {
+            HostName = "nas.fl0wer.cn";
+            Port = 6611;
+            User = "chi";
         };
 
         "dell-1" = {
-            hostname = "202.112.47.189";
-            port = 22;
-            user = "xiongxk";
+            HostName = "202.112.47.189";
+            Port = 22;
+            User = "xiongxk";
         };
     };
   };

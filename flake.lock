@@ -1,29 +1,60 @@
 {
   "nodes": {
-    "flake-utils": {
-      "inputs": {
-        "systems": [
-          "niri-scratchpad-flake",
-          "systems"
-        ]
-      },
+    "academic-research-skills": {
+      "flake": false,
       "locked": {
-        "lastModified": 1731533236,
-        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "lastModified": 1784692492,
+        "narHash": "sha256-bgMhA7nycdikmClpvTeRjLy4Fa8AFA/za1RtCF2qo2E=",
+        "owner": "Imbad0202",
+        "repo": "academic-research-skills",
+        "rev": "828ef3b613b0e8b91830da3328a1e33d4eb5ab4c",
         "type": "github"
       },
       "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
+        "owner": "Imbad0202",
+        "repo": "academic-research-skills",
         "type": "github"
       }
     },
-    "flake-utils_2": {
+    "academic-research-skills-codex": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784382230,
+        "narHash": "sha256-wkCRiSY4zqcp32ZcJNkL9G/oar5Bf81PFTDlfG0s/Mw=",
+        "owner": "Imbad0202",
+        "repo": "academic-research-skills-codex",
+        "rev": "16696ba231c1a4063d5abf40349dbf00e5a753b2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Imbad0202",
+        "repo": "academic-research-skills-codex",
+        "type": "github"
+      }
+    },
+    "darwin": {
       "inputs": {
-        "systems": "systems_2"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1779036909,
+        "narHash": "sha256-zXcwYQGCT6pzinK+1dBB2ekTVtfxGZAapb3Evdcu4fY=",
+        "owner": "LnL7",
+        "repo": "nix-darwin",
+        "rev": "56c666e108467d87d13508936aade6d567f2a501",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LnL7",
+        "repo": "nix-darwin",
+        "type": "github"
+      }
+    },
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
       },
       "locked": {
         "lastModified": 1731533236,
@@ -59,31 +90,9 @@
         "type": "github"
       }
     },
-    "niri-scratchpad-flake": {
-      "inputs": {
-        "flake-utils": "flake-utils",
-        "nixpkgs": [
-          "nixpkgs"
-        ],
-        "systems": "systems"
-      },
-      "locked": {
-        "lastModified": 1762334439,
-        "narHash": "sha256-3PVc17NWTE7O5IS6/wT4V7M9moIC035vJZ0vFi7DQ0Q=",
-        "owner": "gvolpe",
-        "repo": "niri-scratchpad",
-        "rev": "d12bf51846777a245d16ca89cbf7e67a256064a5",
-        "type": "github"
-      },
-      "original": {
-        "owner": "gvolpe",
-        "repo": "niri-scratchpad",
-        "type": "github"
-      }
-    },
     "nixgl": {
       "inputs": {
-        "flake-utils": "flake-utils_2",
+        "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs"
       },
       "locked": {
@@ -149,8 +158,10 @@
     },
     "root": {
       "inputs": {
+        "academic-research-skills": "academic-research-skills",
+        "academic-research-skills-codex": "academic-research-skills-codex",
+        "darwin": "darwin",
         "home-manager": "home-manager",
-        "niri-scratchpad-flake": "niri-scratchpad-flake",
         "nixgl": "nixgl",
         "nixpkgs": "nixpkgs_2",
         "sops-nix": "sops-nix"
@@ -175,21 +186,6 @@
       }
     },
     "systems": {
-      "locked": {
-        "lastModified": 1689347949,
-        "narHash": "sha256-12tWmuL2zgBgZkdoB6qXZsgJEH9LR3oUgpaQq2RbI80=",
-        "owner": "nix-systems",
-        "repo": "default-linux",
-        "rev": "31732fcf5e8fea42e59c2488ad31a0e651500f68",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default-linux",
-        "type": "github"
-      }
-    },
-    "systems_2": {
       "locked": {
         "lastModified": 1681028828,
         "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",

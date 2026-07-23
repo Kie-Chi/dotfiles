@@ -59,7 +59,8 @@ usage() {
 }
 
 is_binary() {
-    grep -q -m 1 '^@$' "$1" || head -c 1024 "$1" | grep -q -aP '\x00'
+    # grep -q -m 1 '^@$' "$1" || head -c 1024 "$1" | grep -q -aP '\x00'
+    grep -q -m 1 '^@$' "$1" || head -c 1024 "$1" | perl -ne 'exit 0 if /\x00/; END { exit 1 }'
 }
 
 OUTPUT_FILE="$DEFAULT_OUTPUT_FILE"
