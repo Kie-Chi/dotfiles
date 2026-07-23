@@ -67,7 +67,7 @@ envy config edit
 | `envy config check` | 只读检查 `.device-label`、所选 machine 文件和 secrets。 |
 | `envy config refine` | 迁移/补全设备元数据、machine 受控区块和 secret schema。 |
 | `envy config edit` | 用 `$EDITOR` 打开所选 machine 文件。 |
-| `envy config show` | 显示 Nix 求值后的最终 machine 值，以及 package/Homebrew 的 include、exclude、effective。 |
+| `envy config show [--details] [--refresh]` | 显示 Nix 求值后的最终 machine 值及非空软件 exclusions；`--details` 展开完整 include/exclude/effective，`--refresh` 忽略 manifest 缓存。 |
 | `envy config software` | 查看 machine 软件复选框；`enable/disable` 子命令管理单项 exclusion。 |
 | `envy update` | 更新 flake inputs 和 Homebrew 元数据。 |
 

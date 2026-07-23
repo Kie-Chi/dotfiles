@@ -634,9 +634,14 @@ def cmd_secret_set(
 
 
 @app.command(name="show")
-def cmd_show():
+def cmd_show(
+    refresh: bool = typer.Option(False, "--refresh", help="Ignore the saved manifest cache"),
+    details: bool = typer.Option(
+        False, "--details", "-d", help="Show complete software include/exclude/effective lists"
+    ),
+):
     """Show the evaluated machine, its software policy, and secret status."""
-    manifest = machine_manifest()
+    manifest = machine_manifest(refresh=refresh)
     evaluated_values = manifest_settings(manifest)
     config_values = evaluated_values or read_machine_nix()
     table = Table(title="envy config (evaluated)" if evaluated_values else "envy config (source fallback)")
@@ -653,9 +658,12 @@ def cmd_show():
 
     if manifest:
         for path, include, exclude, effective in manifest_selection_rows(manifest):
-            table.add_row("include", f"{path}.include", _format_list(include))
-            table.add_row("exclude", f"{path}.exclude", _format_list(exclude))
-            table.add_row("effective", f"{path}.effective", _format_list(effective))
+            if details:
+                table.add_row("include", f"{path}.include", _format_list(include))
+            if details or exclude:
+                table.add_row("exclude", f"{path}.exclude", _format_list(exclude))
+            if details:
+                table.add_row("effective", f"{path}.effective", _format_list(effective))
     else:
         log.warn(
             "config",

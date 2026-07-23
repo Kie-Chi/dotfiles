@@ -137,9 +137,16 @@ envy config refine
 
 `envy config show` 不直接把 machine 文件当作最终结果。它会求值当前
 `darwinConfigurations.<machine-id>`，因此展示的标量已经融合
-`hosts/default.nix`、machine overrides 和共享模块；软件策略则分别展示
-`include`、`exclude` 与应用排除后的 `effective`。只有 Nix 求值失败时才退回
+`hosts/default.nix`、machine overrides 和共享模块。默认视图只列出非空的软件
+`exclude`，避免共享的长 `include` / `effective` 列表淹没 machine 设置；使用
+`envy config show --details` 才会展开全部软件选择。只有 Nix 求值失败时才退回
 直接读取 machine 文件，并明确显示 fallback 警告。
+
+成功求值的 manifest 会缓存在 `$XDG_CACHE_HOME/envy/manifests/`，未设置
+`XDG_CACHE_HOME` 时使用 `~/.cache/envy/manifests/`。缓存指纹覆盖当前 machine、
+Git HEAD、暂存区、tracked worktree patch、未跟踪文件内容和 Nix 版本；任一输入
+改变都会自动重新求值。`envy config show --refresh` 可以显式跳过已有缓存，调试时
+也可以设置 `ENVY_NO_CACHE=1`，同时关闭进程内和磁盘缓存。失败的求值不会写入缓存。
 
 运行 `setup.py` 时，标量初始值也来自同一个求值后 manifest。主界面按 `p`
 打开 machine 软件复选框：左右键切换六个软件组、上下键移动、空格切换、`/`
