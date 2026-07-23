@@ -235,6 +235,17 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
         bundle_id="org.kde.okular",
         processes=["okular", "Okular"],
     ),
+    "zotero": AppSpec(
+        name="Zotero",
+        bundles=["Zotero.app"],
+        bundle_id="org.zotero.zotero",
+        processes=["Zotero"],
+        state_paths=[
+            HOME_DIR / "Zotero",
+            HOME_DIR / "Library/Application Support/Zotero",
+        ],
+        login_hint="Open Zotero and sign in if you use library or file sync.",
+    ),
     "wireguard": AppSpec(
         name="WireGuard",
         bundles=["WireGuard.app"],
@@ -290,6 +301,7 @@ APP_ALIASES: dict[str, str] = {
     "wps": "wps-office",
     "wpsoffice": "wps-office",
     "wpsoffice-cn": "wps-office",
+    "zetero": "zotero",
 }
 
 EXPECTED_EXTENSIONS: list[str] = [

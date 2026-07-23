@@ -16,5 +16,6 @@
     ./wallpaper.nix
     ./squirrel.nix
     ./raycast-ai.nix
+    ./zotero.nix
   ];
 }

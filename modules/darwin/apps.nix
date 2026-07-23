@@ -49,6 +49,7 @@
       "iina"
       "iterm2"
       "snipaste"
+      "zotero"
       # "neteasemusic"
     ];
   };
