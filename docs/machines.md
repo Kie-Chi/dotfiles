@@ -260,19 +260,23 @@ in
 envy sync --no-apply
 # 编辑 hosts/machines/work-macbook.nix 或共享模块
 envy host check
-envy push "feat(host): tune work macbook"
+envy push --self "feat(host): tune work macbook"
 ```
 
-`envy push` 会把变更分成：
+`envy push` 会合并分析工作区路径与所有目标远端的 outgoing commits，并把变更分成：
 
 - machine-only：全部路径都位于 `hosts/machines/*.nix`，只列出相应 machine target。
 - shared：包含其他任何路径，保守地列出仓库中的所有 machine target。
 
-确认前会显示文件和影响范围。它先 fetch 所有目标 remote；任一远端领先时，在创建本地 commit 之前停止，避免把共享分支变成需要手工 merge 的分叉。
+确认前会显示文件、每个目标远端的 outgoing commit 数量和影响范围。即使工作区干净，只要存在尚未 push 的 commit 也必须确认。shared 变更使用明确的 `SHARED` 确认；`--yes` 可以跳过交互确认，但不能跳过范围守卫。
 
-默认情况下 `envy push` 也要求当前分支为 `darwin`，防止新设备无意中继续使用机器专属分支。确实需要推送临时开发分支时，必须显式传入 `--branch <current-branch>`。
+`--machine-only` 要求所有工作区和 outgoing 路径都位于 `hosts/machines/*.nix`，允许一次维护多个 machine；`--self` 更严格，只允许 `.device-label` 当前选中的那一个 machine 文件。两者都会在 `git add`、commit 和 push 之前拒绝越界路径，因此不会顺带修改或提交其他内容。
 
-`envy sync` 要求 clean worktree，并执行 `git fetch` 与 `git merge --ff-only origin/darwin`。Git 同步失败时不会继续 build 或 apply。
+push 会先 fetch 所有目标 remote；任一远端领先时，在创建本地 commit 之前停止，避免把共享分支变成需要手工 merge 的分叉。
+
+默认情况下 `envy push` 和 `envy sync` 都要求当前分支为 `darwin`。`--branch` 表示“当前允许操作并映射到远端的 Git 分支”，不是 machine 选择器；确实需要推送临时开发分支时，必须显式传入 `--branch <current-branch>`，以免新设备无意中停留在错误分支。
+
+`envy sync` 要求 clean worktree。未指定 `--remote` 时会 fetch 所有远端，比较它们的 `darwin` 引用，并快进到线性历史中最新的一个；任何两个远端发生分叉都会停止，不会自动创建 merge commit。`--remote <name>` 可以把同步限制为单个远端。Git 同步失败时不会继续 build 或 apply。
 
 ## 从旧 config.nix 迁移
 

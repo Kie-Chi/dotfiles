@@ -57,10 +57,12 @@ envy config edit
 | 命令 | 说明 |
 |---|---|
 | `envy apply` | refine 当前版本化 machine 配置并应用所选 target。 |
-| `envy sync` | 要求工作区干净，fast-forward `origin/darwin`，然后应用当前机器。 |
+| `envy sync` | 要求工作区干净，检查所有远端的 `darwin`，快进到最新兼容提交后应用当前机器。 |
 | `envy sync --no-apply` | 只同步共享分支。 |
 | `envy sync --build-only` | 同步后只构建当前机器，不激活。 |
-| `envy push "<message>"` | 默认只接受 `darwin` 分支；展示变更范围和受影响机器，确认后提交并推送；远端领先时会在提交前拒绝。 |
+| `envy push "<message>"` | 分析工作区和 outgoing commits，展示 shared/machine 影响后确认并推送；远端领先时提前拒绝。 |
+| `envy push --machine-only "<message>"` | 只允许一个或多个 `hosts/machines/*.nix`，遇到 shared 文件立即停止。 |
+| `envy push --self "<message>"` | 只允许当前 `.device-label` 选中的 machine 文件。 |
 | `envy doctor` / `envy dr` | 检查配置、secrets、应用、登录状态和 macOS 权限。 |
 | `envy config check` | 只读检查 `.device-label`、所选 machine 文件和 secrets。 |
 | `envy config refine` | 迁移/补全设备元数据、machine 受控区块和 secret schema。 |
@@ -69,7 +71,7 @@ envy config edit
 | `envy config software` | 查看 machine 软件复选框；`enable/disable` 子命令管理单项 exclusion。 |
 | `envy update` | 更新 flake inputs 和 Homebrew 元数据。 |
 
-所有机器都在同一个 `darwin` 分支上同步。只修改 `hosts/machines/<id>.nix` 时，影响范围仅为该机器；修改共享模块或 `hosts/default.nix` 时，影响所有继承它的机器。`envy push` 会在确认前显示这一判断。
+所有机器都在同一个 `darwin` 分支上同步。只修改 `hosts/machines/<id>.nix` 时，影响范围仅为该机器；修改共享模块或 `hosts/default.nix` 时，影响所有继承它的机器。`envy push` 会同时检查未提交文件和各目标远端的 `remote/darwin..HEAD`；即使工作区已经干净，仍会显示 outgoing commits 的影响并确认。`--branch` 只是显式选择 Git 分支的逃生口，不参与 machine 选择。
 
 ## Machine 覆盖示例
 

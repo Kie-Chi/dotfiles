@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import typer
-from click.shell_completion import CompletionItem
 from rich.prompt import Confirm
 from rich.table import Table
 from prompt_toolkit import prompt as pt_prompt
@@ -51,14 +50,14 @@ def _set_yes_flag(yes: bool):
 # ==========================================
 
 
-def complete_sops_labels(ctx, param, incomplete):
+def complete_sops_labels(ctx, incomplete):
     """Complete key labels from .sops.yaml for envy key remove."""
     if not SOPS_YAML.exists():
         return []
     text = SOPS_YAML.read_text()
     pattern = re.compile(r'- &(\S+)\s+(age1\S+)')
     labels = [match.group(1) for match in pattern.finditer(text)]
-    return [CompletionItem(name) for name in labels if name.startswith(incomplete)]
+    return [name for name in labels if name.startswith(incomplete)]
 
 # ==========================================
 # UTILITIES
@@ -1080,7 +1079,7 @@ def cmd_add(
 @app.command(name="remove")
 @app.command(name="rm", rich_help_panel="Aliases")
 def cmd_remove(
-    label: str = typer.Argument(help="Label of key to remove", shell_complete=complete_sops_labels),
+    label: str = typer.Argument(help="Label of key to remove", autocompletion=complete_sops_labels),
     force: bool = typer.Option(False, "--force", "-f", help="Allow removing current device key"),
 ):
     """Remove a device key from .sops.yaml."""

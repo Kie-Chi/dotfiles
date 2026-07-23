@@ -94,6 +94,8 @@ Hybrid approach (in `setup.py`):
 | `envy host check [id]` | Evaluate one machine system derivation without applying it |
 | `envy sync --no-apply` | Fast-forward the shared `darwin` branch without applying |
 | `envy sync --build-only` | Fast-forward and build only the selected machine |
+| `envy push` | Classify worktree plus outgoing commits, confirm shared impact, and push only after remote-ahead checks |
+| `envy push --machine-only` / `--self` | Restrict a push to machine files or to the selected machine file, respectively |
 | `envy doctor` / `envy dr` | Check config, app install/running/state/login hints, and macOS permissions |
 | `envy doctor apps --only chrome,codex` | Check selected apps only. Values can be repeated or comma-separated; aliases are defined in `APP_ALIASES`. |
 | `envy doctor apps --only perm` | Check only declared macOS TCC permissions |
@@ -150,6 +152,7 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 - Keep package lists and custom derivations in their owning business modules. `modules/envy/` may declare the generic selection schema, aggregate `include`/`exclude`, and expose the manifest, but must not become a central software catalog.
 - Modules contribute packages through `envy.packages.*.include` and Homebrew entries through `envy.homebrew.*.include`; only the envy aggregators assign final `home.packages`, `environment.systemPackages`, `fonts.packages`, or `homebrew.*` lists.
 - `envy setup` owns only the marked `ENVY MANAGED EXCLUSIONS` block. Never move package derivations into it or rewrite hand-maintained policy outside its markers.
+- Push scope checks must include both worktree paths and outgoing commits. `--machine-only` may cover several machine files; `--self` may cover only the selected machine file. Both must fail before staging when out-of-scope paths exist.
 - Do not add an `enable` option merely because a setting could theoretically differ by machine. Shared infrastructure is unconditional; software is selected by package/cask/brew names; new machine options require a demonstrated behavioral difference.
 - Every non-sensitive machine value belongs in `hosts/machines/<id>.nix`; do not recreate an ignored local Nix config layer.
 - **Never** commit `secrets/secrets.yaml` unencrypted. The encrypted file is tracked.

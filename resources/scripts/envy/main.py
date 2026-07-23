@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 import typer
-from click.shell_completion import CompletionItem
 from typing import Optional
 
 from envy import log
@@ -31,20 +30,30 @@ from envy.utils import (
 # ==========================================
 
 
-def complete_git_remotes(ctx, param, incomplete):
+def complete_git_remotes(ctx, incomplete):
     """Complete git remote names for envy push."""
     result = subprocess.run(
         ["git", "remote"], capture_output=True, text=True,
         cwd=str(DOTFILES_DIR), check=False,
     )
     remotes = result.stdout.strip().split() if result.stdout else []
-    return [CompletionItem(name) for name in remotes if name.startswith(incomplete)]
+    return [name for name in remotes if name.startswith(incomplete)]
 
 
-def complete_rollback_target(ctx, param, incomplete):
+def complete_git_branches(ctx, incomplete):
+    """Complete local Git branch names for push/sync branch options."""
+    result = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"],
+        capture_output=True, text=True, cwd=str(DOTFILES_DIR), check=False,
+    )
+    branches = result.stdout.strip().splitlines() if result.stdout else []
+    return [name for name in branches if name.startswith(incomplete)]
+
+
+def complete_rollback_target(ctx, incomplete):
     """Complete rollback target: 'list' or generation numbers."""
     if "list".startswith(incomplete):
-        return [CompletionItem("list", help="List all available generations")]
+        return [("list", "List all available generations")]
     return []
 
 
@@ -97,6 +106,17 @@ def _git_changed_paths() -> list[str]:
     return paths
 
 
+def _ordered_unique(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def _selected_git_remotes(remote: str | None) -> list[str]:
+    if remote:
+        return [remote]
+    remotes_raw = _git_output("remote")
+    return remotes_raw.split() if remotes_raw else []
+
+
 def _affected_machines(paths: list[str]) -> tuple[list[str], bool]:
     known = machine_ids()
     affected: set[str] = set()
@@ -108,6 +128,107 @@ def _affected_machines(paths: list[str]) -> tuple[list[str], bool]:
         else:
             shared = True
     return (known if shared else sorted(affected), shared)
+
+
+def _outgoing_impact(
+    remotes: list[str], branch: str, new_branches: set[str],
+) -> tuple[list[str], set[str], dict[str, int]]:
+    """Collect paths and unique commits that would be sent to target remotes."""
+    paths: list[str] = []
+    commits: set[str] = set()
+    counts: dict[str, int] = {}
+    for remote in remotes:
+        revision = "HEAD" if remote in new_branches else f"{remote}/{branch}..HEAD"
+        remote_commits = [
+            line.strip() for line in _git_output("rev-list", revision).splitlines()
+            if line.strip()
+        ]
+        counts[remote] = len(remote_commits)
+        commits.update(remote_commits)
+        if not remote_commits:
+            continue
+        paths.extend(
+            line.strip().strip('"')
+            for line in _git_output("log", "--format=", "--name-only", revision).splitlines()
+            if line.strip()
+        )
+    return _ordered_unique(paths), commits, counts
+
+
+def _enforce_push_scope(
+    paths: list[str], *, machine_only: bool, self_only: bool,
+) -> tuple[list[str], bool]:
+    """Validate optional machine scope guards and return impact classification."""
+    affected, shared = _affected_machines(paths)
+    if self_only:
+        selected = current_machine_id()
+        expected = f"hosts/machines/{selected}.nix"
+        outside = [path for path in paths if path != expected]
+        if outside:
+            log.error(
+                "git",
+                "--self refuses changes outside the selected machine file",
+                machine=selected,
+            )
+            for path in outside:
+                log.hint(path)
+            raise typer.Exit(code=1)
+    elif machine_only and shared:
+        log.error("git", "--machine-only refuses shared changes")
+        for path in paths:
+            if not (path.startswith("hosts/machines/") and path.endswith(".nix")):
+                log.hint(path)
+        raise typer.Exit(code=1)
+    return affected, shared
+
+
+def _show_push_impact(
+    *,
+    paths: list[str],
+    worktree_paths: list[str],
+    outgoing_commits: set[str],
+    counts: dict[str, int],
+    affected: list[str],
+    shared: bool,
+    branch: str,
+) -> None:
+    scope = "shared" if shared else ("machine-only" if paths else "history-only")
+    log.info(
+        "git",
+        "push impact",
+        scope=scope,
+        files=len(paths),
+        worktree=len(worktree_paths),
+        outgoing_commits=len(outgoing_commits),
+    )
+    for remote, count in counts.items():
+        log.info("git", "push destination", branch=f"{remote}/{branch}", commits=count)
+    for path in paths:
+        log.hint(path)
+    if affected:
+        log.info("host", "affected machine targets", machines=", ".join(affected))
+
+
+def _confirm_push_scope(
+    *,
+    shared: bool,
+    affected: list[str],
+    remotes: list[str],
+    branch: str,
+    has_worktree_changes: bool,
+) -> bool:
+    action = "Commit and push" if has_worktree_changes else "Push"
+    destinations = ", ".join(f"{remote}/{branch}" for remote in remotes)
+    if shared:
+        return typer.confirm(
+            f"{action} SHARED changes affecting {len(affected)} machine(s) to {destinations}?",
+            default=None,
+        )
+    machines = ", ".join(affected) if affected else "no machine files"
+    return typer.confirm(
+        f"{action} machine-only changes for {machines} to {destinations}?",
+        default=None,
+    )
 
 
 def _run_checked_git(args: list[str], action: str) -> None:
@@ -153,6 +274,38 @@ def _preflight_push_remotes(remotes: list[str], branch: str) -> set[str]:
     return new_branches
 
 
+def _git_is_ancestor(older: str, newer: str) -> bool:
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", older, newer],
+        cwd=str(DOTFILES_DIR), capture_output=True, check=False,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    log.error("git", "could not compare branch ancestry", older=older, newer=newer)
+    raise typer.Exit(code=result.returncode)
+
+
+def _select_sync_target(remote_refs: list[str]) -> str:
+    """Choose the newest linearly compatible ref, or reject remote divergence."""
+    target = "HEAD"
+    for remote_ref in remote_refs:
+        if _git_is_ancestor(remote_ref, target):
+            continue
+        if _git_is_ancestor(target, remote_ref):
+            target = remote_ref
+            continue
+        log.error(
+            "git",
+            "remote branches have diverged; refusing to create a merge commit",
+            left=target,
+            right=remote_ref,
+        )
+        raise typer.Exit(code=1)
+    return target
+
+
 # ==========================================
 # SUBCOMMANDS
 # ==========================================
@@ -170,8 +323,14 @@ def cmd_apply():
 @cli.command(name="sync")
 @cli.command(name="s", rich_help_panel="Aliases")
 def cmd_sync(
-    remote: str = typer.Option("origin", "--remote", "-r", help="Remote to synchronize"),
-    branch: str = typer.Option("darwin", "--branch", "-b", help="Shared branch to fast-forward"),
+    remote: Optional[str] = typer.Option(
+        None, "--remote", "-r", help="Synchronize one remote; omit to inspect all remotes",
+        autocompletion=complete_git_remotes,
+    ),
+    branch: str = typer.Option(
+        "darwin", "--branch", "-b", help="Shared branch to fast-forward",
+        autocompletion=complete_git_branches,
+    ),
     no_apply: bool = typer.Option(False, "--no-apply", help="Synchronize Git without applying"),
     build_only: bool = typer.Option(False, "--build-only", help="Build the selected machine without applying"),
 ):
@@ -187,19 +346,38 @@ def cmd_sync(
                   current=current_branch or "<detached>", expected=branch)
         raise typer.Exit(code=1)
 
-    log.step("git", "fetching remote", remote=remote)
-    _run_checked_git(["fetch", remote], "fetch")
-    remote_ref = f"{remote}/{branch}"
-    verify = subprocess.run(
-        ["git", "rev-parse", "--verify", remote_ref], cwd=str(DOTFILES_DIR),
-        capture_output=True, check=False,
-    )
-    if verify.returncode != 0:
-        log.error("git", "remote branch does not exist", branch=remote_ref)
+    remotes = _selected_git_remotes(remote)
+    if not remotes:
+        log.error("git", "no Git remotes are configured")
         raise typer.Exit(code=1)
 
-    log.step("git", "fast-forwarding shared branch", branch=remote_ref)
-    _run_checked_git(["merge", "--ff-only", remote_ref], "fast-forward")
+    remote_refs: list[str] = []
+    for selected_remote in remotes:
+        log.step("git", "fetching remote", remote=selected_remote)
+        _run_checked_git(["fetch", selected_remote], "fetch")
+        remote_ref = f"{selected_remote}/{branch}"
+        verify = subprocess.run(
+            ["git", "rev-parse", "--verify", remote_ref], cwd=str(DOTFILES_DIR),
+            capture_output=True, check=False,
+        )
+        if verify.returncode != 0:
+            if remote is not None:
+                log.error("git", "remote branch does not exist", branch=remote_ref)
+                raise typer.Exit(code=1)
+            log.warn("git", "remote does not provide the shared branch", branch=remote_ref)
+            continue
+        remote_refs.append(remote_ref)
+
+    if not remote_refs:
+        log.error("git", "no remote provides the requested shared branch", branch=branch)
+        raise typer.Exit(code=1)
+
+    target = _select_sync_target(remote_refs)
+    if target == "HEAD":
+        log.info("git", "local branch already contains every compatible remote")
+    else:
+        log.step("git", "fast-forwarding shared branch", branch=target)
+        _run_checked_git(["merge", "--ff-only", target], "fast-forward")
     if no_apply:
         log.ok("sync", "repository synchronized; apply skipped")
         return
@@ -251,7 +429,7 @@ def cmd_init():
 @cli.command(name="rollback")
 @cli.command(name="r", rich_help_panel="Aliases")
 def cmd_rollback(
-    target: str = typer.Argument(None, help="Generation number or 'list'", shell_complete=complete_rollback_target),
+    target: str = typer.Argument(None, help="Generation number or 'list'", autocompletion=complete_rollback_target),
 ):
     """Rollback to a previous configuration generation."""
     if PLATFORM == "darwin":
@@ -318,9 +496,22 @@ def cmd_edit():
 @cli.command(name="p", rich_help_panel="Aliases")
 def cmd_push(
     msg: str = typer.Argument("chore: update configuration", help="Commit message"),
-    remote: str = typer.Argument(None, help="Remote name (omit to push all)", shell_complete=complete_git_remotes),
-    branch: str = typer.Option("darwin", "--branch", "-b", help="Shared branch expected for the push"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm the displayed commit and push"),
+    remote: str = typer.Argument(None, help="Remote name (omit to push all)", autocompletion=complete_git_remotes),
+    branch: str = typer.Option(
+        "darwin", "--branch", "-b", help="Shared branch expected for the push",
+        autocompletion=complete_git_branches,
+    ),
+    machine_only: bool = typer.Option(
+        False, "--machine-only",
+        help="Require every worktree and outgoing change to be a machine file",
+    ),
+    self_only: bool = typer.Option(
+        False, "--self",
+        help="Require every worktree and outgoing change to belong to the selected machine",
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip confirmation; scope safety guards still apply",
+    ),
 ):
     """Commit and push changes to all remotes, or a specified one."""
     current_branch = _git_output("branch", "--show-current")
@@ -337,28 +528,44 @@ def cmd_push(
         log.hint(f"Switch to {branch}, or pass --branch {current_branch} for an intentional branch push.")
         raise typer.Exit(code=1)
 
-    # Determine which remotes to push to
-    if remote is None:
-        remotes_raw = run_cmd(["git", "remote"], check=False, capture=True)
-        remotes = remotes_raw.split() if remotes_raw else []
-    else:
-        remotes = [remote]
+    remotes = _selected_git_remotes(remote)
+    if not remotes:
+        log.error("git", "no Git remotes are configured")
+        raise typer.Exit(code=1)
 
     # Fetch and compare every destination before creating a local commit. This
     # keeps a remote-ahead shared branch recoverable with a simple fast-forward.
     new_branches = _preflight_push_remotes(remotes, current_branch)
 
-    paths = _git_changed_paths()
-    if paths:
-        affected, shared = _affected_machines(paths)
-        log.info("git", "changes selected for commit", files=len(paths), scope="shared" if shared else "machine")
-        for path in paths:
-            log.hint(path)
-        if affected:
-            log.info("host", "affected machine targets", machines=", ".join(affected))
-        if not yes and not typer.confirm(f"Commit these changes on {current_branch} and push?", default=None):
+    worktree_paths = _git_changed_paths()
+    outgoing_paths, outgoing_commits, counts = _outgoing_impact(
+        remotes, current_branch, new_branches,
+    )
+    paths = _ordered_unique([*worktree_paths, *outgoing_paths])
+    affected, shared = _enforce_push_scope(
+        paths, machine_only=machine_only, self_only=self_only,
+    )
+    has_push_work = bool(worktree_paths or outgoing_commits)
+    if has_push_work:
+        _show_push_impact(
+            paths=paths,
+            worktree_paths=worktree_paths,
+            outgoing_commits=outgoing_commits,
+            counts=counts,
+            affected=affected,
+            shared=shared,
+            branch=current_branch,
+        )
+        if not yes and not _confirm_push_scope(
+            shared=shared,
+            affected=affected,
+            remotes=remotes,
+            branch=current_branch,
+            has_worktree_changes=bool(worktree_paths),
+        ):
             raise typer.Abort()
 
+    if worktree_paths:
         _run_checked_git(["add", "-A"], "staging")
         log.step("git", "committing changes")
         _run_checked_git(["commit", "-m", msg], "commit")
