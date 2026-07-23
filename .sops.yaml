@@ -1,11 +1,13 @@
 keys:
-  # Device keys - managed by dtf key commands
-  - &linux_desktop age1gery7k4gpckp770x04ya43jkunl2ealt70tc7h6x7rmpams4j4kqk7732t
-  - &recovery age1vl3afgp8tfc3hvj7708sgept9wflqvl89zjwps98ut2wxs7j5fmq8s29ca
+  # Device keys - managed by envy key commands
+  - &macbook_air age100a8gf8lxg20cghenkaw9hjr48a364ngvpvuh962pwv55yzmkucslusvh6
+  - &recovery age1kjr29kl3xkh658x9n436ahvtfj322ufjl9s60tw2csyrutqr9v7sft7cer
+  - &jyxc_dz_0101541demacbook_pro age1ylzyf40zckj7ftxr6pas4kzev8k4g3mxre6m6g3xh9285ajw7f4q8suefx
 
 creation_rules:
   - path_regex: secrets/secrets\.yaml$
     key_groups:
       - age:
-          - *linux_desktop
+          - *macbook_air
           - *recovery
+          - *jyxc_dz_0101541demacbook_pro
