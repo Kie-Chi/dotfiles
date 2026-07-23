@@ -29,9 +29,10 @@ Nix-based dotfiles for macOS (aarch64-darwin), using nix-darwin + home-manager +
 | `modules/envy/darwin.nix` / `modules/envy/home.nix` | Final package/Homebrew aggregators and evaluated machine manifest. |
 | `modules/agents/` | Agent installers, provider wrappers, declarative skill catalog, and shared skill selection. |
 | `docs/agents.md` | Architecture and maintenance guide for agent providers and skill subpackages. |
-| `setup.py` | Python rich + prompt_toolkit sequential CLI for initial setup and config editing. Reuses `envy.config` schema/read-write helpers, prompts each field in order, shows changes summary, then saves + encrypts + commits .sops.yaml. |
+| `setup.py` | Python rich + prompt_toolkit sequential CLI for initial setup and config editing. Reuses `envy.config` schema/read-write helpers, manages machine software exclusions, shows a change summary, then saves, encrypts, and offers one scoped Git commit for the selected machine and changed sops files. |
 | `resources/scripts/envy/config.py` | Machine managed-block and secret validation/read-write engine used by setup and `envy config`. |
 | `resources/scripts/envy/evaluation.py` | Shared reader for the evaluated machine manifest used by config views and doctor policy. |
+| `resources/scripts/envy/software.py` | Managed machine-exclusion block, checkbox model, CLI, atomic writes, and evaluation rollback. |
 | `resources/scripts/envy/host.py` | Creates and inspects per-machine files; init only asks for Machine ID and import/copy mode. |
 | `resources/scripts/envy/schemas/apps.py` | Single source of truth for app doctor specs: bundles, commands, processes, state paths, login hints, permissions, aliases, and custom checkers. |
 | `resources/scripts/envy/doctor/checks/apps/` | App doctor implementation: generic checks, registry, app-specific auth/login checks, and VS Code checks. |
@@ -64,7 +65,7 @@ modules/
 
 ### Secret flow
 
-1. `setup.py` collects values → writes the managed block in the selected machine file + temporary plaintext `secrets.yaml` → encrypts secrets with sops → commits `.sops.yaml`
+1. `setup.py` collects values → writes the managed blocks in the selected machine file + temporary plaintext `secrets.yaml` → encrypts secrets with sops → offers a scoped commit for that machine file and changed sops files
 2. `darwin-rebuild switch` evaluates the selected `hosts/machines/<id>.nix` through `flake.nix` → sops-nix decrypts `secrets.yaml` at activation
 3. Decrypted secrets available as file paths (`config.sops.secrets.xxx.path`) or in rendered templates (`config.sops.placeholder.xxx`)
 4. Templates: `env-secrets` (API_KEY env vars), `mihomo-config` (proxy config), `raycast-providers` (LLM providers YAML)
@@ -85,6 +86,7 @@ Hybrid approach (in `setup.py`):
 | `envy config check` | Check `.device-label`, the selected machine file, and secrets.yaml without writing |
 | `envy config refine` | Migrate/refine device metadata, the machine managed block, and secret paths before apply |
 | `envy config show` | Show evaluated scalar values plus package/Homebrew include, exclude, and effective lists |
+| `envy config software` | List software checkbox state; use `enable/disable <group> <name>` for machine exclusions |
 | `envy config edit` | Open the selected versioned machine file in `$EDITOR` |
 | `envy host init [id]` | Create a machine module by importing or copying `hosts/default.nix`; never selects software |
 | `envy host list` / `envy host status` | List repository machines or show the locally selected target |
@@ -147,6 +149,7 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 - Do not introduce a required profile layer. A machine module is the final unit of configuration; `hosts/default.nix` is only an optional imported default.
 - Keep package lists and custom derivations in their owning business modules. `modules/envy/` may declare the generic selection schema, aggregate `include`/`exclude`, and expose the manifest, but must not become a central software catalog.
 - Modules contribute packages through `envy.packages.*.include` and Homebrew entries through `envy.homebrew.*.include`; only the envy aggregators assign final `home.packages`, `environment.systemPackages`, `fonts.packages`, or `homebrew.*` lists.
+- `envy setup` owns only the marked `ENVY MANAGED EXCLUSIONS` block. Never move package derivations into it or rewrite hand-maintained policy outside its markers.
 - Do not add an `enable` option merely because a setting could theoretically differ by machine. Shared infrastructure is unconditional; software is selected by package/cask/brew names; new machine options require a demonstrated behavioral difference.
 - Every non-sensitive machine value belongs in `hosts/machines/<id>.nix`; do not recreate an ignored local Nix config layer.
 - **Never** commit `secrets/secrets.yaml` unencrypted. The encrypted file is tracked.

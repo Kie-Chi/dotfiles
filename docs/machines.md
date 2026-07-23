@@ -127,6 +127,9 @@ envy.llm.deepseek.model = "deepseek-v4-pro";
 
 ```bash
 envy config show
+envy config software
+envy config software disable homebrew.casks uuremote
+envy config software enable packages.home okular
 envy config edit
 envy config set envy.vscode.mode local
 envy config refine
@@ -139,9 +142,25 @@ envy config refine
 直接读取 machine 文件，并明确显示 fallback 警告。
 
 运行 `setup.py` 时，标量初始值也来自同一个求值后 manifest。主界面按 `p`
-可打开只读的软件策略页。Nix package 的 `include` 可能包含 derivation、局部
-变量和任意 Nix 表达式，因此可视化页不尝试把名称列表反向写回源码；使用
-`envy config edit` 修改这些策略可以保留原始 Nix 结构。
+打开 machine 软件复选框：左右键切换六个软件组、上下键移动、空格切换、`/`
+搜索、`r` 撤销本次软件修改。取消勾选会加入当前 machine 的 exclusion，重新
+勾选会移除该 exclusion；共享业务模块中的 `include` 和 derivation 不会被改写。
+
+Envy 把这些选择写入单独的 `BEGIN/END ENVY MANAGED EXCLUSIONS` 区块，只生成
+非空列表，最后一个 exclusion 被移除时整个区块也会消失。保存前会检查
+machine 文件没有被其他进程修改，保存后重新执行 Nix 求值；若求值失败则原子
+恢复原文件。受控区块外或继承而来的 exclusion 显示为 `[-]`，必须在其来源处
+修改，TUI 不会覆盖手写策略。
+
+setup 保存并通过求值后，会把当前 machine 文件以及本次发生变化的 `.sops.yaml`、
+加密 secrets 和 recovery key 加入同一次 Git 提交确认。候选文件使用显式 pathspec，
+不会包含工作区内其他未完成修改；拒绝提交或提交失败时文件仍保留在暂存区，之后
+可以先运行 `envy git diff --cached` 检查，再手动提交。setup 不会自动 push，跨远端
+同步仍由 `envy push` 负责。
+
+Nix package 的 `include` 可能包含 derivation、局部变量和任意 Nix 表达式，
+因此复选框只管理 exclusions。新增 derivation 仍通过所属业务模块完成；Homebrew
+或 Nix 的单项 exclusion 也可以用 `envy config software enable/disable` 管理。
 
 ### 排除 Nix package
 

@@ -66,6 +66,7 @@ envy config edit
 | `envy config refine` | 迁移/补全设备元数据、machine 受控区块和 secret schema。 |
 | `envy config edit` | 用 `$EDITOR` 打开所选 machine 文件。 |
 | `envy config show` | 显示 Nix 求值后的最终 machine 值，以及 package/Homebrew 的 include、exclude、effective。 |
+| `envy config software` | 查看 machine 软件复选框；`enable/disable` 子命令管理单项 exclusion。 |
 | `envy update` | 更新 flake inputs 和 Homebrew 元数据。 |
 
 所有机器都在同一个 `darwin` 分支上同步。只修改 `hosts/machines/<id>.nix` 时，影响范围仅为该机器；修改共享模块或 `hosts/default.nix` 时，影响所有继承它的机器。`envy push` 会在确认前显示这一判断。
@@ -116,7 +117,9 @@ envy doctor apps --only perm
 
 Doctor 会读取当前 machine 的求值后 manifest。明确排除的应用显示为 `INFO`，不会被误报为缺失。详细维护说明见 [docs/doctor.md](docs/doctor.md)。
 
-`setup.py` 的可视化界面同样读取求值后的值，因此会包含 `hosts/default.nix` 和共享模块。按 `p` 可以查看软件策略摘要；该页只读，复杂的 Nix package 表达式仍通过 `envy config edit` 修改。
+`setup.py` 的可视化界面同样读取求值后的值，因此会包含 `hosts/default.nix` 和共享模块。按 `p` 打开软件复选框，使用左右键切换 package/Homebrew 组、空格启用或禁用、`/` 搜索。界面只写当前 machine 的 exclusion，不会重写业务模块中的 Nix package derivation 或 `include`。
+
+保存并通过 Nix 求值后，setup 会把当前 machine 文件和本次有变化的 sops 文件放入一次 Git 提交确认；其他工作区修改不会被加入，push 仍需使用 `envy push`。
 
 ## License
 
