@@ -1,19 +1,10 @@
-{ ... }: {
-  homebrew = {
-    enable = true;
-    onActivation = {
-      autoUpdate = false;
-      upgrade = false;
-    };
+{ ... }:
 
-    # taps = [
-    #    {
-    #      name = "kde-mac/kde";
-    #      clone_target = "git@github.com:KDE/homebrew-kde.git";
-    #    }
-    #  ];
-
-    brews = [
+{
+  # Software stays grouped by its owning module. Individual machines remove
+  # entries with envy.homebrew.<kind>.exclude instead of per-app enable flags.
+  envy.homebrew = {
+    brews.include = [
       "gh"
       "chsrc"
       "gum"
@@ -23,7 +14,7 @@
       "go"
     ];
 
-    casks = [
+    casks.include = [
       # "uuremote" # Game for Windows
       "telegram-desktop"
       "clash-verge-rev"
@@ -47,7 +38,6 @@
       # "dingtalk"
       "orbstack"
       "iina"
-      "iterm2"
       "snipaste"
       "zotero"
       # "neteasemusic"

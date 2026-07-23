@@ -2,6 +2,7 @@
 
 let
   agentConfig = config.agents.claude;
+  packageEnabled = !(builtins.elem "claude" config.envy.packages.home.exclude);
   promptFile = ".config/ccli/prompt";
 
   claudeWithDefaults = pkgs.writeShellApplication {
@@ -33,8 +34,6 @@ let
 in
 {
   options.agents.claude = {
-    enable = lib.mkEnableOption "the managed Claude Code command";
-
     package = lib.mkPackageOption pkgs "claude-code" { };
 
     extraArgs = lib.mkOption {
@@ -50,8 +49,8 @@ in
     };
   };
 
-  config = lib.mkIf agentConfig.enable {
-    home.packages = [
+  config = lib.mkIf packageEnabled {
+    envy.packages.home.include = [
       claudeWithDefaults
     ] ++ lib.optional agentConfig.ccliAlias ccli;
 

@@ -1,9 +1,9 @@
-"""Dotfiles, config.nix, and sops checks."""
+"""Dotfiles machine policy and sops checks."""
 
 from pathlib import Path
 
 from envy import _source_info
-from envy.config import read_config_nix, read_secrets_data
+from envy.config import machine_config_file, read_machine_nix, read_secrets_data
 from envy.doctor.model import (
     SECTION_CONFIG,
     SECTION_DOCTOR,
@@ -15,9 +15,15 @@ from envy.doctor.model import (
     warn,
 )
 from envy.schemas import __version__ as envy_version, CONFIG_SCHEMA_VERSION
-from envy.utils import AGE_KEY_FILE, DOTFILES_DIR, SECRETS_FILE, USER_CONFIG, is_sops_encrypted
-
-CONFIG_FILE = DOTFILES_DIR / "config.nix"
+from envy.utils import (
+    AGE_KEY_FILE,
+    DEVICE_LABEL_FILE,
+    DOTFILES_DIR,
+    SECRETS_FILE,
+    device_metadata_is_toml,
+    is_sops_encrypted,
+    read_device_metadata,
+)
 
 
 def run_checks() -> list[CheckResult]:
@@ -26,39 +32,68 @@ def run_checks() -> list[CheckResult]:
     # Source and version info
     results.extend(_check_source())
 
-    config_path = USER_CONFIG if USER_CONFIG.exists() else CONFIG_FILE
-    if config_path.exists():
-        results.append(ok(SECTION_CONFIG, "config.nix", f"found {config_path}"))
-    else:
+    try:
+        metadata = read_device_metadata()
+    except (OSError, ValueError) as exc:
         results.append(error(
             SECTION_CONFIG,
-            "config.nix",
-            "config.nix is missing",
-            hint="Run: envy config refine",
+            "device metadata",
+            str(exc),
+            hint="Fix .device-label or run: envy config refine",
         ))
         return results
 
-    values = read_config_nix()
-    vscode_mode = values.get("vscode.mode", "remote")
-    if vscode_mode in {"remote", "local"}:
-        results.append(ok(SECTION_CONFIG, "vscode.mode", f"mode={vscode_mode}"))
+    if not device_metadata_is_toml():
+        results.append(error(
+            SECTION_CONFIG,
+            "device metadata",
+            ".device-label is missing or uses the legacy one-line format",
+            hint="Run: envy config refine",
+        ))
+        return results
+    if not metadata.get("machine_id") or not metadata.get("sops_label"):
+        results.append(error(
+            SECTION_CONFIG,
+            "device metadata",
+            "device.machine_id or device.sops_label is missing",
+            hint="Run: envy config refine",
+        ))
+        return results
+    results.append(ok(SECTION_CONFIG, "device metadata", f"found {DEVICE_LABEL_FILE}"))
+
+    config_path = machine_config_file()
+    if config_path.exists():
+        results.append(ok(SECTION_CONFIG, "machine file", f"found {config_path}"))
     else:
         results.append(error(
             SECTION_CONFIG,
-            "vscode.mode",
+            "machine file",
+            "selected machine configuration is missing",
+            hint="Run: envy host init",
+        ))
+        return results
+
+    values = read_machine_nix()
+    vscode_mode = values.get("envy.vscode.mode", "remote")
+    if vscode_mode in {"remote", "local"}:
+        results.append(ok(SECTION_CONFIG, "envy.vscode.mode", f"mode={vscode_mode}"))
+    else:
+        results.append(error(
+            SECTION_CONFIG,
+            "envy.vscode.mode",
             f"invalid mode={vscode_mode}",
-            hint="Run: envy config set vscode.mode remote  # or local",
+            hint="Run: envy config set envy.vscode.mode remote  # or local",
         ))
 
-    proxy_status = values.get("proxy.status", "none")
+    proxy_status = values.get("envy.proxy.mode", "none")
     if proxy_status in {"none", "manual", "keep"}:
-        results.append(info(SECTION_CONFIG, "proxy.status", f"mode={proxy_status}"))
+        results.append(info(SECTION_CONFIG, "envy.proxy.mode", f"mode={proxy_status}"))
     else:
         results.append(error(
             SECTION_CONFIG,
-            "proxy.status",
+            "envy.proxy.mode",
             f"invalid mode={proxy_status}",
-            hint="Run: envy config set proxy.status none  # or manual/keep",
+            hint="Run: envy config set envy.proxy.mode none  # or manual/keep",
         ))
 
     results.extend(_check_secrets())

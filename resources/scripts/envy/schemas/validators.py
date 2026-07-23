@@ -24,3 +24,9 @@ def is_url(val: str) -> Optional[str]:
     if val and not val.startswith("http://") and not val.startswith("https://"):
         return "URL must start with http:// or https://"
     return None
+
+
+def is_machine_id(val: str) -> Optional[str]:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", val or ""):
+        return "Machine ID may contain only letters, digits, underscores, and hyphens"
+    return None

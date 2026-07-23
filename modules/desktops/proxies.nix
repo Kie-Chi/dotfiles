@@ -1,10 +1,15 @@
-{ config, cfg, lib, ... }:
+{ config, lib, ... }:
 
 let
-  proxyStatus = cfg.proxy.status or "manual";
+  proxyStatus = config.envy.proxy.mode;
+  proxyConfigured = proxyStatus != "none";
+  mihomoEnabled = proxyConfigured
+    && !(builtins.elem "mihomo" config.envy.homebrew.brews.exclude);
+  proxychainsEnabled = proxyConfigured
+    && !(builtins.elem "proxychains-ng" config.envy.homebrew.brews.exclude);
 in
 {
-  sops.templates."mihomo-config" = lib.mkIf (proxyStatus != "none") {
+  sops.templates."mihomo-config" = lib.mkIf mihomoEnabled {
     path = "${config.home.homeDirectory}/.config/mihomo/config.yaml.tmpl";
     mode = "0644";
     content = ''
@@ -12,7 +17,7 @@ in
       
       # interface-name: @PHYS_IFACE@
       tun:
-        enable: ${cfg.proxy.tun or "true"}
+        enable: ${if config.envy.proxy.tun then "true" else "false"}
         stack: mixed
         auto-route: true
         strict-route: false
@@ -40,7 +45,7 @@ in
     '';
   };
 
-  xdg.configFile."proxychains/proxychains.conf" = lib.mkIf (proxyStatus != "none") {
+  xdg.configFile."proxychains/proxychains.conf" = lib.mkIf proxychainsEnabled {
     text = ''
       strict_chain
       proxy_dns
@@ -51,7 +56,7 @@ in
     '';
   };
 
-  programs.zsh.shellAliases = {
-    proxy = "proxychains4 -f ${cfg.home.dir}/.config/proxychains/proxychains.conf";
+  programs.zsh.shellAliases = lib.mkIf proxychainsEnabled {
+    proxy = "proxychains4 -f ${config.envy.user.home}/.config/proxychains/proxychains.conf";
   };
 }

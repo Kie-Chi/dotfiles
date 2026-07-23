@@ -6,19 +6,17 @@
     ./skills.nix
   ];
 
-  # This is the machine's agent profile. Provider modules define reusable
-  # options; this file decides which providers and skills are active here.
+  # Shared agent defaults. Provider modules define reusable options; this file
+  # decides which providers and skills are part of the shared environment.
   agents = {
     claude = {
-      enable = true;
       # Keep this security-sensitive policy visible in the Nix machine
-      # profile instead of exposing it through envy/config.nix.
+      # configuration instead of exposing machine-specific agent toggles.
       extraArgs = [ "--dangerously-skip-permissions" ];
       ccliAlias = true;
     };
 
     skills = {
-      enable = true;
       catalog = import ./skills/catalog.nix {
         inherit academicResearchSkills academicResearchSkillsCodex;
       };

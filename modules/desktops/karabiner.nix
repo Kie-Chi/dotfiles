@@ -1,5 +1,8 @@
-{ ... }:
+{ config, lib, ... }:
 
 {
-  xdg.configFile."karabiner/karabiner.json".source = ../../files/apps/karabiner/karabiner.json;
+  xdg.configFile."karabiner/karabiner.json" =
+    lib.mkIf (!(builtins.elem "karabiner-elements" config.envy.homebrew.casks.exclude)) {
+      source = ../../files/apps/karabiner/karabiner.json;
+    };
 }

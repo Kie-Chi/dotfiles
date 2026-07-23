@@ -1,7 +1,8 @@
-{ config, pkgs, cfg, lib, sys, ... }:
+{ config, pkgs, lib, sys, ... }:
 
 {
   imports = [
+    ./modules/envy/home.nix
     ./modules/agents
     ./modules/cores
     ./modules/devps
@@ -9,8 +10,8 @@
     ./modules/libs
   ];
   config = {
-    home.username = cfg.home.user;
-    home.homeDirectory = lib.mkForce "${cfg.home.dir}";
+    home.username = config.envy.user.name;
+    home.homeDirectory = lib.mkForce config.envy.user.home;
     home.stateVersion = "25.11";
 
     # --- sops secrets declaration (nested YAML paths) ---
@@ -34,13 +35,13 @@
     # --- sops templates for env vars ---
     sops.templates."env-secrets" = {
       content = ''
-        export STEPFUN_BASE_URL=${lib.escapeShellArg cfg.llm.steps.url}
+        export STEPFUN_BASE_URL=${lib.escapeShellArg config.envy.llm.steps.url}
         export API_KEY=${lib.escapeShellArg config.sops.placeholder.llm-steps-apikey}
         export STEPFUN_API_KEY=${lib.escapeShellArg config.sops.placeholder.llm-steps-apikey}
-        export ANTHROPIC_BASE_URL=${lib.escapeShellArg cfg.llm.steps.url}
+        export ANTHROPIC_BASE_URL=${lib.escapeShellArg config.envy.llm.steps.url}
         export ANTHROPIC_API_KEY=${lib.escapeShellArg config.sops.placeholder.llm-steps-apikey}
         export ANTHROPIC_AUTH_TOKEN=${lib.escapeShellArg config.sops.placeholder.llm-steps-apikey}
-        export ANTHROPIC_MODEL=${lib.escapeShellArg cfg.llm.steps.model}
+        export ANTHROPIC_MODEL=${lib.escapeShellArg config.envy.llm.steps.model}
       '';
     };
 

@@ -1,11 +1,5 @@
 { pkgs, ... }:
 
 {
-  home.packages = with pkgs; [
-    # utils
-    desktoppr
-
-    # apps
-    sing-box
-  ];
+  envy.packages.home.include = [ pkgs.sing-box ];
 }

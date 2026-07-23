@@ -6,10 +6,10 @@
 #
 ###################################
 
-{ pkgs, config, cfg, lib, ... }:
+{ pkgs, config, lib, ... }:
 
 {
-    home.packages = with pkgs; [
+  envy.packages.home.include = with pkgs; [
     # base
     git
     git-lfs
@@ -61,7 +61,7 @@
       log_error "Failed to read password from ${config.sops.secrets.home-passwd.path}"
       exit 1
     fi
-    CONTENT="trusted-users = root ${cfg.home.user}"
+    CONTENT="trusted-users = root ${config.envy.user.name}"
 
     HOST_SUDO="/usr/bin/sudo"
     HOST_SH="/bin/sh"

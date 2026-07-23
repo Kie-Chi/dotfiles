@@ -4,7 +4,7 @@ These are invoked via the checker registry when an AppSpec declares
 checkers=["vscode_sync", "vscode_extensions"].
 """
 
-from envy.config import read_config_nix
+from envy.config import read_machine_nix
 from envy.doctor.model import (
     SECTION_AUTH,
     SECTION_CONFIG,
@@ -21,7 +21,7 @@ from envy.schemas.apps import AppSpec, EXPECTED_EXTENSIONS
 
 def check_sync(spec: AppSpec) -> list[CheckResult]:
     """Check VS Code mode, Settings Sync, auth, and Copilot state."""
-    mode = read_config_nix().get("vscode.mode", "remote")
+    mode = read_machine_nix().get("envy.vscode.mode", "remote")
     results: list[CheckResult] = [info(SECTION_CONFIG, f"{spec.name} mode", f"mode={mode}")]
 
     if mode == "remote":
@@ -37,14 +37,14 @@ def check_sync(spec: AppSpec) -> list[CheckResult]:
             SECTION_CONFIG,
             f"{spec.name} mode",
             f"unknown mode={mode}",
-            hint="Run: envy config set vscode.mode remote  # or local",
+            hint="Run: envy config set envy.vscode.mode remote  # or local",
         ))
     return results
 
 
 def check_extensions(spec: AppSpec) -> list[CheckResult]:
     """Check VS Code extensions (only meaningful in local mode)."""
-    mode = read_config_nix().get("vscode.mode", "remote")
+    mode = read_machine_nix().get("envy.vscode.mode", "remote")
     if mode != "local":
         return []  # remote mode manages extensions via Settings Sync
     return _check_local_extensions(spec)

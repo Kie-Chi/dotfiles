@@ -1,4 +1,4 @@
-{ config, pkgs, cfg, lib, sys, ... }:
+{ config, pkgs, lib, sys, ... }:
 
 let
   translateForZoteroVersion = "2.4.5";
@@ -8,12 +8,12 @@ let
   };
 
   zoteroRoot = "${config.home.homeDirectory}/Library/Application Support/Zotero";
-  stepfunBaseUrl = lib.removeSuffix "/" cfg.llm.steps.url;
+  stepfunBaseUrl = lib.removeSuffix "/" config.envy.llm.steps.url;
   claudeEndpoint =
     if lib.hasSuffix "/v1/messages" stepfunBaseUrl then stepfunBaseUrl
     else if lib.hasSuffix "/v1" stepfunBaseUrl then "${stepfunBaseUrl}/messages"
     else "${stepfunBaseUrl}/v1/messages";
-  deepseekBaseUrl = lib.removeSuffix "/" cfg.llm.deepseek.url;
+  deepseekBaseUrl = lib.removeSuffix "/" config.envy.llm.deepseek.url;
   deepseekChatEndpoint =
     if lib.hasSuffix "/chat/completions" deepseekBaseUrl then deepseekBaseUrl
     else if lib.hasSuffix "/v1" deepseekBaseUrl then "${deepseekBaseUrl}/chat/completions"
@@ -129,13 +129,13 @@ let
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.attachPaperContext", true);'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.hideUnconfiguredServices", true);'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.customGPT1.endPoint", ${builtins.toJSON deepseekChatEndpoint});'
-            printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.customGPT1.model", ${builtins.toJSON cfg.llm.deepseek.model});'
+            printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.customGPT1.model", ${builtins.toJSON config.envy.llm.deepseek.model});'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.customGPT1.temperature", "0.3");'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.customGPT1.prompt", ${builtins.toJSON translationPrompt});'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.customGPT1.stream", true);'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.customGPT1.customParams", ${builtins.toJSON deepseekCustomParams});'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.claude.endPoint", ${builtins.toJSON claudeEndpoint});'
-            printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.claude.model", ${builtins.toJSON cfg.llm.steps.model});'
+            printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.claude.model", ${builtins.toJSON config.envy.llm.steps.model});'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.claude.temperature", "0.3");'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.claude.maxTokens", "4000");'
             printf '%s\n' 'user_pref("extensions.zotero.ZoteroPDFTranslate.claude.stream", true);'
@@ -163,8 +163,10 @@ let
   '';
 in
 {
-  home.activation.configureZotero = sys.task.activation {
+  home.activation.configureZotero = lib.mkIf (
+    !(builtins.elem "zotero" config.envy.homebrew.casks.exclude)
+  ) (sys.task.activation {
     name = "configureZotero";
     script = "${configureZotero}";
-  };
+  });
 }

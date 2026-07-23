@@ -1,12 +1,15 @@
-{ config, pkgs, cfg, lib, sys, ... }:
+{ config, pkgs, lib, sys, ... }:
 
 let
-  user = cfg.home.user;
+  user = config.envy.user.name;
   proxyPort = "20122";
   mihomoBin = "/opt/homebrew/bin/mihomo";
-  configDir = "/Users/${cfg.home.user}/.config/mihomo";
-  proxyStatus = cfg.proxy.status or "manual";  
-  isTunMode = (cfg.proxy.tun or "true") == "true";
+  configDir = "${config.envy.user.home}/.config/mihomo";
+  proxyStatus = config.envy.proxy.mode;
+  isTunMode = config.envy.proxy.tun;
+  proxyConfigured = proxyStatus != "none";
+  serviceEnabled = proxyConfigured
+    && builtins.elem "mihomo" config.envy.homebrew.brews.effective;
 
   # --- Shared Shell Functions for Interface Detection ---
   detectionLogic = ''
@@ -96,9 +99,9 @@ let
   '';
 in
 {
-  homebrew.brews = lib.optionals (proxyStatus != "none") [ "mihomo" ];
+  envy.homebrew.brews.include = lib.optionals proxyConfigured [ "mihomo" ];
 
-  launchd.daemons.mihomo = lib.mkIf (proxyStatus != "none") {
+  launchd.daemons.mihomo = lib.mkIf serviceEnabled {
     script = if isTunMode 
              then "${mihomoTunWrapper}/bin/mihomo-tun-service"
              else "${mihomoSysProxyWrapper}/bin/mihomo-sysproxy-service";

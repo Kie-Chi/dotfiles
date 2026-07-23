@@ -4,6 +4,7 @@ set -e
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRES_SCRIPT="$BASE_DIR/requires.sh"
+export ENVY_DOTFILES="$BASE_DIR"
 
 # ==========================================
 # STEP 1: Ensure Nix is available

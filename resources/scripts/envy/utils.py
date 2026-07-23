@@ -1,9 +1,11 @@
 """Shared utilities for envy CLI — path constants, subprocess helpers, sudo wrapper."""
 
+import json
 import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Optional
 
@@ -20,20 +22,18 @@ PLATFORM = sys.platform  # "linux" | "darwin"
 # ==========================================
 
 HOME_DIR = Path.home()
-USER_CONFIG = HOME_DIR / ".config" / "dotfiles" / "config.nix"
-SYSTEM_CONFIG = Path("/etc/dotfiles/config.nix")
+LEGACY_MACHINE_SELECTOR = HOME_DIR / ".config" / "envy" / "machine"
+LEGACY_USER_CONFIG = HOME_DIR / ".config" / "dotfiles" / "config.nix"
+LEGACY_SYSTEM_CONFIG = Path("/etc/dotfiles/config.nix")
 
 
 def _resolve_dotfiles_dir() -> Path:
-    env = os.environ.get("DOTFILES_DIR")
+    env = os.environ.get("ENVY_DOTFILES") or os.environ.get("DOTFILES_DIR")
     if env:
         return Path(env)
-    for config_path in (USER_CONFIG, SYSTEM_CONFIG):
-        if config_path.exists():
-            text = config_path.read_text()
-            match = re.search(r'dotfiles\.path\s*=\s*"([^"]+)"', text)
-            if match:
-                return Path(match.group(1))
+    source_checkout = Path(__file__).resolve().parents[3]
+    if (source_checkout / "flake.nix").exists():
+        return source_checkout
     return HOME_DIR / ".dotfiles"
 
 
@@ -55,9 +55,129 @@ RECOVERY_KEY_FILE = SECRETS_DIR / "recovery-key.age"
 DEVICE_LABEL_FILE = DOTFILES_DIR / ".device-label"
 SETUP_SCRIPT = DOTFILES_DIR / "setup.sh"
 
-# Platform-specific flake target and system profile
-FLAKE_TARGET = ".#MacBook-Air" if PLATFORM == "darwin" else ".#default"
+# Platform-specific system profile. The flake target is resolved at runtime
+# because each Darwin machine has its own hosts/machines/<id>.nix entry.
 SYSTEM_PROFILE = Path("/nix/var/nix/profiles/system")
+
+
+def read_device_metadata() -> dict[str, str]:
+    """Read .device-label TOML, accepting the previous one-line label once."""
+    if not DEVICE_LABEL_FILE.exists():
+        return {}
+    text = DEVICE_LABEL_FILE.read_text().strip()
+    if not text:
+        return {}
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", text):
+            # Historically this file named only the sops key. Do not assume it
+            # was also the selected machine when legacy config may disagree.
+            return {"sops_label": text}
+        raise ValueError(f"invalid TOML in {DEVICE_LABEL_FILE}: {exc}") from exc
+
+    version = data.get("version", 1)
+    if type(version) is not int or version != 1:
+        raise ValueError(f"unsupported device metadata version: {version}")
+    device = data.get("device", {})
+    if not isinstance(device, dict):
+        raise ValueError(f"[device] must be a TOML table in {DEVICE_LABEL_FILE}")
+    result = {}
+    for key in ("machine_id", "sops_label"):
+        value = device.get(key)
+        if value is not None:
+            if not isinstance(value, str):
+                raise ValueError(f"device.{key} must be a string in {DEVICE_LABEL_FILE}")
+            result[key] = value.strip()
+    return result
+
+
+def device_metadata_is_toml() -> bool:
+    if not DEVICE_LABEL_FILE.exists():
+        return False
+    try:
+        data = tomllib.loads(DEVICE_LABEL_FILE.read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return (
+        type(data.get("version")) is int
+        and data.get("version") == 1
+        and isinstance(data.get("device"), dict)
+    )
+
+
+def write_device_metadata(
+    *, machine_id: str | None = None, sops_label: str | None = None
+) -> None:
+    """Update device-local TOML while preserving the other identity field."""
+    current = read_device_metadata()
+    if machine_id is not None:
+        current["machine_id"] = machine_id
+    if sops_label is not None:
+        current["sops_label"] = sops_label
+    DEVICE_LABEL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["version = 1\n", "\n", "[device]\n"]
+    for key in ("machine_id", "sops_label"):
+        value = current.get(key)
+        if value:
+            lines.append(f"{key} = {json.dumps(value)}\n")
+    DEVICE_LABEL_FILE.write_text("".join(lines))
+
+
+def current_machine_id() -> str:
+    """Resolve the machine target from device metadata and legacy inputs."""
+    env_machine = os.environ.get("ENVY_MACHINE", "").strip()
+    candidates = [env_machine]
+    metadata = read_device_metadata()
+    candidates.append(metadata.get("machine_id", ""))
+
+    if not metadata.get("machine_id"):
+        # One-time upgrade paths are consulted only until TOML device metadata
+        # has a machine ID; they are not part of the steady-state lookup.
+        if LEGACY_MACHINE_SELECTOR.exists():
+            try:
+                candidates.append(LEGACY_MACHINE_SELECTOR.read_text().strip())
+            except OSError:
+                pass
+
+        for config_path in (LEGACY_USER_CONFIG, DOTFILES_DIR / "config.nix", LEGACY_SYSTEM_CONFIG):
+            if not config_path.exists():
+                continue
+            try:
+                text = config_path.read_text()
+            except OSError:
+                continue
+            match = re.search(r'^\s*envy\.machine\.id\s*=\s*"([A-Za-z0-9_-]+)"\s*;', text, re.MULTILINE)
+            if match:
+                candidates.append(match.group(1))
+
+    candidates.append(metadata.get("sops_label", ""))
+
+    hostname = subprocess.getoutput("hostname -s").strip() or "machine"
+    candidates.append(re.sub(r"[^A-Za-z0-9_-]", "_", hostname))
+    for candidate in candidates:
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", candidate or ""):
+            return candidate
+    return "machine"
+
+
+def set_device_machine_id(machine_id: str) -> None:
+    """Persist the machine target in device metadata; policy stays in Git."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", machine_id):
+        raise ValueError("invalid machine ID")
+    write_device_metadata(machine_id=machine_id)
+    if LEGACY_MACHINE_SELECTOR.is_file() or LEGACY_MACHINE_SELECTOR.is_symlink():
+        LEGACY_MACHINE_SELECTOR.unlink()
+        try:
+            LEGACY_MACHINE_SELECTOR.parent.rmdir()
+        except OSError:
+            pass
+
+
+def flake_target() -> str:
+    # Use an explicit path flake so a freshly created, not-yet-committed
+    # hosts/machines/<id>.nix is visible during the first check/apply.
+    return f"path:.#{current_machine_id()}" if PLATFORM == "darwin" else "path:.#default"
 
 
 # ==========================================
@@ -184,12 +304,10 @@ def run_hm(*args: str) -> None:
 
 def run_darwin_switch() -> None:
     """Run nix-darwin switch with sudo."""
-    ensure_config_links()
     log.step("darwin", "running nix-darwin switch")
     esudo("--preserve-env=HOME", "nix", "run", "nix-darwin", "--", "switch",
-          "--flake", FLAKE_TARGET, "--impure", capture=False)
+          "--flake", flake_target(), "--impure", capture=False)
     log.ok("darwin", "system successfully updated")
-    clean_config_links()
 
 
 def run_apply() -> None:
@@ -198,31 +316,11 @@ def run_apply() -> None:
         run_darwin_switch()
     else:
         log.step("hm", "applying Home Manager configuration")
-        run_hm("switch", "--flake", FLAKE_TARGET, "--impure")
+        run_hm("switch", "--flake", flake_target(), "--impure")
         log.ok("hm", "configuration applied, new generation created")
-        clean_config_links()
 
 
 def _command_exists(name: str) -> bool:
     return subprocess.run(
         ["which", name], capture_output=True,
     ).returncode == 0
-
-# ==========================================
-# CONFIG LINKS
-# ==========================================
-
-
-def ensure_config_links() -> None:
-    """Link config.nix to /etc/dotfiles if not already linked."""
-    if not SYSTEM_CONFIG.exists() or not os.path.islink(str(SYSTEM_CONFIG)):
-        log.step("config", "linking config.nix to /etc/dotfiles")
-        esudo("mkdir", "-p", "/etc/dotfiles", capture=True)
-        esudo("ln", "-sf", str(USER_CONFIG), str(SYSTEM_CONFIG), capture=True)
-
-
-def clean_config_links() -> None:
-    """Remove /etc/dotfiles symlink."""
-    if SYSTEM_CONFIG.exists() and os.path.islink(str(SYSTEM_CONFIG)):
-        log.step("config", "cleaning up config link")
-        esudo("rm", "-f", str(SYSTEM_CONFIG), capture=True)

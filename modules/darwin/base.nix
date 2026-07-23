@@ -1,7 +1,7 @@
-{ pkgs, cfg, ... }:
+{ pkgs, config, ... }:
 {
   system.stateVersion = 6;
-  system.primaryUser = cfg.home.user;
+  system.primaryUser = config.envy.user.name;
   nixpkgs.config.allowUnfree = true;
   nix.enable = false;
   system.defaults = {

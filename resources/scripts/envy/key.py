@@ -26,7 +26,8 @@ from envy.utils import (
     DOTFILES_DIR, HOME_DIR, AGE_KEY_DIR, AGE_KEY_FILE,
     SOPS_YAML, SECRETS_DIR, SECRETS_FILE, RECOVERY_KEY_FILE,
     DEVICE_LABEL_FILE, run_cmd, backup_sensitive_file,
-    is_sops_encrypted,
+    device_metadata_is_toml, is_sops_encrypted, read_device_metadata,
+    write_device_metadata,
 )
 
 # Typer subgroup
@@ -113,28 +114,27 @@ def write_sops_yaml_keys(keys: Dict[str, str]) -> None:
 # ==========================================
 
 
-def get_device_label() -> str:
-    if DEVICE_LABEL_FILE.exists():
-        label = DEVICE_LABEL_FILE.read_text().strip()
-        if label:
-            return sanitize_label(label)
+def get_sops_label() -> str:
+    metadata = read_device_metadata()
+    label = metadata.get("sops_label") or metadata.get("machine_id")
+    if label:
+        return sanitize_label(label)
     hostname = run_cmd(["hostname", "-s"], check=False, capture=True)
     return sanitize_label(hostname) if hostname else "unknown"
 
 
-def set_device_label(label: str) -> None:
+def set_sops_label(label: str) -> None:
     normalized = sanitize_label(label) or "unknown"
-    DEVICE_LABEL_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DEVICE_LABEL_FILE.write_text(normalized + "\n")
+    write_device_metadata(sops_label=normalized)
 
 
-def ensure_device_label() -> str:
-    """Return and persist a stable device label for the current machine."""
-    stored = DEVICE_LABEL_FILE.read_text().strip() if DEVICE_LABEL_FILE.exists() else ""
+def ensure_sops_label() -> str:
+    """Return and persist a stable sops key label for the current device."""
+    stored = read_device_metadata().get("sops_label", "")
     if stored:
-        label = get_device_label()
-        if stored != label:
-            set_device_label(label)
+        label = get_sops_label()
+        if stored != label or not device_metadata_is_toml():
+            set_sops_label(label)
         return label
 
     # Recover the label from .sops.yaml when the local marker was deleted.
@@ -147,11 +147,11 @@ def ensure_device_label() -> str:
             if label != "recovery" and pubkey == current_pub and sanitize_label(label) == label
         ]
         if matching_labels:
-            set_device_label(matching_labels[0])
+            set_sops_label(matching_labels[0])
             return matching_labels[0]
 
-    label = get_device_label()
-    set_device_label(label)
+    label = get_sops_label()
+    set_sops_label(label)
     return label
 
 # ==========================================
@@ -190,7 +190,7 @@ def git_commit_sops_files(operation: str = "") -> None:
     if not (DOTFILES_DIR / ".git").exists():
         return
 
-    label = get_device_label()
+    label = get_sops_label()
     scope = f"sops/{operation}" if operation else "sops"
 
     files = [str(SOPS_YAML), str(SECRETS_FILE), str(RECOVERY_KEY_FILE)]
@@ -374,7 +374,7 @@ def scan_usb_key_files() -> List[Path]:
 def key_list() -> None:
     keys = read_sops_yaml_keys()
     current_pub = get_current_device_public_key()
-    current_label = get_device_label()
+    current_label = get_sops_label()
 
     table = Table(title="Age Keys in .sops.yaml")
     table.add_column("Label", style="cyan")
@@ -406,7 +406,7 @@ def key_list() -> None:
 def key_status() -> None:
     current_pub = get_current_device_public_key()
     keys = read_sops_yaml_keys()
-    label = get_device_label()
+    label = get_sops_label()
 
     items = []
 
@@ -423,7 +423,7 @@ def key_status() -> None:
         items.append(("Public key", "[red]NONE[/red]", ""))
         items.append(("In .sops.yaml", "[red]NO KEY[/red]", ""))
 
-    items.append(("Device label", label, str(DEVICE_LABEL_FILE)))
+    items.append(("Sops key label", label, str(DEVICE_LABEL_FILE)))
 
     has_recovery = "recovery" in keys
     items.append(("Recovery key", "[green]YES[/green]" if has_recovery else "[yellow]NO[/yellow]", ""))
@@ -669,20 +669,20 @@ def key_import(
         log.error("key", "key import failed")
         return None
 
-    # Set device label
+    # Set the sops key label in shared device metadata.
     if label:
-        set_device_label(sanitize_label(label))
+        set_sops_label(sanitize_label(label))
     else:
-        default_label = get_device_label()
+        default_label = get_sops_label()
         try:
-            user_label = pt_prompt(f"Device label [{default_label}]: ").strip()
+            user_label = pt_prompt(f"Sops key label [{default_label}]: ").strip()
         except (EOFError, KeyboardInterrupt):
             user_label = ""
-        set_device_label(sanitize_label(user_label) if user_label else default_label)
+        set_sops_label(sanitize_label(user_label) if user_label else default_label)
 
     # Add to .sops.yaml
     keys = read_sops_yaml_keys()
-    current_label = get_device_label()
+    current_label = get_sops_label()
     keys[current_label] = pub
     write_sops_yaml_keys(keys)
 
@@ -923,7 +923,7 @@ def key_rotate(recovery: bool = False) -> None:
         log.hint("Run: envy key import")
         return
 
-    label = ensure_device_label()
+    label = ensure_sops_label()
     if current_pub not in keys.values():
         log.error("key", "current device key not in .sops.yaml, cannot rotate")
         return
@@ -1046,7 +1046,7 @@ def cmd_import(
     age: Optional[str] = typer.Option(None, "--age", "-a", help="Path to age key file"),
     ssh: Optional[str] = typer.Option(None, "--ssh", "-s", help="Path to SSH private key"),
     generate: bool = typer.Option(False, "--generate", "-g", help="Generate a new age key"),
-    label: Optional[str] = typer.Option(None, "--label", "-l", help="Device label"),
+    label: Optional[str] = typer.Option(None, "--label", "-l", help="Sops key label"),
 ):
     """Import a key for current device."""
     result = key_import(age_path=age, ssh_path=ssh, generate=generate, label=label)

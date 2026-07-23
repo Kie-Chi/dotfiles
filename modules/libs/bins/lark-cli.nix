@@ -36,7 +36,5 @@ let
   };
 in
 {
-  home.packages = [
-    lark-cli
-  ];
+  envy.packages.home.include = [ lark-cli ];
 }

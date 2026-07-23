@@ -1,4 +1,4 @@
-{ pkgs, lib, config, cfg, ... }:
+{ pkgs, lib, config, ... }:
 
 {
   programs.zsh = {
@@ -42,11 +42,11 @@
     sessionVariables = {
       LANG = "en_US.UTF-8";
       EDITOR = "code";
-      DOTFILES_DIR = cfg.dotfiles.path;
+      DOTFILES_DIR = config.envy.repository.path;
     };
 
     shellAliases = {
-      zshconf = "nvim ${cfg.dotfiles.path}/modules/cores/shell.nix";
+      zshconf = "nvim ${config.envy.repository.path}/modules/cores/shell.nix";
       omzconf = "nvim ~/.oh-my-zsh";
 
       ll = "ls -alh";

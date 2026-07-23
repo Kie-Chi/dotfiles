@@ -1,7 +1,7 @@
-{ pkgs, cfg, lib, sys, ... }:
+{ config, pkgs, lib, sys, ... }:
 
 let
-  mode = cfg.vscode.mode or "remote";
+  mode = config.envy.vscode.mode;
   useLocalConfig = mode == "local";
 in
 {

@@ -21,8 +21,6 @@ let
 in
 {
   options.agents.skills = {
-    enable = lib.mkEnableOption "declarative agent skill discovery";
-
     catalog = lib.mkOption {
       default = { };
       description = "Available skill packages, keyed by their skill name.";
@@ -49,7 +47,7 @@ in
     };
   };
 
-  config = lib.mkIf skillsConfig.enable {
+  config = {
     assertions = [
       {
         assertion = unknownSkills == [ ];

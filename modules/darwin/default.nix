@@ -1,5 +1,6 @@
 { ... }: {
   imports = [
+    ../envy/darwin.nix
     ../agents/darwin.nix
     ./base.nix
     ./apps.nix

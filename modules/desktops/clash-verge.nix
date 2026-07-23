@@ -1,12 +1,14 @@
-{ cfg, lib, ... }:
+{ config, lib, ... }:
 
 let
-  proxyStatus = cfg.proxy.status or "manual";
-  enableTun = (cfg.proxy.tun or "true") == "true";
+  proxyStatus = config.envy.proxy.mode;
+  enabled = proxyStatus != "none"
+    && !(builtins.elem "clash-verge-rev" config.envy.homebrew.casks.exclude);
+  enableTun = config.envy.proxy.tun;
   renderYaml = lib.generators.toYAML {};
 in
 {
-  home.file."Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/verge.yaml" = lib.mkIf (proxyStatus != "none") {
+  home.file."Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/verge.yaml" = lib.mkIf enabled {
     text = renderYaml {
       app_log_level = null;
       app_log_max_size = 128;
@@ -69,7 +71,7 @@ in
     };
   };
 
-  home.file."Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/config.yaml" = lib.mkIf (proxyStatus != "none") {
+  home.file."Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/config.yaml" = lib.mkIf enabled {
     text = renderYaml {
       "redir-port" = 7895;
       "mixed-port" = 7897;

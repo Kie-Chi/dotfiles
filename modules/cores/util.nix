@@ -1,4 +1,4 @@
-{ pkgs, lib, ... }:
+{ config, pkgs, lib, ... }:
 
 let
   scriptsSrc = lib.cleanSource ../../resources/scripts;
@@ -43,15 +43,8 @@ let
     text = ''
       bundled="${scriptsSrc}"
       repo="''${ENVY_DOTFILES:-}"
-
-      # Resolve repo path: env var > config file > default
       if [ -z "$repo" ]; then
-        if [ -f "$HOME/.config/dotfiles/config.nix" ]; then
-          repo=$(sed -n 's/.*dotfiles\.path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$HOME/.config/dotfiles/config.nix" 2>/dev/null || true)
-        fi
-      fi
-      if [ -z "$repo" ]; then
-        repo="$HOME/.dotfiles"
+        repo=${lib.escapeShellArg config.envy.repository.path}
       fi
 
       # Prefer repo source unless explicitly using bundled
@@ -69,5 +62,5 @@ let
 
 in
 {
-  home.packages = packagedScripts ++ [ envyPackage ];
+  envy.packages.home.include = packagedScripts ++ [ envyPackage ];
 }

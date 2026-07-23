@@ -27,7 +27,7 @@
     ];
   };
 
-  # Neovim config files (symlinked from dotfiles)
+  # Neovim config files managed declaratively by Home Manager.
   xdg.configFile = {
     "nvim/init.lua".source = ../../files/editor/nvim/init.lua;
     "nvim/lua/editor.lua".source = ../../files/editor/nvim/lua/editor.lua;

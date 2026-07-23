@@ -34,11 +34,15 @@ class AppSpec:
     login_hint: str = ""
     permissions: list[PermissionReq] = field(default_factory=list)
     checkers: list[str] = field(default_factory=list)
+    casks: list[str] = field(default_factory=list)
+    brews: list[str] = field(default_factory=list)
+    packages: list[str] = field(default_factory=list)
 
 
 ALL_APP_SPECS: dict[str, AppSpec] = {
     "raycast": AppSpec(
         name="Raycast",
+        casks=["raycast"],
         bundles=["Raycast.app"],
         bundle_id="com.raycast.macos",
         processes=["Raycast"],
@@ -54,6 +58,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "codex": AppSpec(
         name="ChatGPT",
+        casks=["codex", "chatgpt"],
         bundles=["ChatGPT.app"],
         bundle_id="com.openai.codex",
         commands=["codex"],
@@ -66,6 +71,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "claude-code": AppSpec(
         name="Claude Code",
+        packages=["claude"],
         bundles=["Claude Code URL Handler.app"],
         bundle_id="com.anthropic.claude-code-url-handler",
         commands=["claude"],
@@ -78,16 +84,19 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "github-cli": AppSpec(
         name="GitHub CLI",
+        brews=["gh"],
         commands=["gh"],
         checkers=["github_cli_auth"],
     ),
     "lark-cli": AppSpec(
         name="Lark CLI",
+        packages=["lark-cli"],
         commands=["lark-cli"],
         checkers=["lark_cli_auth"],
     ),
     "iterm2": AppSpec(
         name="iTerm2",
+        casks=["iterm2"],
         bundles=["iTerm.app", "iTerm2.app"],
         bundle_id="com.googlecode.iterm2",
         processes=["iTerm2"],
@@ -96,6 +105,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "karabiner": AppSpec(
         name="Karabiner-Elements",
+        casks=["karabiner-elements"],
         bundles=["Karabiner-Elements.app"],
         bundle_id="org.pqrs.Karabiner-Elements",
         processes=[
@@ -115,6 +125,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "linearmouse": AppSpec(
         name="LinearMouse",
+        casks=["linearmouse"],
         bundles=["LinearMouse.app"],
         bundle_id="com.lujjjh.LinearMouse",
         processes=["LinearMouse"],
@@ -126,6 +137,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "squirrel": AppSpec(
         name="Squirrel",
+        casks=["squirrel-app"],
         bundles=["Squirrel.app"],
         bundle_id="im.rime.inputmethod.Squirrel",
         processes=["Squirrel"],
@@ -137,6 +149,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "snipaste": AppSpec(
         name="Snipaste",
+        casks=["snipaste"],
         bundles=["Snipaste.app"],
         bundle_id="com.Snipaste",
         processes=["Snipaste"],
@@ -146,6 +159,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "clash-verge": AppSpec(
         name="Clash Verge Rev",
+        casks=["clash-verge-rev"],
         bundles=["Clash Verge.app", "Clash Verge Rev.app"],
         bundle_id="io.github.clash-verge-rev.clash-verge-rev",
         processes=["clash-verge", "Clash Verge"],
@@ -156,12 +170,14 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "cyberduck": AppSpec(
         name="Cyberduck",
+        casks=["cyberduck"],
         bundles=["Cyberduck.app"],
         bundle_id="ch.sudo.cyberduck",
         processes=["Cyberduck"],
     ),
     "wps-office": AppSpec(
         name="WPS Office",
+        casks=["wpsoffice-cn"],
         bundles=["wpsoffice.app", "WPS Office.app"],
         bundle_id="com.kingsoft.wpsoffice.mac",
         processes=["wpsoffice", "WPS Office"],
@@ -169,6 +185,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "iina": AppSpec(
         name="IINA",
+        casks=["iina"],
         bundles=["IINA.app"],
         bundle_id="com.colliderli.iina",
         commands=["iina"],
@@ -176,6 +193,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "betterdisplay": AppSpec(
         name="BetterDisplay",
+        casks=["betterdisplay"],
         bundles=["BetterDisplay.app"],
         bundle_id="pro.betterdisplay.BetterDisplay",
         processes=["BetterDisplay"],
@@ -184,6 +202,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "feishu": AppSpec(
         name="Feishu",
+        casks=["feishu"],
         bundles=["Feishu.app", "Lark.app"],
         bundle_id="com.electron.lark",
         processes=["Feishu", "Lark"],
@@ -197,6 +216,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "tencent-meeting": AppSpec(
         name="Tencent Meeting",
+        casks=["tencent-meeting"],
         bundles=["TencentMeeting.app", "腾讯会议.app"],
         bundle_id="com.tencent.meeting",
         processes=["TencentMeeting", "腾讯会议"],
@@ -210,6 +230,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "chrome": AppSpec(
         name="Google Chrome",
+        casks=["google-chrome"],
         bundles=["Google Chrome.app"],
         bundle_id="com.google.Chrome",
         processes=["Google Chrome"],
@@ -218,12 +239,14 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "tailscale": AppSpec(
         name="Tailscale",
+        casks=["tailscale-app"],
         bundles=["Tailscale.app"],
         state_paths=[HOME_DIR / "Library/Preferences/io.tailscale.ipn.macsys.plist"],
         checkers=["tailscale_auth"],
     ),
     "orbstack": AppSpec(
         name="OrbStack",
+        casks=["orbstack"],
         bundles=["OrbStack.app"],
         bundle_id="dev.orbstack.OrbStack",
         processes=["OrbStack"],
@@ -231,12 +254,14 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "okular": AppSpec(
         name="Okular",
+        packages=["okular"],
         bundles=["okular.app", "Okular.app"],
         bundle_id="org.kde.okular",
         processes=["okular", "Okular"],
     ),
     "zotero": AppSpec(
         name="Zotero",
+        casks=["zotero"],
         bundles=["Zotero.app"],
         bundle_id="org.zotero.zotero",
         processes=["Zotero"],
@@ -248,12 +273,14 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "wireguard": AppSpec(
         name="WireGuard",
+        packages=["wireguard-macos-app"],
         bundles=["WireGuard.app"],
         bundle_id="com.wireguard.macos",
         processes=["WireGuard"],
     ),
     "wireshark": AppSpec(
         name="Wireshark",
+        packages=["wireshark-qt"],
         bundles=["Wireshark.app"],
         bundle_id="org.wireshark.Wireshark",
         commands=["wireshark"],
@@ -261,6 +288,7 @@ ALL_APP_SPECS: dict[str, AppSpec] = {
     ),
     "sing-box": AppSpec(
         name="sing-box",
+        packages=["sing-box"],
         commands=["sing-box"],
     ),
     "vscode": AppSpec(

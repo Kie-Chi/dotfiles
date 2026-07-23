@@ -1,4 +1,4 @@
-{ pkgs, cfg, lib, ... }:
+{ config, pkgs, lib, ... }:
 
 let
   dracula-colors = pkgs.fetchurl {
@@ -7,13 +7,17 @@ let
   };
 in
 {
-  fonts.packages = with pkgs; [
+  envy.packages.fonts.include = with pkgs; [
     maple-mono.NF-CN
     noto-fonts-cjk-sans
     noto-fonts-color-emoji
   ];
 
-  home-manager.users."${cfg.home.user}" = {
+  envy.homebrew.casks.include = [ "iterm2" ];
+
+  home-manager.users."${config.envy.user.name}" = lib.mkIf (
+    builtins.elem "iterm2" config.envy.homebrew.casks.effective
+  ) {
     home.file."iterm2-dracula-profile" = {
       target = "Library/Application Support/iTerm2/DynamicProfiles/Dracula.json";
       text = builtins.toJSON {

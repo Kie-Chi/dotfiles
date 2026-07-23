@@ -134,5 +134,5 @@ if __name__ == "__main__":
     '';
 in
 {
-  home.packages = [ niri-scratchpad ];
+  envy.packages.home.include = [ niri-scratchpad ];
 }

@@ -9,6 +9,7 @@ let
   };
 in
 {
+  config = lib.mkIf (!(builtins.elem "squirrel-app" config.envy.homebrew.casks.exclude)) {
 
   home.activation.installRimeIce = sys.task.activation {
     name = "installRimeIce";
@@ -87,5 +88,6 @@ in
           - { when: composing, accept: Control+f, send: Right }          # "Control+f" 向右选择候选词
           - { when: composing, accept: Control+h, send: BackSpace }      # "Control+h" 删除输入码
     '';
+  };
   };
 }

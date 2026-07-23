@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Dotfiles setup CLI — menuconfig-like UI for config.nix + sops secrets."""
+"""Dotfiles setup CLI for the selected machine file and sops secrets."""
 
 import os
 import subprocess
-from typing import List, Optional
+from typing import Optional
 
 from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window, HSplit, FormattedTextControl, ConditionalContainer
 from prompt_toolkit.layout.controls import BufferControl
@@ -22,14 +23,23 @@ from envy import log
 from envy.key import (
     AGE_KEY_DIR, AGE_KEY_FILE, SECRETS_FILE,
     read_sops_yaml_keys, write_sops_yaml_keys,
-    get_current_device_public_key, ensure_device_label,
+    get_current_device_public_key, ensure_sops_label,
     run_sops_updatekeys, git_commit_sops_files, key_import,
 )
 from envy.config import (
-    ALL_FIELDS, CONFIG_FIELDS, SECRET_FIELDS, FieldDef,
-    read_config_nix, read_secrets_yaml, write_config_nix, write_secrets_yaml,
+    read_machine_nix, read_secrets_yaml, write_machine_nix, write_secrets_yaml,
 )
-from envy.utils import HOME_DIR, RECOVERY_KEY_FILE, backup_sensitive_file, run_cmd
+from envy.evaluation import machine_manifest, manifest_selection_rows, manifest_settings
+from envy.host import initialize_machine, machine_file, validate_machine_id
+from envy.schemas.config import ALL_FIELDS, MACHINE_FIELDS, SECRET_FIELDS, FieldDef
+from envy.utils import (
+    HOME_DIR,
+    PLATFORM,
+    backup_sensitive_file,
+    current_machine_id,
+    run_cmd,
+    set_device_machine_id,
+)
 
 
 # ==========================================
@@ -95,25 +105,30 @@ def setup_age_key() -> str:
 
 class AppState:
     """State for the menuconfig Application."""
-    def __init__(self, values: dict):
+    def __init__(self, values: dict, manifest: dict | None = None):
         self.values = values
-        self.mode = "list"  # "list" | "edit_text" | "edit_choice"
+        self.manifest = manifest
+        self.mode = "list"  # "list" | "policy" | "edit_text" | "edit_choice"
         self.cursor = 0
         self.editing_field: Optional[FieldDef] = None
         self.edit_buffer = Buffer()
         self.choice_cursor = 0
+        self.policy_cursor = 0
         self.error_msg = ""
         self.result: Optional[dict] = None  # set on save/quit
 
 
 def init_values() -> dict:
-    existing_config = read_config_nix()
+    existing_config = read_machine_nix()
+    evaluated_config = manifest_settings(machine_manifest())
     existing_secrets, _ = read_secrets_yaml()
     values = {}
     for f in ALL_FIELDS:
         if f.condition and not f.condition(values):
             continue
-        if f.dest == "config" and f.path in existing_config:
+        if f.dest == "machine" and f.path in evaluated_config:
+            values[f.path] = evaluated_config[f.path]
+        elif f.dest == "machine" and f.path in existing_config:
             values[f.path] = existing_config[f.path]
         elif f.dest == "secret" and f.path in existing_secrets:
             values[f.path] = existing_secrets[f.path]
@@ -178,6 +193,29 @@ def _list_text(state: AppState) -> list:
     return lines
 
 
+def _compact_list(values: list[str], limit: int = 4) -> str:
+    visible = values[:limit]
+    suffix = f", … +{len(values) - limit}" if len(values) > limit else ""
+    return "[" + ", ".join(visible) + suffix + "]"
+
+
+def _policy_text(state: AppState) -> list:
+    rows = list(manifest_selection_rows(state.manifest))
+    if not rows:
+        return [
+            ("class:error", "\n  Nix evaluation is unavailable.\n"),
+            ("class:hint", "  Fix the machine evaluation, then reopen setup.\n"),
+        ]
+
+    lines = []
+    for path, include, exclude, effective in rows:
+        lines.append(("class:group", f"  ── {path} ──\n"))
+        lines.append(("class:normal", f"    include:   {_compact_list(include)}\n"))
+        lines.append(("class:normal", f"    exclude:   {_compact_list(exclude)}\n"))
+        lines.append(("class:dim", f"    effective: {_compact_list(effective)}\n"))
+    return lines
+
+
 def _edit_frame_title(state: AppState) -> list:
     """Frame title for edit_text mode — includes error if present."""
     f = state.editing_field
@@ -212,17 +250,30 @@ def _choice_text(state: AppState) -> list:
 def build_application(state: AppState) -> Application:
     """Build a single Application with mode-switching layout."""
     is_list = Condition(lambda: state.mode == "list")
+    is_policy = Condition(lambda: state.mode == "policy")
     is_edit_text = Condition(lambda: state.mode == "edit_text")
     is_edit_choice = Condition(lambda: state.mode == "edit_choice")
 
     # --- Title bar (always visible) ---
-    title_content = FormattedTextControl(lambda: [("class:title", "  Dotfiles Setup — menuconfig")])
+    title_content = FormattedTextControl(lambda: [("class:title", (
+        "  Dotfiles Setup — evaluated software policy"
+        if state.mode == "policy"
+        else "  Dotfiles Setup — menuconfig"
+    ))])
     title_window = Window(content=title_content, height=1)
 
     # --- List mode ---
-    list_content = FormattedTextControl(lambda: _list_text(state))
+    list_content = FormattedTextControl(lambda: _list_text(state), focusable=True)
     list_window = Window(content=list_content)
     list_container = ConditionalContainer(content=list_window, filter=is_list)
+
+    policy_content = FormattedTextControl(
+        lambda: _policy_text(state),
+        focusable=True,
+        get_cursor_position=lambda: Point(x=0, y=state.policy_cursor),
+    )
+    policy_window = Window(content=policy_content)
+    policy_container = ConditionalContainer(content=policy_window, filter=is_policy)
 
     # --- Edit text mode (framed) ---
     edit_context = FormattedTextControl(lambda: _edit_context(state))
@@ -251,7 +302,9 @@ def build_application(state: AppState) -> Application:
     # --- Bottom bar (always visible, context-sensitive) ---
     def bottom_text():
         if state.mode == "list":
-            return [("class:bottom", "  Enter: edit  │  s: save & exit  │  q/Esc: quit  │  ↑↓: navigate")]
+            return [("class:bottom", "  Enter: edit  │  p: software policy  │  s: save & exit  │  q/Esc: quit  │  ↑↓: navigate")]
+        elif state.mode == "policy":
+            return [("class:bottom", "  ↑↓: scroll  │  p/Esc: back  │  q: quit  │  edit: envy config edit")]
         elif state.mode == "edit_text":
             return [("class:bottom", "  Enter: confirm  │  Esc: cancel")]
         elif state.mode == "edit_choice":
@@ -264,6 +317,7 @@ def build_application(state: AppState) -> Application:
     layout = Layout(HSplit([
         title_window,
         list_container,
+        policy_container,
         edit_text_container,
         choice_container,
         bottom_window,
@@ -273,21 +327,26 @@ def build_application(state: AppState) -> Application:
     kb = KeyBindings()
 
     # Navigation — only in list and choice modes
-    @kb.add("up", filter=is_list | is_edit_choice)
+    @kb.add("up", filter=is_list | is_policy | is_edit_choice)
     def _(event):
         if state.mode == "list":
             items = get_visible_fields(state.values)
             state.cursor = max(0, state.cursor - 1)
+        elif state.mode == "policy":
+            state.policy_cursor = max(0, state.policy_cursor - 1)
         elif state.mode == "edit_choice":
             choices = state.editing_field.choices
             state.choice_cursor = max(0, state.choice_cursor - 1)
         event.app.invalidate()
 
-    @kb.add("down", filter=is_list | is_edit_choice)
+    @kb.add("down", filter=is_list | is_policy | is_edit_choice)
     def _(event):
         if state.mode == "list":
             items = get_visible_fields(state.values)
             state.cursor = min(len(items) - 1, state.cursor + 1)
+        elif state.mode == "policy":
+            row_count = max(1, len(list(manifest_selection_rows(state.manifest))) * 4)
+            state.policy_cursor = min(row_count - 1, state.policy_cursor + 1)
         elif state.mode == "edit_choice":
             choices = state.editing_field.choices
             state.choice_cursor = min(len(choices) - 1, state.choice_cursor + 1)
@@ -336,6 +395,19 @@ def build_application(state: AppState) -> Application:
         state.mode = "list"
         event.app.invalidate()
 
+    @kb.add("p", filter=is_list)
+    def _(event):
+        state.mode = "policy"
+        event.app.layout.focus(policy_window)
+        event.app.invalidate()
+
+    @kb.add("p", filter=is_policy)
+    @kb.add("escape", filter=is_policy)
+    def _(event):
+        state.mode = "list"
+        event.app.layout.focus(list_window)
+        event.app.invalidate()
+
     # Escape — cancel edit or quit from list
     @kb.add("escape", filter=is_edit_text | is_edit_choice)
     def _(event):
@@ -345,6 +417,7 @@ def build_application(state: AppState) -> Application:
 
     @kb.add("escape", filter=is_list)
     @kb.add("q", filter=is_list)
+    @kb.add("q", filter=is_policy)
     def _(event):
         state.result = None
         event.app.exit()
@@ -371,8 +444,8 @@ def build_application(state: AppState) -> Application:
     return Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
 
 
-def menuconfig_loop(initial_values: dict) -> Optional[dict]:
-    state = AppState(values=dict(initial_values))
+def menuconfig_loop(initial_values: dict, manifest: dict | None = None) -> Optional[dict]:
+    state = AppState(values=dict(initial_values), manifest=manifest)
     app = build_application(state)
     app.run()
     return state.result
@@ -387,7 +460,7 @@ def show_changes(old_values: dict, new_values: dict) -> bool:
         old = old_values.get(f.path, "")
         new = new_values.get(f.path, "")
         if old != new:
-            tag = "SECRET" if f.dest == "secret" else "CONFIG"
+            tag = "SECRET" if f.dest == "secret" else "MACHINE"
             changes.append((f"{tag}: {f.prompt}", old, new))
 
     if not changes:
@@ -430,7 +503,7 @@ def save_all(values: dict) -> None:
 
         t2 = progress.add_task("Updating .sops.yaml...", total=None)
         keys = read_sops_yaml_keys()
-        label = ensure_device_label()
+        label = ensure_sops_label()
 
         sops_updated = False  # track whether .sops.yaml was actually written
 
@@ -458,9 +531,9 @@ def save_all(values: dict) -> None:
                 write_sops_yaml_keys(keys)
                 progress.update(t2, completed=True, description="[green].sops.yaml updated[/green]")
 
-        t3 = progress.add_task("Writing config.nix...", total=None)
-        write_config_nix(values)
-        progress.update(t3, completed=True, description="[green]config.nix saved[/green]")
+        t3 = progress.add_task("Writing selected machine file...", total=None)
+        write_machine_nix(values)
+        progress.update(t3, completed=True, description="[green]machine configuration saved[/green]")
 
         # Only re-encrypt secrets if values changed or key set changed
         secrets_changed = (
@@ -493,14 +566,50 @@ def save_all(values: dict) -> None:
 # MAIN
 # ==========================================
 
+
+def ensure_machine_configuration(machine_id: str) -> bool:
+    """Offer only the import/copy choice when this machine file is missing."""
+    if PLATFORM != "darwin":
+        return True
+
+    selected = validate_machine_id(machine_id)
+    target = machine_file(selected)
+    if target.exists():
+        set_device_machine_id(selected)
+        return True
+
+    log.warn("host", "machine configuration is missing", path=str(target))
+    try:
+        answer = pt_prompt("? Create this machine configuration now? [Y/n]: ")
+        if answer.strip().lower().startswith("n"):
+            log.hint(f"Create it later with: envy host init {selected}")
+            return False
+
+        while True:
+            mode = pt_prompt("? Creation mode (import/copy) [import]: ").strip().lower() or "import"
+            if mode in {"import", "copy"}:
+                break
+            log.error("host", "creation mode must be import or copy")
+        initialize_machine(selected, mode)
+        return True
+    except (EOFError, KeyboardInterrupt):
+        log.hint(f"Create it later with: envy host init {selected}")
+        return False
+
 def main():
     # Persist the existing device identity even when the user opens setup and
     # exits without changing any config fields. Newly generated/imported keys
     # are handled again in save_all after key setup completes.
     if AGE_KEY_FILE.exists():
-        ensure_device_label()
+        ensure_sops_label()
 
-    existing_config = read_config_nix()
+    machine_id = current_machine_id()
+    if not ensure_machine_configuration(machine_id):
+        return
+
+    existing_config = read_machine_nix()
+    manifest = machine_manifest()
+    evaluated_config = manifest_settings(manifest)
     existing_secrets, decrypt_ok = read_secrets_yaml()
 
     # Layered guidance for new device: if decryption failed, try key import before menuconfig
@@ -517,7 +626,9 @@ def main():
     for f in ALL_FIELDS:
         if f.condition and not f.condition(values):
             continue
-        if f.dest == "config" and f.path in existing_config:
+        if f.dest == "machine" and f.path in evaluated_config:
+            values[f.path] = evaluated_config[f.path]
+        elif f.dest == "machine" and f.path in existing_config:
             values[f.path] = existing_config[f.path]
         elif f.dest == "secret" and f.path in existing_secrets:
             values[f.path] = existing_secrets[f.path]
@@ -525,7 +636,7 @@ def main():
             values[f.path] = f.default_fn()
     old_values = dict(values)
 
-    new_values = menuconfig_loop(old_values)
+    new_values = menuconfig_loop(old_values, manifest)
 
     if new_values is None:
         log.hint("Quit without saving.")
@@ -535,7 +646,18 @@ def main():
     has_changes = show_changes(old_values, new_values)
 
     if not has_changes:
-        log.hint("No changes to apply.")
+        missing_machine_fields = [
+            field.path for field in MACHINE_FIELDS if field.path not in existing_config
+        ]
+        if missing_machine_fields:
+            write_machine_nix(new_values)
+            log.ok(
+                "machine",
+                "wrote initial managed machine block",
+                fields=len(missing_machine_fields),
+            )
+        else:
+            log.hint("No changes to apply.")
         return
 
     if not confirm_save():

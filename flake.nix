@@ -24,50 +24,53 @@
   outputs = { self, nixpkgs, home-manager, darwin, sops-nix, ... }@inputs:
     let
       system = "aarch64-darwin";
-      envHome = builtins.getEnv "HOME";
-      userConfigPath = envHome + "/.config/dotfiles/config.nix";
-      systemConfigPath = "/etc/dotfiles/config.nix";
+      lib = nixpkgs.lib;
 
-      cfg =
-        if builtins.pathExists userConfigPath then
-          builtins.trace "DEBUG: Found config at USER path: ${userConfigPath}" (import userConfigPath)
-        else if builtins.pathExists systemConfigPath then
-          builtins.trace "DEBUG: Found config at SYSTEM path: ${systemConfigPath}" (import systemConfigPath)
-        else
-          builtins.trace "DEBUG: No config.nix found! Using empty set." {};
-      debugCfg = builtins.trace "DEBUG: Config Content: ${builtins.toJSON cfg}" cfg;
-      user = cfg.home.user;
-      ageKeyPath = "/Users/${user}/Library/Application Support/sops/age/keys.txt";
-      debugAgeKey = builtins.trace "DEBUG: sops age key path: ${ageKeyPath}" ageKeyPath;
-    in
-    {
-      darwinConfigurations."MacBook-Air" = darwin.lib.darwinSystem {
+      machineDir = ./hosts/machines;
+      machineFiles = lib.filterAttrs
+        (name: type: type == "regular" && lib.hasSuffix ".nix" name)
+        (builtins.readDir machineDir);
+
+      mkDarwinConfiguration = machineId: machineModule: darwin.lib.darwinSystem {
         inherit system;
+        specialArgs = { inherit machineId; };
         modules = [
           sops-nix.darwinModules.sops
           ./modules/darwin/default.nix
+          machineModule
           home-manager.darwinModules.home-manager
-          {
+          ({ config, ... }: {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
-            home-manager.users."${user}" = import ./home.nix;
+            home-manager.users."${config.envy.user.name}" = import ./home.nix;
             home-manager.backupFileExtension = "backup";
             home-manager.extraSpecialArgs = {
-              cfg = debugCfg;
+              inherit machineId;
               academicResearchSkills = inputs.academic-research-skills;
               academicResearchSkillsCodex = inputs.academic-research-skills-codex;
             };
-            _module.args.cfg = debugCfg;
             home-manager.sharedModules = [
               sops-nix.homeManagerModules.sops
+              machineModule
               {
-                sops.age.keyFile = debugAgeKey;
+                sops.age.keyFile = "${config.envy.user.home}/Library/Application Support/sops/age/keys.txt";
                 sops.age.generateKey = false;
               }
             ];
-          }
+          })
         ];
       };
+
+      machineConfigurations = lib.mapAttrs'
+        (fileName: _:
+          let machineId = lib.removeSuffix ".nix" fileName;
+          in lib.nameValuePair machineId
+            (mkDarwinConfiguration machineId (machineDir + "/${fileName}")))
+        machineFiles;
+
+    in
+    {
+      darwinConfigurations = machineConfigurations;
 
       # --- devShell for setup environment ---
       devShells.${system}.default = nixpkgs.legacyPackages.${system}.mkShell {

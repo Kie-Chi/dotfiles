@@ -49,8 +49,5 @@ let
   };
 in
 {
-  home.packages = with pkgs; [
-    # v2rayNApp
-    okular
-  ];
+  envy.packages.home.include = [ okular ];
 }
