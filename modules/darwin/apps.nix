@@ -15,32 +15,32 @@
     ];
 
     casks.include = [
-      # "uuremote" # Game for Windows
+      "uuremote" # Game for Windows
       "telegram-desktop"
       "clash-verge-rev"
       "cyberduck"
       "betterdisplay"
-      # "skim"
-      # "microsoft-remote-desktop"
+      "skim"
+      "microsoft-remote-desktop"
       "wpsoffice-cn"
       "karabiner-elements"
-      # "ticktick"
+      "ticktick"
       "squirrel-app"
-      # "trae"
+      "trae"
       "linearmouse"
       "tailscale-app"
-      # "moonlight"
+      "moonlight"
       "raycast"
       "wechat"
       "google-chrome"
       "feishu"
       "tencent-meeting"
-      # "dingtalk"
+      "dingtalk"
       "orbstack"
       "iina"
       "snipaste"
       "zotero"
-      # "neteasemusic"
+      "neteasemusic"
     ];
   };
 }
