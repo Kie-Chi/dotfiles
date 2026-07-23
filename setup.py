@@ -30,7 +30,7 @@ from envy.key import (
 from envy.config import (
     read_machine_nix, read_secrets_yaml, write_machine_nix, write_secrets_yaml,
 )
-from envy.evaluation import machine_manifest, manifest_settings
+from envy.evaluation import invalidate_machine_manifest, machine_manifest, manifest_settings
 from envy.host import initialize_machine, machine_file, validate_machine_id
 from envy.schemas.config import ALL_FIELDS, MACHINE_FIELDS, SECRET_FIELDS, FieldDef
 from envy.software import (
@@ -675,7 +675,7 @@ def save_all(
         write_and_validate_exclusions(exclusions, target)
     except Exception:
         restore_machine_source(original_machine_source, target)
-        machine_manifest.cache_clear()
+        invalidate_machine_manifest()
         raise
     log.ok("machine", "machine configuration evaluated successfully", path=str(target))
 

@@ -31,7 +31,7 @@ Nix-based dotfiles for macOS (aarch64-darwin), using nix-darwin + home-manager +
 | `docs/agents.md` | Architecture and maintenance guide for agent providers and skill subpackages. |
 | `setup.py` | Python rich + prompt_toolkit sequential CLI for initial setup and config editing. Reuses `envy.config` schema/read-write helpers, manages machine software exclusions, shows a change summary, then saves, encrypts, and offers one scoped Git commit for the selected machine and changed sops files. |
 | `resources/scripts/envy/config.py` | Machine managed-block and secret validation/read-write engine used by setup and `envy config`. |
-| `resources/scripts/envy/evaluation.py` | Shared reader for the evaluated machine manifest used by config views and doctor policy. |
+| `resources/scripts/envy/evaluation.py` | Shared reader for the evaluated machine manifest, with process-local and Git-fingerprinted persistent caches used by config views, setup, software policy, and doctor. |
 | `resources/scripts/envy/software.py` | Managed machine-exclusion block, checkbox model, CLI, atomic writes, and evaluation rollback. |
 | `resources/scripts/envy/host.py` | Creates and inspects per-machine files; init only asks for Machine ID and import/copy mode. |
 | `resources/scripts/envy/schemas/apps.py` | Single source of truth for app doctor specs: bundles, commands, processes, state paths, login hints, permissions, aliases, and custom checkers. |

@@ -13,7 +13,11 @@ from rich.table import Table
 from rich.text import Text
 
 from envy import log
-from envy.evaluation import machine_manifest, manifest_selection_rows
+from envy.evaluation import (
+    invalidate_machine_manifest,
+    machine_manifest,
+    manifest_selection_rows,
+)
 from envy.utils import DOTFILES_DIR, current_machine_id
 
 
@@ -184,12 +188,11 @@ def write_and_validate_exclusions(
     updated = update_machine_source(original, values)
     if updated != original:
         _atomic_write(target, updated)
-    machine_manifest.cache_clear()
-    manifest = machine_manifest()
+    manifest = machine_manifest(refresh=True)
     if manifest is None:
         if updated != original:
             _atomic_write(target, original)
-        machine_manifest.cache_clear()
+        invalidate_machine_manifest()
         raise SoftwarePolicyError("Nix evaluation failed; restored the original machine configuration")
     return manifest
 
