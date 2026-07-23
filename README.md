@@ -1,121 +1,153 @@
-# Chi's Linux Dotfiles
+# Chi's Cross-platform Dotfiles
 
-> 基于 **Nix Flakes** 与 **Home Manager** 构建的声明式 Linux 桌面/开发环境
+基于 Nix Flakes、nix-darwin、Home Manager 与 sops-nix 的声明式 Darwin/Linux 配置。所有机器共享 `master`，机器差异由平台目录中的独立 host module 表达，不再为平台或设备维护长期 Git 分支。
 
-## Features
-
-### Core
-- **pkg management**: Using [Nix Flakes](https://nixos.wiki/wiki/Flakes)
-- **environment management**: [Home Manager](https://github.com/nix-community/home-manager) manages home directory configuration files
-- **Shell**: Zsh + [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
-- **SSH**: 自动化生成 SSH 密钥对与配置
-
-### DevOps
-- **Editor**: 
-    - **Vim**: 轻量化服务器配置，集成 NERDTree, Airline, ALE 
-    - **VS Code**: 声明式安装与配置
-- **Docker**: **Docker Rootless** 模式（免 Sudo，自动配置 subuid/subgid）
-- **Env**: **Mamba (Conda)** 环境支持
-
-### Desktop@GNOME
-- **Terminal**: Tilix (声明式配色/字体) + **Quake 模式**。
-- **Input**: Fcitx5 + **Rime (雾凇拼音)**，支持自动化部署与配置同步。
-- **Automation**: GNOME 快捷键绑定、壁纸设置、系统扩展自动配置。
-- **Remote**: Sunshine 串流服务自动化配置。
-- **Font**: Maple Mono NF CN (等宽) + Noto Sans CJK。
-
----
-
-## Tree
+## Architecture
 
 ```text
-.
-├── flake.nix           # 项目入口，定义输入与配置输出
-├── home.nix            # Home Manager 主逻辑
-├── setup.sh            # 引导脚本：安装依赖、生成密钥与 Secrets
-├── secrets.nix         # 个人身份信息 (由 setup.sh 生成，Git 忽略)
-├── modules/            # 模块化配置
-│   ├── cores/          # 基础工具、Git、Shell、SSH
-│   ├── desktops/       # GNOME、Fcitx5、字体、终端
-│   └── devps/          # Docker、编辑器、Mamba
-├── files/              # 原始配置文件模板 (vimrc, rime.yaml 等)
-└── resources/          # 脚本工具与静态资源 (envy, scrctl 等)
+flake.nix
+├── darwin.nix                       # 唯一 nix-darwin 组合入口
+├── home.nix                         # 唯一 Home Manager 组合入口
+├── hosts/default.nix
+├── hosts/darwin/<machine-id>.nix
+├── hosts/linux/<machine-id>.nix
+├── modules/envy/                  # option、聚合和 machine manifest
+├── modules/llm/                   # 公共 LLM secrets、环境模板与 shell 接入
+├── modules/cores/                 # 公共 shell、Git、SSH 和工具
+├── modules/desktops/
+│   ├── default.nix                # 公共功能入口
+│   ├── darwin/                    # Darwin 专有实现
+│   └── linux/                     # Linux 专有实现
+├── modules/devps/                 # 公共编辑器；Linux 实现在 linux/
+└── modules/agents/                # 公共 agent 功能及 Darwin/Linux 分发实现
 ```
 
----
+`flake.nix` 分别扫描两个 host 目录：
+
+- `hosts/darwin/*.nix` 生成 `darwinConfigurations.<machine-id>`。
+- `hosts/linux/*.nix` 生成 `homeConfigurations.<machine-id>`。
+
+检测到旧 `~/.config/dotfiles/config.nix` 或 `/etc/dotfiles/config.nix` 时，flake
+还会按其中的身份与 Linux policy 生成临时 `homeConfigurations.default`，仅用于
+旧 `master` 第一次同步时兼容原来的 `.#default`。没有旧配置时不会猜测某个
+versioned host 作为默认机器。
+
+flake 不再分别拼装散落的系统模块。Darwin 配置只导入 `darwin.nix`，Linux
+和 Darwin 的用户配置都由 `home.nix` 组合；具体平台实现仍归各功能目录所有。
+`home.nix` 本身只保留 Home Manager 身份初始化，secret、template 和平台环境均由消费它们的 feature 声明。
+
+每台机器的 host module 是全部非敏感机器配置的唯一来源。Git 忽略的 `.device-label` 只保存本机选择的 `machine_id` 与 sops key label，不参与 Nix policy。
+
+Option 遵循“公共优先”原则：
+
+- 两个平台语义和处理方式一致时使用 `envy.user.*`、`envy.git.*`、`envy.llm.*`、`envy.vscode.mode`、`envy.packages.home.*`。
+- 只有平台专有能力使用 `envy.darwin.*` 或 `envy.linux.*`。
+- Proxy 是 Darwin 专有能力，仅存在 `envy.darwin.proxy.*`；Linux schema、host 和 doctor 均不声明 proxy。
 
 ## Quick Start
-
-### 1. Git installation
-
-在干净的系统上运行以下命令，脚本会自动安装 Nix、配置环境依赖并生成个人信息：
 
 ```bash
 git clone https://github.com/Kie-Chi/.dotfiles.git ~/.dotfiles
 cd ~/.dotfiles
-chmod +x setup.sh
-./setup.sh
+bash setup.sh
 ```
 
-### 2. Curl installation
+当当前 Machine ID 尚无 host 文件时，可以选择：
+
+- `import`：创建小型 host module 并导入 `hosts/default.nix`，持续继承公共默认值。
+- `copy`：复制当前默认 policy，形成不随默认值变化的独立快照。
+
+初始化只创建文件，不替用户决定安装或排除哪些软件：
 
 ```bash
-curl -fsSL https://kie-chi.com/files/dotfiles.sh | bash -s
+envy host init <machine-id>
+envy host list
+envy host status
+envy host check <machine-id>
+envy host select <machine-id>
 ```
-- `-r/--remote`: 指定远程仓库，默认本仓库的https地址
-- `-b/--branch`: 指定分支，默认 `master`
-- `-g/--git`: 默认使用本仓库的 git 地址进行安装
 
-### Maintenance
+## Daily Workflow
 
-项目内置了包装脚本 `envy`，方便管理 Home Manager 状态：
+| Command | Purpose |
+|---|---|
+| `envy apply` | Refine 并应用当前平台的 machine target。 |
+| `envy sync` | 从远端快进共享 `master`，成功后应用当前机器。 |
+| `envy sync --no-apply` | 仅同步，不应用。 |
+| `envy sync --build-only` | 同步后只构建当前平台 target。 |
+| `envy push "<message>"` | 分析 worktree 与 outgoing commits，确认影响范围后提交并 push。 |
+| `envy push --machine-only` | 只允许 `hosts/darwin/*.nix` 与 `hosts/linux/*.nix`。 |
+| `envy push --self` | 只允许当前平台、当前 `.device-label` 所选 host 文件。 |
+| `envy config check` | 只读检查 device metadata、host module 与 secrets。 |
+| `envy config refine` | 迁移并补全本平台 machine/schema。 |
+| `envy config show [--details]` | 展示求值后的 scalar 与软件 policy；details 展开 include/exclude/effective。 |
+| `envy config software` | 管理当前机器的软件 exclusions。 |
+| `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载。 |
 
-| 命令 | 说明 |
-| :--- | :--- |
-| `envy apply` | 应用当前 Nix 配置（重新构建） |
-| `envy sync` | 拉取 Git 远程更新并应用 |
-| `envy edit` | 使用 $EDITOR 快速编辑配置文件 |
-| `envy update` | 更新 `flake.lock` (升级软件版本) |
-| `envy rollback` | 回滚到之前的配置版本 |
-| `envy push` | 快速提交并推送到远程仓库 |
+`envy push` 和 `envy sync` 默认要求当前分支为 `master`。`--branch` 只是显式操作临时分支的逃生口，不是 platform 或 machine 选择器。
 
----
-## Modules
+## Machine Policy
 
-### `secrets.nix`
-为了保证仓库模板的通用性，所有敏感/个性化信息（如用户名、Git Email）都从 `secrets.nix` 读取。该文件在 `setup.sh` 运行期间生成：
+公共 Home Manager 软件在两边使用同一 option：
 
 ```nix
-# secrets.nix 示例
+{ pkgs, ... }:
+
 {
-  home.user = "chi";
-  home.dir = "/home/chi";
-  git.name = "Kie-Chi";
-  git.email = "example@email.com";
+  imports = [ ../default.nix ];
+
+  envy.vscode.mode = "remote";
+
+  envy.packages.home.exclude = [
+    "okular"
+  ];
+
+  envy.packages.home.include = with pkgs; [
+    postgresql
+  ];
 }
 ```
 
-### home modules
-只需修改 `home.nix` 中的 `imports` 列表，即可实现功能模块的插拔：
+Darwin 专有 policy 只出现在 Darwin host：
 
 ```nix
-# home.nix
-imports = [
-  ./modules/cores     # 必须
-  ./modules/desktops  # 如果是服务器环境可注释此行
-  ./modules/devps     # 开发工具
-];
+{
+  envy.darwin.proxy.mode = "none";
+  envy.darwin.proxy.tun = false;
+  envy.darwin.homebrew.casks.exclude = [ "uuremote" ];
+}
 ```
 
----
+Linux 专有 policy 只出现在 Linux host：
 
-## Tools
+```nix
+{
+  envy.linux.desktop = "gnome";
+  envy.linux.option = "desktop";
+}
+```
 
-- **`scrctl`**: 屏幕分辨率与缩放控制工具（支持 GNOME 整数缩放）。
-- **`quake`**: 窗口呼出/隐藏辅助脚本，支持将 Tilix 等终端变为 Quake 模式。
-- **`spk`**: 快速将本地公钥推送至远程服务器的授权列表。
+`envy.linux.option = "server"` 会禁用整个 Linux desktop 层，忽略 desktop
+selector。`option = "desktop"` 时，`envy.linux.desktop` 分别使用 `gnome`、
+`niri`、`all`（两者）或 `none`（只保留公共 desktop 工具）。
 
----
+软件 definition 和 derivation 留在负责该功能的 module 中；`modules/envy` 只拥有通用选择 schema、最终聚合与 manifest，不是中央软件清单。
+
+## Secrets
+
+- 非敏感值：`hosts/<platform>/<id>.nix` 中的 `envy.*` options。
+- 敏感值：sops 加密的 `secrets/secrets.yaml`。
+- Darwin age key：`~/Library/Application Support/sops/age/keys.txt`。
+- Linux age key：`~/.config/sops/age/keys.txt`。
+- Proxy URL secret 仅由 Darwin 配置声明和使用。
+
+不要把 API key、密码或带 token 的 URL 放进 Nix 求值期表达式。新增设备的 age public key 加入 `.sops.yaml` 后运行：
+
+```bash
+sops updatekeys secrets/secrets.yaml
+```
+
+完整 machine 设计见 [docs/machines.md](docs/machines.md)，doctor 维护说明见 [docs/doctor.md](docs/doctor.md)。
 
 ## License
 

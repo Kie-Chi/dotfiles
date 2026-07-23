@@ -15,7 +15,7 @@ envy key list      # 查看 .sops.yaml 中所有密钥及当前设备标记
 
 | 类型 | 作用 | 位置 |
 |------|------|------|
-| **设备密钥** | 每台设备拥有独立的 age 私钥，用于日常解密 | `~/Library/Application Support/sops/age/keys.txt` |
+| **设备密钥** | 每台设备拥有独立的 age 私钥，用于日常解密 | Darwin: `~/Library/Application Support/sops/age/keys.txt`; Linux: `~/.config/sops/age/keys.txt` |
 | **恢复密钥** | 独立于任何设备，用于密钥轮换和设备丢失时恢复访问 | 私钥加密存储在 `secrets/recovery-key.age`，公钥在 `.sops.yaml` 中 |
 
 `.sops.yaml` 使用设备标签（基于 hostname）作为 YAML anchor：
@@ -32,7 +32,8 @@ creation_rules:
           - *recovery
 ```
 
-每台设备的身份标签存储在 gitignored 的 `.device-label` 文件中（默认为 hostname 的 sanitized 版本）。
+每台设备的 machine target 与 sops key label 统一存储在 Git 忽略的 `.device-label` TOML 中。`device.sops_label` 默认为 hostname 的 sanitized 版本，并可独立于 `device.machine_id`。
+`envy setup` 在已有设备密钥时会确保该标记被持久化；如果本地标记丢失但当前公钥仍能在 `.sops.yaml` 中匹配到设备标签，会优先恢复该标签。
 
 ## 常见场景
 
@@ -67,12 +68,12 @@ envy key im -s ~/.ssh/id_ed25519 -l new_macbook
 
 ```bash
 envy key im -g -l new_macbook
-envy config   # 重新填写所有秘密值
+envy setup   # 重新填写所有秘密值
 ```
 
 导入后 `envy key import` 会自动将新密钥加入 `.sops.yaml` 并运行 `sops updatekeys`，使新设备能解密已有秘密。
 
-也可以通过 `envy config`（即 setup.py）交互式完成——如果解密失败，它会自动进入密钥导入流程。
+也可以通过 `envy setup` 交互式完成——如果解密失败，它会自动进入密钥导入流程。
 
 ### 场景 2：添加另一台设备的密钥
 
@@ -171,15 +172,15 @@ envy key ex -o /Volumes/USB/recovery/macbook_air.age
 
 ### SOPS_AGE_KEY_FILE
 
-sops 默认在 `~/.config/sops/age/keys.txt` 查找密钥，但 dotfiles 使用 macOS 标准路径 `~/Library/Application Support/sops/age/keys.txt`。`key.py` 和 `setup.py` 的 `run_cmd()` 函数会在所有 sops/age 命令中设置 `SOPS_AGE_KEY_FILE` 环境变量。
+Linux 使用 sops 默认的 `~/.config/sops/age/keys.txt`，Darwin 使用 `~/Library/Application Support/sops/age/keys.txt`。`envy.utils.run_cmd()` 会在所有 sops/age 命令中设置对应平台的 `SOPS_AGE_KEY_FILE`。
 
 ### write_secrets_yaml 安全机制
 
-`setup.py` 的 `write_secrets_yaml()` 使用原子写入策略：
-1. 写到临时文件
-2. 在临时文件上执行 sops encrypt
-3. `os.replace` 原子重命名到最终位置
-4. 如果加密失败 → 删除临时文件 → 抛出异常 → **绝不留下未加密数据**
+`envy.config.write_secrets_yaml()` 使用备份回滚策略：
+1. 先把现有 `secrets.yaml` 移动到 `.bak`
+2. 写入新的明文 YAML
+3. 立即执行 `sops --encrypt --in-place`
+4. 如果加密失败 → 恢复 `.bak` 或删除新明文文件 → 抛出异常 → **绝不留下未加密数据**
 
 ### 密钥文件多行支持
 
