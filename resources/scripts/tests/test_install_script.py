@@ -1,0 +1,144 @@
+import os
+import pty
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[3]
+INSTALL_SCRIPT = ROOT / "install.sh"
+
+
+class InstallScriptTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.source = self.root / "source"
+        self.source.mkdir()
+        setup = self.source / "setup.sh"
+        setup.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -eu\n"
+            "printf '%s\\n' \"${ENVY_DOTFILES:?}\" > \"$ENVY_DOTFILES/setup-ran\"\n"
+        )
+        setup.chmod(0o755)
+        self._git(self.source, "init", "-q")
+        self._git(self.source, "symbolic-ref", "HEAD", "refs/heads/master")
+        self._git(self.source, "add", "setup.sh")
+        self._git(
+            self.source,
+            "-c", "user.name=Envy Test",
+            "-c", "user.email=envy@example.invalid",
+            "commit", "-qm", "fixture",
+        )
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def test_clone_only_creates_checkout_without_running_setup(self):
+        target = self.root / "checkout"
+
+        result = self._install(target, "--no-setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((target / ".git").is_dir())
+        self.assertTrue((target / "setup.sh").is_file())
+        self.assertFalse((target / "setup-ran").exists())
+        self.assertIn("Checkout ready", result.stdout)
+
+    def test_existing_checkout_is_reused_without_fetch_or_reset(self):
+        target = self.root / "checkout"
+        self.assertEqual(self._install(target, "--no-setup").returncode, 0)
+        head = self._git_output(target, "rev-parse", "HEAD")
+
+        result = self._install(
+            target,
+            "--repo", str(self.root / "does-not-exist"),
+            "--no-setup",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._git_output(target, "rev-parse", "HEAD"), head)
+        self.assertIn("Using existing checkout", result.stdout)
+
+    def test_non_repository_target_is_rejected_without_deleting_it(self):
+        target = self.root / "occupied"
+        target.mkdir()
+        marker = target / "keep.txt"
+        marker.write_text("keep\n")
+
+        result = self._install(target, "--no-setup")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(marker.exists())
+        self.assertIn("not a Git checkout", result.stderr)
+
+    def test_successful_clone_hands_off_to_setup_with_selected_target(self):
+        target = self.root / "checkout"
+
+        terminal, input_fd = pty.openpty()
+        try:
+            result = self._install(target, stdin=input_fd)
+        finally:
+            os.close(input_fd)
+            os.close(terminal)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((target / "setup-ran").read_text().strip(), str(target))
+
+    def test_setup_without_a_terminal_fails_with_clone_only_guidance(self):
+        target = self.root / "checkout"
+
+        result = self._install(target)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((target / ".git").is_dir())
+        self.assertIn("interactive setup requires a terminal", result.stderr)
+        self.assertIn("--no-setup", result.stderr)
+
+    def _install(
+        self,
+        target: Path,
+        *extra: str,
+        stdin=None,
+    ) -> subprocess.CompletedProcess:
+        environment = dict(os.environ)
+        environment.update({
+            "ENVY_REPOSITORY_URL": str(self.source),
+            "ENVY_BRANCH": "master",
+            "ENVY_DOTFILES": str(target),
+        })
+        return subprocess.run(
+            ["bash", str(INSTALL_SCRIPT), *extra],
+            cwd=self.root,
+            env=environment,
+            stdin=stdin,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    @staticmethod
+    def _git(root: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", *args],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    @staticmethod
+    def _git_output(root: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+
+if __name__ == "__main__":
+    unittest.main()
