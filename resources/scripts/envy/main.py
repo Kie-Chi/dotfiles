@@ -12,6 +12,7 @@ from envy import _check_schema_api
 from envy.config import app as config_app, refine_all
 from envy.doctor import app as doctor_app
 from envy.key import app as key_app
+from envy.mirror import app as mirror_app
 from envy.host import (
     app as host_app,
     current_machine_file,
@@ -709,3 +710,6 @@ cli.add_typer(host_app, name="h", rich_help_panel="Aliases")
 # Register doctor subgroup — "dr" alias registered separately
 cli.add_typer(doctor_app, name="doctor")
 cli.add_typer(doctor_app, name="dr", rich_help_panel="Aliases")
+
+# Mirror policy inspection is read-only; configuration remains machine-owned.
+cli.add_typer(mirror_app, name="mirror")
