@@ -1,9 +1,7 @@
 """Machine-local software exclusions and their managed Nix source block."""
 
 import hashlib
-import os
 import re
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +11,8 @@ from rich.table import Table
 from rich.text import Text
 
 from envy import log
+from envy.mutation import offer_mutation_commit
+from envy.secure_io import atomic_write_text
 from envy.evaluation import (
     invalidate_machine_manifest,
     machine_manifest,
@@ -188,12 +188,12 @@ def write_managed_exclusions(
         raise ConcurrentMachineEdit(f"machine configuration changed while setup was open: {target}")
     updated = update_machine_source(original, values)
     if updated != original:
-        _atomic_write(target, updated)
+        atomic_write_text(target, updated)
 
 
 def restore_machine_source(text: str, path: Path | None = None) -> None:
     """Atomically restore a previously captured machine source document."""
-    _atomic_write(path or machine_file(), text)
+    atomic_write_text(path or machine_file(), text)
 
 
 def write_and_validate_exclusions(
@@ -210,11 +210,11 @@ def write_and_validate_exclusions(
 
     updated = update_machine_source(original, values)
     if updated != original:
-        _atomic_write(target, updated)
+        atomic_write_text(target, updated)
     manifest = machine_manifest(refresh=True)
     if manifest is None:
         if updated != original:
-            _atomic_write(target, original)
+            atomic_write_text(target, original)
         invalidate_machine_manifest()
         raise SoftwarePolicyError("Nix evaluation failed; restored the original machine configuration")
     return manifest
@@ -397,24 +397,6 @@ def _ordered_unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
-def _atomic_write(path: Path, text: str) -> None:
-    mode = path.stat().st_mode & 0o777
-    handle = tempfile.NamedTemporaryFile(
-        mode="w", dir=path.parent, prefix=f".{path.name}.envy-", delete=False
-    )
-    temporary = Path(handle.name)
-    try:
-        with handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        temporary.chmod(mode)
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
-
-
 app = typer.Typer(
     name="software",
     help="Inspect and manage machine-local software exclusions",
@@ -484,6 +466,10 @@ def _change_one(group_value: str, name: str, *, excluded: bool) -> None:
         raise typer.Exit(code=1) from exc
     action = "disabled" if excluded else "enabled"
     log.ok("software", action, group=group.key, name=name, machine=manifest.get("id", "current"))
+    offer_mutation_commit(
+        [machine_file()],
+        f"chore(host): {action} {name} on {manifest.get('id', current_machine_id())}",
+    )
 
 
 def _print_policy() -> None:

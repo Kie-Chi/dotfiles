@@ -1,8 +1,6 @@
 """Per-machine host configuration commands for envy."""
 
 import re
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +8,9 @@ import typer
 from rich.table import Table
 
 from envy import log
+from envy.mutation import offer_mutation_commit
+from envy.process import run_process
+from envy.secure_io import atomic_write_bytes, atomic_write_text
 from envy.utils import (
     DEVICE_LABEL_FILE,
     DOTFILES_DIR,
@@ -98,7 +99,11 @@ def initialize_machine(machine_id: str, mode: str, force: bool = False) -> Path:
         if not typer.confirm(f"Replace {target}?", default=None):
             raise typer.Abort()
         backup = target.with_suffix(target.suffix + ".bak")
-        shutil.copy2(target, backup)
+        atomic_write_bytes(
+            backup,
+            target.read_bytes(),
+            mode=target.stat().st_mode & 0o777,
+        )
         log.info("host", "backed up existing machine configuration", path=str(backup))
 
     if mode == "import":
@@ -111,14 +116,14 @@ def initialize_machine(machine_id: str, mode: str, force: bool = False) -> Path:
   # Add machine-specific envy.* overrides here.
 }
 """
-        target.write_text(content)
+        atomic_write_text(target, content)
     else:
         source = DEFAULT_MACHINE.read_text()
         header = (
             "# Machine configuration copied from hosts/default.nix.\n"
             "# It does not inherit later default policy changes.\n\n"
         )
-        target.write_text(header + source)
+        atomic_write_text(target, header + source)
 
     set_device_machine_id(machine_id)
     log.ok("host", "machine configuration created and selected", path=str(target), mode=mode)
@@ -135,7 +140,8 @@ def cmd_init(
     """Create machine.nix by importing or copying hosts/default.nix."""
     selected_id = machine_id or typer.prompt("Machine ID", default=suggested_machine_id())
     selected_mode = mode or typer.prompt("Creation mode (import/copy)", default="import")
-    initialize_machine(selected_id, selected_mode, force=force)
+    target = initialize_machine(selected_id, selected_mode, force=force)
+    offer_mutation_commit([target], f"feat(host): initialize {target.stem}")
 
 
 @app.command(name="list")
@@ -188,10 +194,11 @@ def cmd_status():
     table.add_row("Machine file", str(path))
     table.add_row("File exists", "yes" if path.exists() else "no")
     table.add_row("Flake target", flake_target())
-    branch = subprocess.run(
+    branch_result = run_process(
         ["git", "branch", "--show-current"],
-        cwd=str(DOTFILES_DIR), capture_output=True, text=True, check=False,
-    ).stdout.strip()
+        cwd=DOTFILES_DIR, capture=True, check=False,
+    )
+    branch = (branch_result.stdout or "").strip()
     table.add_row("Git branch", branch or "<detached>")
     log.console.print(table)
 
@@ -208,9 +215,9 @@ def cmd_check(
         raise typer.Exit(code=1)
     attr = machine_build_attr(selected, drv_path=True)
     log.step("host", "evaluating machine configuration", machine=selected)
-    result = subprocess.run(
+    result = run_process(
         ["nix", "eval", "--impure", attr, "--raw"],
-        cwd=str(DOTFILES_DIR), check=False,
+        cwd=DOTFILES_DIR, check=False,
     )
     if result.returncode != 0:
         raise typer.Exit(code=result.returncode)

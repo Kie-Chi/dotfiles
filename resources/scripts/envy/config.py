@@ -1,13 +1,12 @@
 """Config engine for versioned machine policy and sops secrets."""
 
 import json
-import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from getpass import getpass
 from pathlib import Path
-from typing import Optional
 
 import typer
 import yaml
@@ -30,8 +29,16 @@ from envy.software import (
     app as software_app,
     read_managed_exclusions,
 )
+from envy.secure_io import (
+    atomic_write_text,
+    replace_prepared_file,
+    secure_temporary_path,
+)
+from envy.process import run_process
+from envy.mutation import offer_mutation_commit
 from envy.utils import (
     AGE_KEY_FILE,
+    AGE_KEY_DIR,
     DEVICE_LABEL_FILE,
     DOTFILES_DIR,
     LEGACY_MACHINE_SELECTOR,
@@ -226,7 +233,7 @@ def write_machine_nix(values: dict, machine_id: str | None = None) -> None:
             raise ValueError(f"cannot locate the top-level closing brace in {path}")
         updated = text[:closing].rstrip() + "\n\n" + block + "\n" + text[closing:]
 
-    path.write_text(updated if updated.endswith("\n") else updated + "\n")
+    atomic_write_text(path, updated if updated.endswith("\n") else updated + "\n")
     set_device_machine_id(selected)
 
 def read_secrets_yaml() -> tuple[dict, bool]:
@@ -257,8 +264,14 @@ def read_secrets_data() -> tuple[dict | None, bool]:
             return None, False
 
 
-def write_secrets_yaml(values: dict) -> None:
-    data = {}
+def write_secrets_yaml(values: dict, *, replace: bool = False) -> None:
+    """Update managed secret paths while preserving unknown data by default."""
+    data: dict = {}
+    if SECRETS_FILE.exists() and not replace:
+        existing, decrypt_ok = read_secrets_data()
+        if existing is None or not decrypt_ok:
+            raise RuntimeError("cannot safely merge secrets without decrypting secrets.yaml")
+        data = existing
     for f in SECRET_FIELDS:
         if f.yaml_path:
             _set_nested(data, f.yaml_path, values.get(f.path, ""))
@@ -266,31 +279,32 @@ def write_secrets_yaml(values: dict) -> None:
 
 
 def write_secrets_data(data: dict) -> None:
+    """Encrypt a secure temporary plaintext and atomically publish ciphertext."""
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
-    backup = SECRETS_FILE.with_suffix(".yaml.bak")
-    had_existing = SECRETS_FILE.exists()
-    if had_existing:
-        os.replace(str(SECRETS_FILE), str(backup))
+    from envy.key import read_sops_yaml_keys
+    keys = read_sops_yaml_keys()
+    age_recipients = ",".join(keys.values())
+    if not age_recipients:
+        raise RuntimeError("No age recipients in .sops.yaml")
 
+    plaintext = yaml.dump(data, default_flow_style=False, allow_unicode=True)
     try:
-        SECRETS_FILE.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True))
-        from envy.key import read_sops_yaml_keys
-        keys = read_sops_yaml_keys()
-        age_recipients = ",".join(keys.values())
-        if not age_recipients:
-            raise RuntimeError("No age recipients in .sops.yaml")
-        run_cmd(["sops", "--encrypt", "--in-place", "--age", age_recipients, str(SECRETS_FILE)])
+        with secure_temporary_path(
+            SECRETS_DIR, prefix=".secrets-plain-", suffix=".yaml"
+        ) as plain_path, secure_temporary_path(
+            SECRETS_DIR, prefix=".secrets-encrypted-", suffix=".yaml"
+        ) as encrypted_path:
+            atomic_write_text(plain_path, plaintext, mode=0o600)
+            run_cmd([
+                "sops", "--encrypt", "--age", age_recipients,
+                "--output", str(encrypted_path), str(plain_path),
+            ])
+            if not is_sops_encrypted(encrypted_path):
+                raise RuntimeError("sops output is not encrypted")
+            replace_prepared_file(encrypted_path, SECRETS_FILE, mode=0o644)
     except Exception:
-        log.error("secrets", "sops encryption failed; refusing to leave secrets unencrypted")
-        if had_existing and backup.exists():
-            os.replace(str(backup), str(SECRETS_FILE))
-            log.fix("secrets", "rolled back to previous encrypted secrets.yaml")
-        elif SECRETS_FILE.exists():
-            SECRETS_FILE.unlink()
+        log.error("secrets", "sops encryption failed; previous encrypted file was preserved")
         raise
-
-    if backup.exists():
-        backup.unlink()
 
 
 def _validate_field(field_def: FieldDef, value: str, report: RefineReport, scope: str) -> None:
@@ -407,6 +421,37 @@ def refine_device_metadata(*, write: bool = True, strict: bool = False) -> Refin
 
     if strict and report.errors:
         log.error("device", "device metadata refinement blocked by invalid fields")
+    return report
+
+
+def refine_sensitive_permissions(*, write: bool = True) -> RefineReport:
+    """Validate or harden the local age directory, key, and sensitive backups."""
+    report = RefineReport()
+    checks: list[tuple[Path, int]] = []
+    if AGE_KEY_DIR.exists():
+        checks.append((AGE_KEY_DIR, 0o700))
+    if AGE_KEY_FILE.exists():
+        checks.append((AGE_KEY_FILE, 0o600))
+        checks.extend((path, 0o600) for path in AGE_KEY_DIR.glob(AGE_KEY_FILE.name + ".bak*"))
+    for path, expected in checks:
+        mode = path.stat().st_mode & 0o777
+        if mode == expected:
+            continue
+        if write:
+            path.chmod(expected)
+            report.changed = True
+            report.added.append(f"permissions:{path}")
+            log.fix("secrets", "hardened sensitive permissions", path=str(path), mode=f"{expected:04o}")
+        else:
+            report.errors.append(f"permissions:{path}")
+            log.error(
+                "secrets",
+                "unsafe sensitive permissions",
+                path=str(path),
+                expected=f"{expected:04o}",
+                actual=f"{mode:04o}",
+            )
+            log.hint("Run: envy config refine")
     return report
 
 
@@ -548,6 +593,7 @@ def refine_all(*, write: bool = True, strict: bool = False, include_secrets: boo
         if strict:
             log.error("config", "refine failed")
         return report
+    report.extend(refine_sensitive_permissions(write=write))
     report.extend(refine_config(write=write, strict=strict))
     report.extend(refine_software_policy(strict=strict))
     if include_secrets:
@@ -582,8 +628,11 @@ def set_config_value(path: str, value: str) -> None:
 
 
 def set_secret_value(yaml_path: str, value: str) -> None:
-    stdin_data = json.dumps(value)
-    run_cmd(["sops", "set", "--value-stdin", str(SECRETS_FILE), _sops_index(yaml_path)], stdin_data=stdin_data)
+    data, decrypt_ok = read_secrets_data()
+    if data is None or not decrypt_ok:
+        raise RuntimeError("cannot update a secret without decrypting secrets.yaml")
+    _set_nested(data, yaml_path, value)
+    write_secrets_data(data)
     log.ok("secrets", "secret value updated", key=yaml_path)
 
 
@@ -612,6 +661,11 @@ def cmd_refine(
     report = refine_all(write=True, strict=False, include_secrets=True, prune=prune)
     if not report.ok:
         raise typer.Exit(code=1)
+    if report.changed:
+        offer_mutation_commit(
+            [machine_config_file(), SECRETS_FILE],
+            f"chore(config): refine {current_machine_id()}",
+        )
 
 
 @app.command(name="doctor")
@@ -629,17 +683,30 @@ def cmd_set(
 ):
     """Set a managed non-secret value in the selected machine file."""
     set_config_value(path, value)
+    offer_mutation_commit(
+        [machine_config_file()],
+        f"chore(config): update {current_machine_id()} machine values",
+    )
 
 
 @app.command(name="secret-set")
 def cmd_secret_set(
     yaml_path: str = typer.Argument(..., help="Secret path, for example llm/steps/apikey"),
-    value: Optional[str] = typer.Argument(None, help="Secret value; prompts when omitted"),
+    stdin: bool = typer.Option(False, "--stdin", help="Read the secret from standard input"),
 ):
-    """Set a secret value via sops without printing it."""
-    if value is None:
+    """Set a secret without exposing it in argv or shell history."""
+    if stdin:
+        value = sys.stdin.read().rstrip("\r\n")
+    else:
+        if not sys.stdin.isatty():
+            log.error("secrets", "non-interactive secret input requires --stdin")
+            raise typer.Exit(code=1)
         value = getpass(f"{yaml_path}: ")
     set_secret_value(yaml_path, value)
+    offer_mutation_commit(
+        [SECRETS_FILE],
+        f"chore(secrets): update {yaml_path}",
+    )
 
 
 @app.command(name="show")
@@ -702,4 +769,4 @@ def cmd_edit():
         log.error("machine", "selected machine configuration is missing", path=str(path))
         raise typer.Exit(code=1)
     editor = os.environ.get("EDITOR", "vim")
-    subprocess.run([editor, str(path)], check=False)
+    run_process([editor, str(path)], check=True)

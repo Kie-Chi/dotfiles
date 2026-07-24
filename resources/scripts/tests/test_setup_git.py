@@ -18,10 +18,20 @@ class SetupGitTests(unittest.TestCase):
             root = Path(temporary)
             selected = root / "hosts" / "darwin" / "work-mac.nix"
             unrelated = root / "modules" / "desktops" / "darwin" / "apps.nix"
+            secret = root / "secrets" / "secrets.yaml"
             selected.parent.mkdir(parents=True)
             unrelated.parent.mkdir(parents=True)
+            secret.parent.mkdir(parents=True)
             selected.write_text("{ }\n")
             unrelated.write_text("{ }\n")
+            secret.write_text(
+                "value: ENC[AES256_GCM,data:test]\n"
+                "sops:\n"
+                "  age:\n"
+                "    - recipient: age1test\n"
+                "      enc: encrypted-key\n"
+                "  mac: ENC[AES256_GCM,data:test]\n"
+            )
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
 
             with patch.object(key, "DOTFILES_DIR", root):
@@ -74,6 +84,24 @@ class SetupGitTests(unittest.TestCase):
                 key.git_commit_setup_files(machine)
 
         commit.assert_not_called()
+
+    def test_key_operation_offers_commit_only_after_repository_files_change(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sops = root / ".sops.yaml"
+            secrets = root / "secrets.yaml"
+            recovery = root / "recovery-key.age"
+            sops.write_text("before")
+            with patch.object(key, "SOPS_YAML", sops), patch.object(
+                key, "SECRETS_FILE", secrets
+            ), patch.object(key, "RECOVERY_KEY_FILE", recovery), patch.object(
+                key, "git_commit_sops_files"
+            ) as commit:
+                key._run_key_operation("noop", lambda: None)
+                commit.assert_not_called()
+
+                key._run_key_operation("change", lambda: sops.write_text("after"))
+                commit.assert_called_once_with("change")
 
 
 if __name__ == "__main__":

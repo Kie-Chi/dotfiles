@@ -4,12 +4,16 @@ import json
 import os
 import re
 import subprocess
+import shutil
 import sys
 import tomllib
 from pathlib import Path
 from typing import Optional
 
 from envy import log
+from envy.process import run_process
+from envy.secure_io import atomic_write_text, secure_copy
+from envy.sops_format import content_is_sops_encrypted
 
 # ==========================================
 # PLATFORM
@@ -127,7 +131,7 @@ def write_device_metadata(
         value = current.get(key)
         if value:
             lines.append(f"{key} = {json.dumps(value)}\n")
-    DEVICE_LABEL_FILE.write_text("".join(lines))
+    atomic_write_text(DEVICE_LABEL_FILE, "".join(lines), mode=0o600)
 
 
 def current_machine_id() -> str:
@@ -228,27 +232,15 @@ def run_cmd(
 
     effective_cwd = str(cwd or DOTFILES_DIR)
 
-    log.debug("cmd", "running", cmd=' '.join(cmd), cwd=effective_cwd)
-
-    if capture:
-        result = subprocess.run(
-            cmd, input=stdin_data, capture_output=True, text=True,
-            check=check, env=env, cwd=effective_cwd,
-        )
-
-        if log.is_debug():
-            if result.stdout:
-                log.debug("cmd", "stdout", output=result.stdout[:500])
-            if result.stderr:
-                log.debug("cmd", "stderr", output=result.stderr[:500])
-
-        return result.stdout.strip()
-    else:
-        subprocess.run(
-            cmd, input=stdin_data, text=True,
-            check=check, env=env, cwd=effective_cwd,
-        )
-        return None
+    result = run_process(
+        cmd,
+        stdin_data=stdin_data,
+        capture=capture,
+        check=check,
+        env=env,
+        cwd=effective_cwd,
+    )
+    return result.stdout.strip() if capture and result.stdout else ("" if capture else None)
 
 # ==========================================
 # SUDO WRAPPER
@@ -274,11 +266,11 @@ def _get_sudo_passwd() -> str | None:
 
 
 def is_sops_encrypted(path: Path) -> bool:
-    """Check whether a YAML file contains sops metadata."""
+    """Check sops metadata and ensure no non-empty plaintext data leaves exist."""
     if not path.exists():
         return False
     try:
-        return any(line.startswith("sops:") for line in path.read_text().splitlines())
+        return content_is_sops_encrypted(path.read_text())
     except (OSError, UnicodeDecodeError):
         return False
 
@@ -290,13 +282,15 @@ def backup_sensitive_file(filepath: Path) -> Optional[Path]:
         return None
     bak = filepath.with_suffix(filepath.suffix + ".bak")
     try:
-        bak.write_bytes(filepath.read_bytes())
+        secure_copy(filepath, bak)
         return bak
     except OSError:
         return None
 
 
-def esudo(*args: str, capture: bool = False, cwd: Path | None = None) -> None:
+def esudo(
+    *args: str, capture: bool = False, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     """sudo with automatic password injection from sops.
     capture=False: stream output live (default, for long-running commands).
     capture=True:  capture output for return-value inspection."""
@@ -304,18 +298,19 @@ def esudo(*args: str, capture: bool = False, cwd: Path | None = None) -> None:
     passwd = _get_sudo_passwd()
     if passwd:
         # Try password-based sudo first
-        result = subprocess.run(
+        result = run_process(
             ["sudo", "-S", *args],
-            input=passwd, text=True,
-            capture_output=capture,
+            stdin_data=passwd,
+            capture=capture,
+            check=False,
             cwd=effective_cwd,
         )
         if result.returncode == 0:
             if capture and result.stdout:
                 print(result.stdout)
-            return
+            return result
         # Fall through to interactive sudo
-    subprocess.run(["sudo", *args], cwd=effective_cwd)
+    return run_process(["sudo", *args], cwd=effective_cwd, capture=capture, check=True)
 
 # ==========================================
 # APPLY ROUTING
@@ -327,15 +322,26 @@ def run_hm(*args: str) -> None:
     if _command_exists("home-manager"):
         run_cmd(["home-manager", *args], capture=False)
     else:
-        log.warn("hm", "'home-manager' not found, using nix run fallback")
-        run_cmd(["nix", "run", "github:nix-community/home-manager", "--", *args], capture=False)
+        log.warn("hm", "'home-manager' not found, using repository-locked fallback")
+        run_cmd([
+            "nix", "run", "--inputs-from", "path:.", "home-manager", "--", *args,
+        ], capture=False)
 
 
 def run_darwin_switch() -> None:
     """Run nix-darwin switch with sudo."""
     log.step("darwin", "running nix-darwin switch")
-    esudo("--preserve-env=HOME", "nix", "run", "nix-darwin", "--", "switch",
-          "--flake", flake_target(), "--impure", capture=False)
+    runner = shutil.which("darwin-rebuild")
+    if runner:
+        log.info("darwin", "using installed runner", path=runner)
+        command = [runner, "switch", "--flake", flake_target(), "--impure"]
+    else:
+        log.warn("darwin", "darwin-rebuild not found, using repository-locked fallback")
+        command = [
+            "nix", "run", "--inputs-from", "path:.", "darwin", "--", "switch",
+            "--flake", flake_target(), "--impure",
+        ]
+    esudo("--preserve-env=HOME", *command, capture=False)
     log.ok("darwin", "system successfully updated")
 
 
