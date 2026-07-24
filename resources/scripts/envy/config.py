@@ -11,10 +11,9 @@ from pathlib import Path
 import typer
 import yaml
 from rich.table import Table
-from rich.text import Text
 
 from envy import log
-from envy.evaluation import machine_manifest, manifest_selection_rows, manifest_settings
+from envy.evaluation import invalidate_machine_manifest, machine_manifest, manifest_settings
 from envy.schemas.config import (
     FieldDef,
     LEGACY_CONFIG_PATHS,
@@ -26,8 +25,8 @@ from envy.schemas.config import (
 from envy.software import (
     MANAGED_START as SOFTWARE_MANAGED_START,
     SoftwarePolicyError,
-    app as software_app,
-    read_managed_exclusions,
+    groups_for_manifest,
+    read_managed_policy,
 )
 from envy.secure_io import (
     atomic_write_text,
@@ -58,6 +57,14 @@ from envy.utils import (
 
 MANAGED_START = "  # BEGIN ENVY MANAGED CONFIG"
 MANAGED_END = "  # END ENVY MANAGED CONFIG"
+LEGACY_SOFTWARE_OPTIONS = {
+    "envy.packages.home": "envy.software.nix.packages",
+    "envy.darwin.packages.system": "envy.darwin.software.nix.systemPackages",
+    "envy.darwin.packages.fonts": "envy.darwin.software.nix.fonts",
+    "envy.darwin.homebrew.brews": "envy.darwin.software.homebrew.formulae",
+    "envy.darwin.homebrew.casks": "envy.darwin.software.homebrew.casks",
+    "envy.darwin.homebrew.taps": "envy.darwin.software.homebrew.repositories",
+}
 
 
 @dataclass
@@ -504,21 +511,45 @@ def refine_config(*, write: bool = True, strict: bool = False) -> RefineReport:
     return report
 
 
-def refine_software_policy(*, strict: bool = False) -> RefineReport:
-    """Validate the optional setup-owned machine exclusion block."""
+def refine_software_policy(*, write: bool = True, strict: bool = False) -> RefineReport:
+    """Validate the direct managed software include/exclude assignments."""
     report = RefineReport()
     path = machine_config_file()
+    text = path.read_text()
+    legacy_paths = [old for old in LEGACY_SOFTWARE_OPTIONS if old in text]
+    if legacy_paths and write:
+        for old in legacy_paths:
+            text = text.replace(old, LEGACY_SOFTWARE_OPTIONS[old])
+            report.removed.append(old)
+            report.added.append(LEGACY_SOFTWARE_OPTIONS[old])
+            log.fix(
+                "software", "migrated option path",
+                old=old, new=LEGACY_SOFTWARE_OPTIONS[old],
+            )
+        atomic_write_text(path, text)
+        invalidate_machine_manifest()
+        report.changed = True
+    elif legacy_paths:
+        report.errors.extend(legacy_paths)
+        for old in legacy_paths:
+            log.error("software", "legacy option path requires migration", option=old)
+        log.hint("Run: envy config refine")
+
+    groups = groups_for_manifest(machine_manifest(), include_empty=True)
     try:
-        values = read_managed_exclusions(path)
+        includes, exclusions = read_managed_policy(path, groups)
     except (OSError, SoftwarePolicyError) as exc:
         report.errors.append(str(path))
         log.error("software", str(exc))
-        log.hint("Fix the managed exclusions block or remove it and reopen envy setup.")
+        log.hint("Fix the managed software blocks or remove them and reopen envy setup.")
         return report
 
     if SOFTWARE_MANAGED_START in path.read_text():
-        count = sum(len(names) for names in values.values())
-        log.ok("software", "managed machine exclusions are valid", excluded=count)
+        count = sum(len(names) for names in exclusions.values())
+        log.ok(
+            "software", "managed machine selections are valid",
+            included=len(includes), excluded=count,
+        )
     if strict and report.errors:
         log.error("software", "software policy validation failed")
     return report
@@ -595,7 +626,7 @@ def refine_all(*, write: bool = True, strict: bool = False, include_secrets: boo
         return report
     report.extend(refine_sensitive_permissions(write=write))
     report.extend(refine_config(write=write, strict=strict))
-    report.extend(refine_software_policy(strict=strict))
+    report.extend(refine_software_policy(write=write, strict=strict))
     if include_secrets:
         report.extend(refine_secrets(write=write, strict=strict, prune=prune))
     if report.ok:
@@ -642,9 +673,6 @@ app = typer.Typer(
     rich_markup_mode="rich",
     no_args_is_help=True,
 )
-app.add_typer(software_app, name="software")
-
-
 @app.command(name="check")
 def cmd_check():
     """Check device metadata, the selected machine file, and secrets without writing."""
@@ -712,11 +740,8 @@ def cmd_secret_set(
 @app.command(name="show")
 def cmd_show(
     refresh: bool = typer.Option(False, "--refresh", help="Ignore the saved manifest cache"),
-    details: bool = typer.Option(
-        False, "--details", "-d", help="Show complete software include/exclude/effective lists"
-    ),
 ):
-    """Show the evaluated machine, its software policy, and secret status."""
+    """Show evaluated machine values and secret status."""
     manifest = machine_manifest(refresh=refresh)
     evaluated_values = manifest_settings(manifest)
     config_values = evaluated_values or read_machine_nix()
@@ -732,15 +757,7 @@ def cmd_show(
     for f in MACHINE_FIELDS:
         table.add_row("value", f.path, config_values.get(f.path, ""))
 
-    if manifest:
-        for path, include, exclude, effective in manifest_selection_rows(manifest):
-            if details:
-                table.add_row("include", f"{path}.include", _format_list(include))
-            if details or exclude:
-                table.add_row("exclude", f"{path}.exclude", _format_list(exclude))
-            if details:
-                table.add_row("effective", f"{path}.effective", _format_list(effective))
-    else:
+    if not manifest:
         log.warn(
             "config",
             "Nix evaluation failed; showing direct machine assignments without imported defaults",
@@ -753,14 +770,6 @@ def cmd_show(
         table.add_row("secret", f.yaml_path, status)
 
     log.console.print(table)
-
-
-def _format_list(values: list[str]) -> Text:
-    # A plain Text renderable prevents Rich from treating package names inside
-    # square brackets as markup tags.
-    return Text("[" + ", ".join(values) + "]")
-
-
 @app.command(name="edit")
 def cmd_edit():
     """Open the selected versioned machine file in $EDITOR."""

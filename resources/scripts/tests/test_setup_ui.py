@@ -14,6 +14,33 @@ def _load_setup_module():
     return module
 
 
+def _group(option, label, include=(), exclude=(), effective=()):
+    entries = lambda values: [{"id": value, "name": value} for value in values]
+    return {
+        "label": label,
+        "optionPath": option,
+        "ecosystem": "homebrew" if "homebrew" in option else "nix",
+        "scope": "system" if "darwin" in option else "user",
+        "kind": "cask" if "casks" in option else "package",
+        "installer": "homebrew" if "homebrew" in option else "home-manager",
+        "editable": {"include": False, "exclude": True},
+        "selection": {
+            "include": entries(include),
+            "exclude": list(exclude),
+            "effective": entries(effective),
+        },
+    }
+
+
+def _manifest(platform, groups):
+    return {
+        "schemaVersion": 2,
+        "id": f"test-{platform}",
+        "platform": platform,
+        "software": {"groups": groups},
+    }
+
+
 class SetupUiTests(unittest.TestCase):
     def test_yes_no_prompt_retries_blank_and_invalid_answers(self):
         setup = _load_setup_module()
@@ -40,6 +67,7 @@ class SetupUiTests(unittest.TestCase):
                 {secret.path: new_secret},
                 exclusions,
                 exclusions,
+                setup.groups_for_manifest(None, include_empty=True),
             )
         rendered = capture.get()
 
@@ -65,14 +93,14 @@ class SetupUiTests(unittest.TestCase):
 
     def test_policy_view_shows_machine_exclusion_checkboxes(self):
         setup = _load_setup_module()
-        manifest = {
-            "packages": {"home": ["git"]},
-            "homebrew": {},
-            "inclusions": {"packages": {"home": ["git", "okular"]}},
-            "exclusions": {"packages": {"home": ["okular"]}},
-        }
+        manifest = _manifest("linux", {
+            "nix.user.package": _group(
+                "envy.software.nix.packages", "Nix packages",
+                ["git", "okular"], ["okular"], ["git"],
+            ),
+        })
 
-        exclusions = {"packages.home": ["okular"]}
+        exclusions = {"nix.user.package": ["okular"]}
         state = setup.AppState({}, manifest, exclusions)
         rendered = "".join(part for _, part in setup._policy_text(state))
 
@@ -83,30 +111,22 @@ class SetupUiTests(unittest.TestCase):
 
     def test_darwin_cask_toggle_changes_checkbox_to_checked(self):
         setup = _load_setup_module()
-        manifest = {
-            "id": "test-mac",
-            "platform": "darwin",
-            "packages": {"home": [], "system": [], "fonts": []},
-            "homebrew": {"brews": ["gh"], "casks": ["iterm2"], "taps": []},
-            "inclusions": {
-                "packages": {"home": [], "system": [], "fonts": []},
-                "homebrew": {
-                    "brews": ["gh"],
-                    "casks": ["iterm2", "uuremote"],
-                    "taps": [],
-                },
-            },
-            "exclusions": {
-                "packages": {"home": [], "system": [], "fonts": []},
-                "homebrew": {"brews": [], "casks": ["uuremote"], "taps": []},
-            },
-        }
-        state = setup.AppState({}, manifest, {"homebrew.casks": ["uuremote"]})
+        manifest = _manifest("darwin", {
+            "homebrew.system.formula": _group(
+                "envy.darwin.software.homebrew.formulae", "Homebrew formulae",
+                ["gh"], [], ["gh"],
+            ),
+            "homebrew.system.cask": _group(
+                "envy.darwin.software.homebrew.casks", "Homebrew casks",
+                ["iterm2", "uuremote"], ["uuremote"], ["iterm2"],
+            ),
+        })
+        state = setup.AppState({}, manifest, {"homebrew.system.cask": ["uuremote"]})
         state.mode = "policy"
         state.policy_group = next(
             index
             for index, group in enumerate(state.policy_groups)
-            if group.key == "homebrew.casks"
+            if group.key == "homebrew.system.cask"
         )
         state.policy_cursor = 1
 
@@ -120,26 +140,20 @@ class SetupUiTests(unittest.TestCase):
         self.assertIn("[x] uuremote", after)
         self.assertIn("pending", after)
 
-    def test_linux_policy_view_has_only_common_group(self):
+    def test_linux_policy_view_has_only_manifest_groups(self):
         setup = _load_setup_module()
-        manifest = {
-            "id": "test-linux",
-            "platform": "linux",
-            "packages": {"home": ["git"]},
-            "homebrew": {"brews": ["gh"], "casks": ["iterm2"], "taps": []},
-            "inclusions": {
-                "packages": {"home": ["git"]},
-                "homebrew": {"brews": ["gh"], "casks": ["iterm2"]},
-            },
-            "exclusions": {},
-        }
+        manifest = _manifest("linux", {
+            "nix.user.package": _group(
+                "envy.software.nix.packages", "Nix packages", ["git"], [], ["git"]
+            ),
+        })
         state = setup.AppState({}, manifest, {})
         state.mode = "policy"
 
         rendered = "".join(part for _, part in setup._policy_text(state))
 
-        self.assertEqual([group.key for group in state.policy_groups], ["packages.home"])
-        self.assertIn("Home packages  (1/1)", rendered)
+        self.assertEqual([group.key for group in state.policy_groups], ["nix.user.package"])
+        self.assertIn("Nix packages  (1/1)", rendered)
         self.assertIn("[x] git", rendered)
         self.assertNotIn("Homebrew", rendered)
 

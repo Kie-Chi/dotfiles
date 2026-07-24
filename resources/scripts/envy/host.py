@@ -53,6 +53,30 @@ def machine_entries() -> list[tuple[str, str, Path]]:
     return sorted(entries, key=lambda entry: (entry[0], entry[1]))
 
 
+def complete_machine_ids(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete machine IDs available for the current platform."""
+    del ctx
+    current = current_machine_id()
+    return [
+        (
+            path.stem,
+            "currently selected" if path.stem == current else f"{platform_name()} machine",
+        )
+        for path in sorted(MACHINES_DIR.glob("*.nix"))
+        if path.is_file() and path.stem.startswith(incomplete)
+    ]
+
+
+def complete_init_modes(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete supported host initialization modes."""
+    del ctx
+    modes = (
+        ("import", "inherit future changes from hosts/default.nix"),
+        ("copy", "create an independent snapshot of hosts/default.nix"),
+    )
+    return [item for item in modes if item[0].startswith(incomplete)]
+
+
 def validate_machine_id(machine_id: str) -> str:
     value = machine_id.strip()
     if not MACHINE_ID_PATTERN.fullmatch(value):
@@ -134,7 +158,10 @@ def initialize_machine(machine_id: str, mode: str, force: bool = False) -> Path:
 @app.command(name="init")
 def cmd_init(
     machine_id: Optional[str] = typer.Argument(None, help="Machine ID; defaults to the local device label"),
-    mode: Optional[str] = typer.Option(None, "--mode", "-m", help="Creation mode: import or copy"),
+    mode: Optional[str] = typer.Option(
+        None, "--mode", "-m", help="Creation mode: import or copy",
+        autocompletion=complete_init_modes,
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Back up and replace an existing machine file"),
 ):
     """Create machine.nix by importing or copying hosts/default.nix."""
@@ -167,7 +194,10 @@ def cmd_list():
 
 @app.command(name="select")
 def cmd_select(
-    machine_id: str = typer.Argument(..., help="Existing machine ID to select locally"),
+    machine_id: str = typer.Argument(
+        ..., help="Existing machine ID to select locally",
+        autocompletion=complete_machine_ids,
+    ),
 ):
     """Select which versioned machine file local envy commands operate on."""
     selected = validate_machine_id(machine_id)
@@ -205,7 +235,10 @@ def cmd_status():
 
 @app.command(name="check")
 def cmd_check(
-    machine_id: Optional[str] = typer.Argument(None, help="Machine ID; defaults to the selected machine"),
+    machine_id: Optional[str] = typer.Argument(
+        None, help="Machine ID; defaults to the selected machine",
+        autocompletion=complete_machine_ids,
+    ),
 ):
     """Evaluate the selected platform's machine derivation without applying it."""
     selected = validate_machine_id(machine_id or current_machine_id())

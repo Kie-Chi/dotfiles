@@ -14,7 +14,7 @@ class HostInitTests(unittest.TestCase):
         self.default = self.root / "hosts" / "default.nix"
         self.machines = self.root / "hosts" / "darwin"
         self.default.parent.mkdir(parents=True)
-        self.default.write_text('{ ... }: { envy.packages.home.exclude = [ "okular" ]; }\n')
+        self.default.write_text('{ ... }: { envy.software.nix.packages.exclude = [ "okular" ]; }\n')
 
     def tearDown(self):
         self.tempdir.cleanup()
@@ -35,12 +35,29 @@ class HostInitTests(unittest.TestCase):
             target = host.initialize_machine("offline-macbook", "copy")
         text = target.read_text()
         self.assertIn("does not inherit later default policy changes", text)
-        self.assertIn('envy.packages.home.exclude = [ "okular" ];', text)
+        self.assertIn('envy.software.nix.packages.exclude = [ "okular" ];', text)
         select.assert_called_once_with("offline-macbook")
 
     def test_machine_id_validation_rejects_git_ref_punctuation(self):
         with self.assertRaises(Exception):
             host.validate_machine_id("darwin:work")
+
+    def test_machine_completion_lists_current_platform_hosts(self):
+        self.machines.mkdir(parents=True)
+        (self.machines / "work-macbook.nix").write_text("{ ... }: { }\n")
+        (self.machines / "home-macbook.nix").write_text("{ ... }: { }\n")
+        with patch.object(host, "MACHINES_DIR", self.machines), patch.object(
+            host, "current_machine_id", return_value="work-macbook"
+        ), patch.object(host, "platform_name", return_value="darwin"):
+            items = host.complete_machine_ids(None, "work")
+
+        self.assertEqual(items, [("work-macbook", "currently selected")])
+
+    def test_init_mode_completion_is_prefix_filtered(self):
+        self.assertEqual(
+            host.complete_init_modes(None, "i"),
+            [("import", "inherit future changes from hosts/default.nix")],
+        )
 
     def test_darwin_flake_target_uses_path_source_for_untracked_machine(self):
         with patch.object(utils, "PLATFORM", "darwin"), patch.object(

@@ -12,7 +12,11 @@ from envy.git_safety import (
     assert_worktree_secret_encrypted,
 )
 from envy.schemas.config import MACHINE_FIELDS, SECRET_FIELDS
-from envy.software import SoftwarePolicyError, read_managed_exclusions
+from envy.software import (
+    SoftwarePolicyError,
+    groups_for_manifest,
+    read_managed_policy,
+)
 from envy.doctor.model import (
     SECTION_CONFIG,
     SECTION_DOCTOR,
@@ -97,14 +101,17 @@ def run_checks() -> list[CheckResult]:
         results.append(ok(SECTION_CONFIG, "machine manifest", "Nix evaluation succeeded"))
 
     try:
-        read_managed_exclusions(config_path)
-        results.append(ok(SECTION_CONFIG, "software policy", "managed exclusions are valid"))
+        read_managed_policy(
+            config_path,
+            groups_for_manifest(manifest, include_empty=True),
+        )
+        results.append(ok(SECTION_CONFIG, "software policy", "managed include/exclude assignments are valid"))
     except SoftwarePolicyError as exc:
         results.append(error(
             SECTION_CONFIG,
             "software policy",
             str(exc),
-            hint="Fix the ENVY MANAGED EXCLUSIONS block or reopen envy setup.",
+            hint="Fix the ENVY MANAGED SOFTWARE block or reopen envy setup.",
         ))
 
     results.extend(_check_secrets(values))

@@ -8,12 +8,16 @@ from envy.doctor import policy
 class DoctorPolicyTests(unittest.TestCase):
     def test_excluded_cask_is_not_expected(self):
         manifest = {
-            "homebrew": {"casks": [], "brews": []},
-            "packages": {"home": []},
-            "exclusions": {
-                "homebrew": {"casks": ["zotero"], "brews": []},
-                "packages": {"home": []},
-            },
+            "schemaVersion": 2,
+            "software": {"groups": {
+                "homebrew.system.cask": {
+                    "selection": {
+                        "include": [{"id": "zotero", "name": "zotero"}],
+                        "exclude": ["zotero"],
+                        "effective": [],
+                    },
+                },
+            }},
         }
         spec = SimpleNamespace(casks=["zotero"], brews=[], packages=[])
         with patch.object(policy, "machine_manifest", return_value=manifest):
@@ -23,12 +27,19 @@ class DoctorPolicyTests(unittest.TestCase):
 
     def test_excluded_nix_package_is_not_expected(self):
         manifest = {
-            "homebrew": {"casks": [], "brews": []},
-            "packages": {"home": ["git"]},
-            "exclusions": {
-                "homebrew": {"casks": [], "brews": []},
-                "packages": {"home": ["okular"]},
-            },
+            "schemaVersion": 2,
+            "software": {"groups": {
+                "nix.user.package": {
+                    "selection": {
+                        "include": [
+                            {"id": "git", "name": "git"},
+                            {"id": "okular", "name": "okular"},
+                        ],
+                        "exclude": ["okular"],
+                        "effective": [{"id": "git", "name": "git"}],
+                    },
+                },
+            }},
         }
         spec = SimpleNamespace(casks=[], brews=[], packages=["okular"])
         with patch.object(policy, "machine_manifest", return_value=manifest):

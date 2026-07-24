@@ -38,7 +38,7 @@ from envy.software import (
     ConcurrentMachineEdit,
     SoftwarePolicyError,
     build_software_items,
-    groups_for_platform,
+    groups_for_manifest,
     normalize_exclusions,
     read_managed_exclusions,
     set_excluded,
@@ -134,8 +134,7 @@ class AppState:
     ):
         self.values = values
         self.manifest = manifest
-        manifest_platform = manifest.get("platform") if manifest else PLATFORM
-        self.policy_groups = groups_for_platform(str(manifest_platform or PLATFORM))
+        self.policy_groups = groups_for_manifest(manifest)
         self.original_exclusions = normalize_exclusions(exclusions, self.policy_groups)
         self.exclusions = normalize_exclusions(exclusions, self.policy_groups)
         self.mode = "list"  # list | policy | policy_search | edit_text | edit_choice
@@ -259,7 +258,7 @@ def _toggle_policy_item(state: AppState) -> None:
         set_excluded(
             state.exclusions,
             group.key,
-            item.name,
+            item.id,
             True,
             groups=state.policy_groups,
         )
@@ -268,7 +267,7 @@ def _toggle_policy_item(state: AppState) -> None:
         set_excluded(
             state.exclusions,
             group.key,
-            item.name,
+            item.id,
             False,
             groups=state.policy_groups,
         )
@@ -645,6 +644,7 @@ def show_changes(
     new_values: dict,
     old_exclusions: dict[str, list[str]],
     new_exclusions: dict[str, list[str]],
+    groups,
 ) -> bool:
     """Display changed fields without exposing secret values."""
     changes = []
@@ -660,7 +660,7 @@ def show_changes(
                 new = _display_value(f, new)
             changes.append((f"{tag}: {f.prompt}", old, new))
 
-    for label, disabled, enabled in software_changes(old_exclusions, new_exclusions):
+    for label, disabled, enabled in software_changes(old_exclusions, new_exclusions, groups):
         if disabled:
             changes.append((f"SOFTWARE: {label}", "enabled", f"disable: {', '.join(disabled)}"))
         if enabled:
@@ -706,6 +706,7 @@ def save_all(
     original_machine_source: str,
     *,
     replace_secrets: bool = False,
+    groups=None,
 ) -> None:
     target = machine_file(current_machine_id())
     if source_digest(target.read_text()) != source_digest(original_machine_source):
@@ -726,7 +727,7 @@ def save_all(
     log.step("setup", "preparing transactional machine, key, and secret update")
     with FileTransaction(transaction_paths) as transaction:
         write_machine_nix(values)
-        write_and_validate_exclusions(exclusions, target)
+        write_and_validate_exclusions(exclusions, target, groups=groups)
         log.ok("machine", "machine configuration evaluated successfully", path=str(target))
 
         with Progress(
@@ -830,15 +831,16 @@ def main() -> int:
 
     selected_machine_file = machine_file(machine_id)
     original_machine_source = selected_machine_file.read_text()
+    manifest = machine_manifest()
+    policy_groups = groups_for_manifest(manifest, include_empty=True)
     try:
-        original_exclusions = read_managed_exclusions(selected_machine_file)
+        original_exclusions = read_managed_exclusions(selected_machine_file, policy_groups)
     except SoftwarePolicyError as exc:
         log.error("software", str(exc))
         log.hint("Fix the managed exclusions block, then reopen envy setup.")
         return 1
 
     existing_config = read_machine_nix()
-    manifest = machine_manifest()
     evaluated_config = manifest_settings(manifest)
     existing_secrets, decrypt_ok = read_secrets_yaml()
     replace_secrets = False
@@ -879,6 +881,7 @@ def main() -> int:
         new_values,
         original_exclusions,
         new_exclusions,
+        policy_groups,
     )
 
     if not has_changes:
@@ -907,6 +910,7 @@ def main() -> int:
             new_exclusions,
             original_machine_source,
             replace_secrets=replace_secrets,
+            groups=policy_groups,
         )
     except CommandError as exc:
         render_command_error(exc)

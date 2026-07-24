@@ -18,7 +18,7 @@ class MachineConfigTests(unittest.TestCase):
 
 {
   imports = [ ../default.nix ];
-  envy.packages.home.exclude = [ "okular" ];
+  envy.software.nix.packages.exclude = [ "okular" ];
 }
 """
         )
@@ -51,7 +51,7 @@ class MachineConfigTests(unittest.TestCase):
             config.write_machine_nix(self.values())
 
         text = self.machine.read_text()
-        self.assertIn('envy.packages.home.exclude = [ "okular" ];', text)
+        self.assertIn('envy.software.nix.packages.exclude = [ "okular" ];', text)
         self.assertIn(config.MANAGED_START, text)
         self.assertIn("envy.darwin.proxy.tun = false;", text)
 
@@ -67,7 +67,7 @@ class MachineConfigTests(unittest.TestCase):
         text = self.machine.read_text()
         self.assertEqual(text.count(config.MANAGED_START), 1)
         self.assertIn('envy.vscode.mode = "local";', text)
-        self.assertIn('envy.packages.home.exclude = [ "okular" ];', text)
+        self.assertIn('envy.software.nix.packages.exclude = [ "okular" ];', text)
 
     def test_reader_understands_strings_and_booleans(self):
         with self.machine_file_patch(), patch.object(

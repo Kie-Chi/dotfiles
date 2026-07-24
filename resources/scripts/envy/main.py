@@ -10,6 +10,7 @@ from envy.doctor import app as doctor_app
 from envy.key import app as key_app
 from envy.mirror import app as mirror_app
 from envy.host import app as host_app
+from envy.software import app as software_app
 from envy.process import run_process
 from envy.workflows.check import check_or_exit
 from envy.workflows.update import update_homebrew, update_inputs
@@ -258,6 +259,10 @@ cli.add_typer(update_app, name="u", rich_help_panel="Aliases")
 # Register config subgroup — "c" alias registered separately
 cli.add_typer(config_app, name="config")
 cli.add_typer(config_app, name="c", rich_help_panel="Aliases")
+
+# Software policy and registry search are independent from scalar config.
+cli.add_typer(software_app, name="software")
+cli.add_typer(software_app, name="sw", rich_help_panel="Aliases")
 
 # Register key subgroup — "k" alias registered separately
 cli.add_typer(key_app, name="key")

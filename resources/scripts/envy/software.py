@@ -1,7 +1,10 @@
-"""Machine-local software exclusions and their managed Nix source block."""
+"""Direct managed software include/exclude policy and CLI."""
 
 import hashlib
+import json
+import math
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,18 +14,22 @@ from rich.table import Table
 from rich.text import Text
 
 from envy import log
-from envy.mutation import offer_mutation_commit
-from envy.secure_io import atomic_write_text
 from envy.evaluation import (
     invalidate_machine_manifest,
     machine_manifest,
-    manifest_selection_rows,
+    manifest_software_groups,
 )
+from envy.mutation import offer_mutation_commit
+from envy.process import run_process
+from envy.secure_io import atomic_write_text
 from envy.utils import current_machine_id, machine_config_file, platform_name
 
 
-MANAGED_START = "  # BEGIN ENVY MANAGED EXCLUSIONS"
-MANAGED_END = "  # END ENVY MANAGED EXCLUSIONS"
+MANAGED_START = "  # BEGIN ENVY MANAGED SOFTWARE"
+MANAGED_END = "  # END ENVY MANAGED SOFTWARE"
+LEGACY_MANAGED_START = "  # BEGIN ENVY MANAGED EXCLUSIONS"
+LEGACY_MANAGED_END = "  # END ENVY MANAGED EXCLUSIONS"
+MANAGED_INCLUDE_METADATA = "# envy: "
 
 
 @dataclass(frozen=True)
@@ -30,40 +37,120 @@ class SelectionGroup:
     key: str
     option: str
     label: str
+    ecosystem: str = ""
+    scope: str = ""
+    kind: str = ""
+    editable_include: bool = True
 
 
 COMMON_GROUPS = (
-    SelectionGroup("packages.home", "envy.packages.home", "Home packages"),
+    SelectionGroup(
+        "nix.user.package", "envy.software.nix.packages", "Nix packages",
+        "nix", "user", "package",
+    ),
+    SelectionGroup(
+        "npm.user.tool", "envy.software.npm.tools", "NPM tools",
+        "npm", "user", "tool",
+    ),
+    SelectionGroup(
+        "pypi.user.tool", "envy.software.pypi.tools", "Python tools",
+        "pypi", "user", "tool",
+    ),
 )
 DARWIN_GROUPS = (
-    SelectionGroup("packages.system", "envy.darwin.packages.system", "Darwin system packages"),
-    SelectionGroup("packages.fonts", "envy.darwin.packages.fonts", "Darwin fonts"),
-    SelectionGroup("homebrew.brews", "envy.darwin.homebrew.brews", "Homebrew brews"),
-    SelectionGroup("homebrew.casks", "envy.darwin.homebrew.casks", "Homebrew casks"),
-    SelectionGroup("homebrew.taps", "envy.darwin.homebrew.taps", "Homebrew taps"),
+    SelectionGroup(
+        "nix.system.package", "envy.darwin.software.nix.systemPackages",
+        "Darwin system packages", "nix", "system", "package",
+    ),
+    SelectionGroup(
+        "nix.system.font", "envy.darwin.software.nix.fonts",
+        "Darwin fonts", "nix", "system", "font",
+    ),
+    SelectionGroup(
+        "homebrew.system.formula", "envy.darwin.software.homebrew.formulae",
+        "Homebrew formulae", "homebrew", "system", "formula",
+    ),
+    SelectionGroup(
+        "homebrew.system.cask", "envy.darwin.software.homebrew.casks",
+        "Homebrew casks", "homebrew", "system", "cask",
+    ),
+    SelectionGroup(
+        "homebrew.system.repository", "envy.darwin.software.homebrew.repositories",
+        "Homebrew repositories", "homebrew", "system", "repository",
+    ),
+)
+LINUX_GROUPS = (
+    SelectionGroup(
+        "native.system.package", "envy.linux.software.native.packages",
+        "Native system packages", "native", "system", "package",
+    ),
+    SelectionGroup(
+        "url.system.artifact", "envy.linux.software.url.artifacts",
+        "System artifacts", "url", "system", "artifact", False,
+    ),
 )
 
 
 def groups_for_platform(platform: str) -> tuple[SelectionGroup, ...]:
-    return COMMON_GROUPS + (DARWIN_GROUPS if platform == "darwin" else ())
+    if platform == "darwin":
+        return COMMON_GROUPS + DARWIN_GROUPS
+    return COMMON_GROUPS + LINUX_GROUPS
 
 
 GROUPS = groups_for_platform(platform_name())
-GROUP_BY_KEY = {group.key: group for group in GROUPS}
-GROUP_BY_OPTION = {group.option: group for group in GROUPS}
-if platform_name() == "darwin":
-    GROUP_BY_OPTION.update({
-        "envy.packages.system": GROUP_BY_KEY["packages.system"],
-        "envy.packages.fonts": GROUP_BY_KEY["packages.fonts"],
-        "envy.homebrew.brews": GROUP_BY_KEY["homebrew.brews"],
-        "envy.homebrew.casks": GROUP_BY_KEY["homebrew.casks"],
-        "envy.homebrew.taps": GROUP_BY_KEY["homebrew.taps"],
-    })
+
+
+def groups_for_manifest(
+    manifest: dict[str, Any] | None,
+    *,
+    include_empty: bool = False,
+) -> tuple[SelectionGroup, ...]:
+    groups: list[SelectionGroup] = []
+    for group_id, value in manifest_software_groups(manifest).items():
+        editable = value.get("editable")
+        selection = value.get("selection")
+        if not isinstance(editable, dict) or not editable.get("exclude"):
+            continue
+        if not isinstance(selection, dict):
+            continue
+        if not include_empty and not any(
+            isinstance(selection.get(key), list) and selection[key]
+            for key in ("include", "exclude", "effective")
+        ):
+            continue
+        option = value.get("optionPath")
+        if not isinstance(option, str) or not option.startswith("envy."):
+            continue
+        groups.append(SelectionGroup(
+            key=group_id,
+            option=option,
+            label=str(value.get("label") or group_id),
+            ecosystem=str(value.get("ecosystem") or ""),
+            scope=str(value.get("scope") or ""),
+            kind=str(value.get("kind") or ""),
+            editable_include=bool(editable.get("include")),
+        ))
+    if groups:
+        priority = {
+            name: index
+            for index, name in enumerate(
+                ("nix", "homebrew", "native", "url", "npm", "pypi")
+            )
+        }
+        groups.sort(key=lambda group: (
+            priority.get(group.ecosystem, len(priority)), group.scope, group.kind
+        ))
+        return tuple(groups)
+    platform = manifest.get("platform") if isinstance(manifest, dict) else platform_name()
+    return groups_for_platform(str(platform))
 
 
 @dataclass(frozen=True)
 class SoftwareItem:
+    id: str
     name: str
+    version: str | None
+    ref: str | None
     included: bool
     checked: bool
     managed: bool
@@ -72,8 +159,75 @@ class SoftwareItem:
     changed: bool
 
 
+@dataclass(frozen=True)
+class ManagedInclude:
+    group: str
+    id: str
+    name: str
+    version: str | None = None
+    ref: str | None = None
+    parameters: dict[str, Any] | None = None
+
+    def to_selection(self) -> dict[str, Any]:
+        selection: dict[str, Any] = {"id": self.id, "name": self.name}
+        if self.version is not None:
+            selection["version"] = self.version
+        if self.ref is not None:
+            selection["ref"] = self.ref
+        if self.parameters:
+            selection["parameters"] = self.parameters
+        return selection
+
+
+@dataclass(frozen=True)
+class SoftwarePlan:
+    action: str
+    group: SelectionGroup
+    item_id: str
+    includes_before: tuple[ManagedInclude, ...]
+    includes_after: tuple[ManagedInclude, ...]
+    exclusions_before: tuple[str, ...]
+    exclusions_after: tuple[str, ...]
+    expected_included: bool
+    expected_excluded: bool
+    expected_effective: bool
+    clean: bool
+    blocked: str | None = None
+
+    @property
+    def include_added(self) -> tuple[str, ...]:
+        before = {(item.group, item.id) for item in self.includes_before}
+        return tuple(
+            item.id for item in self.includes_after
+            if (item.group, item.id) not in before
+        )
+
+    @property
+    def include_removed(self) -> tuple[str, ...]:
+        after = {(item.group, item.id) for item in self.includes_after}
+        return tuple(
+            item.id for item in self.includes_before
+            if (item.group, item.id) not in after
+        )
+
+    @property
+    def exclude_added(self) -> tuple[str, ...]:
+        return tuple(item for item in self.exclusions_after if item not in self.exclusions_before)
+
+    @property
+    def exclude_removed(self) -> tuple[str, ...]:
+        return tuple(item for item in self.exclusions_before if item not in self.exclusions_after)
+
+    @property
+    def changed(self) -> bool:
+        return bool(
+            self.include_added or self.include_removed
+            or self.exclude_added or self.exclude_removed
+        )
+
+
 class SoftwarePolicyError(ValueError):
-    """Raised when the managed exclusion block cannot be safely handled."""
+    """Raised when managed software policy cannot be safely handled."""
 
 
 class ConcurrentMachineEdit(SoftwarePolicyError):
@@ -100,11 +254,11 @@ def normalize_exclusions(
     for group in active_groups:
         seen: set[str] = set()
         for raw in (values or {}).get(group.key, []):
-            name = str(raw)
-            _validate_name(name)
-            if name not in seen:
-                seen.add(name)
-                normalized[group.key].append(name)
+            item_id = str(raw)
+            _validate_name(item_id)
+            if item_id not in seen:
+                seen.add(item_id)
+                normalized[group.key].append(item_id)
     return normalized
 
 
@@ -112,68 +266,177 @@ def source_digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def read_managed_exclusions(path: Path | None = None) -> dict[str, list[str]]:
+def read_managed_exclusions(
+    path: Path | None = None,
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> dict[str, list[str]]:
+    return read_managed_policy(path, groups)[1]
+
+
+def read_managed_policy(
+    path: Path | None = None,
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> tuple[list[ManagedInclude], dict[str, list[str]]]:
+    active_groups = groups if groups is not None else GROUPS
     target = path or machine_file()
     if not target.exists():
         raise SoftwarePolicyError(f"machine configuration is missing: {target}")
-    text = target.read_text()
-    match = _managed_match(text)
-    if match is None:
-        return empty_exclusions()
-    return _parse_block(match.group(0))
+    return _parse_managed_policy_source(target.read_text(), active_groups)
 
 
-def render_managed_exclusions(values: dict[str, list[str]]) -> str:
-    normalized = normalize_exclusions(values)
+def normalize_managed_includes(
+    values: list[ManagedInclude | dict[str, Any]] | tuple[ManagedInclude, ...] | None,
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> list[ManagedInclude]:
+    """Validate, de-duplicate, and deterministically order CLI-owned includes."""
+    active_groups = groups if groups is not None else GROUPS
+    group_by_key = {group.key: group for group in active_groups}
+    normalized: list[ManagedInclude] = []
+    by_key: dict[tuple[str, str], ManagedInclude] = {}
+    for raw in values or []:
+        if isinstance(raw, ManagedInclude):
+            item = raw
+        elif isinstance(raw, dict):
+            required = {key: raw.get(key) for key in ("group", "id", "name")}
+            if not all(isinstance(value, str) for value in required.values()):
+                raise SoftwarePolicyError(
+                    "managed software group, id, and name must be strings"
+                )
+            version = raw.get("version")
+            ref = raw.get("ref")
+            if version is not None and not isinstance(version, str):
+                raise SoftwarePolicyError("managed software version must be a string or null")
+            if ref is not None and not isinstance(ref, str):
+                raise SoftwarePolicyError("managed software reference must be a string or null")
+            parameters = raw.get("parameters", {})
+            item = ManagedInclude(
+                group=required["group"],
+                id=required["id"],
+                name=required["name"],
+                version=version,
+                ref=ref,
+                parameters=parameters if isinstance(parameters, dict) else None,
+            )
+        else:
+            raise SoftwarePolicyError("managed software entries must be objects")
+        group = group_by_key.get(item.group)
+        if group is None:
+            raise SoftwarePolicyError(f"unknown managed software group: {item.group}")
+        if not group.editable_include:
+            raise SoftwarePolicyError(f"software group does not support managed includes: {item.group}")
+        _validate_name(item.id)
+        _validate_name(item.name)
+        if item.version is not None:
+            _validate_text_value(item.version, "version")
+        if item.ref is not None:
+            _validate_text_value(item.ref, "reference")
+        if item.parameters is None or not _json_value_supported(item.parameters):
+            raise SoftwarePolicyError(f"invalid managed software parameters: {item.group}/{item.id}")
+        key = (item.group, item.id)
+        previous = by_key.get(key)
+        if previous is not None:
+            if previous != item:
+                raise SoftwarePolicyError(
+                    f"conflicting managed software entries: {item.group}/{item.id}"
+                )
+            continue
+        by_key[key] = item
+        normalized.append(item)
+    priority = {group.key: index for index, group in enumerate(active_groups)}
+    normalized.sort(key=lambda item: (priority[item.group], item.id))
+    return normalized
+
+
+def render_managed_policy(
+    includes: list[ManagedInclude | dict[str, Any]] | tuple[ManagedInclude, ...],
+    exclusions: dict[str, list[str]],
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> str:
+    active_groups = groups if groups is not None else GROUPS
+    normalized_includes = normalize_managed_includes(includes, active_groups)
+    normalized_exclusions = normalize_exclusions(exclusions, active_groups)
+    by_group = {
+        group.key: [item for item in normalized_includes if item.group == group.key]
+        for group in active_groups
+    }
     lines = [
         MANAGED_START + "\n",
-        "  # `envy setup` owns only these machine-local exclusion lists.\n",
+        "  # `envy setup` and `envy software` own only these machine-local selections.\n",
     ]
-    for group in GROUPS:
-        names = normalized[group.key]
-        if not names:
-            continue
-        lines.append(f"\n  {group.option}.exclude = [\n")
-        for name in names:
-            lines.append(f'    "{_escape_nix_string(name)}"\n')
-        lines.append("  ];\n")
+    for group in active_groups:
+        includes = by_group[group.key]
+        if includes:
+            lines.append(f"\n  {group.option}.include = ")
+            if group.ecosystem == "nix":
+                lines.append("[\n")
+                for item in includes:
+                    metadata = {"id": item.id, "ref": item.ref}
+                    payload = json.dumps(
+                        metadata, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+                    )
+                    lines.append(f"    {MANAGED_INCLUDE_METADATA}{payload}\n")
+                    lines.append(f"    {_render_nix_package(item)}\n")
+                lines.append("  ];\n")
+            elif group.ecosystem == "homebrew":
+                lines.append("[\n")
+                for item in includes:
+                    lines.append(f'    "{_escape_nix_string(item.name)}"\n')
+                lines.append("  ];\n")
+            else:
+                payload = [item.to_selection() for item in includes]
+                json_text = json.dumps(
+                    payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+                )
+                lines.append(f"builtins.fromJSON {json.dumps(json_text, ensure_ascii=False)};\n")
+
+        names = normalized_exclusions[group.key]
+        if names:
+            lines.append(f"\n  {group.option}.exclude = [\n")
+            for name in names:
+                lines.append(f'    "{_escape_nix_string(name)}"\n')
+            lines.append("  ];\n")
     lines.append(MANAGED_END)
     return "".join(lines)
 
 
-def update_machine_source(text: str, values: dict[str, list[str]]) -> str:
-    normalized = normalize_exclusions(values)
-    has_values = any(normalized[group.key] for group in GROUPS)
+def _update_managed_policy_source(
+    text: str,
+    includes: list[ManagedInclude | dict[str, Any]] | tuple[ManagedInclude, ...],
+    exclusions: dict[str, list[str]],
+    groups: tuple[SelectionGroup, ...],
+) -> str:
+    normalized_includes = normalize_managed_includes(includes, groups)
+    normalized_exclusions = normalize_exclusions(exclusions, groups)
+    has_values = bool(normalized_includes) or any(normalized_exclusions.values())
     match = _managed_match(text)
-
     if match is not None:
         if has_values:
-            updated = text[:match.start()] + render_managed_exclusions(normalized) + text[match.end():]
+            updated = (
+                text[:match.start()]
+                + render_managed_policy(normalized_includes, normalized_exclusions, groups)
+                + text[match.end():]
+            )
         else:
             updated = text[:match.start()].rstrip() + "\n\n" + text[match.end():].lstrip("\n")
-        return updated if updated.endswith("\n") else updated + "\n"
-
-    if not has_values:
-        return text
-
-    anchor = "  # END ENVY MANAGED CONFIG"
-    anchor_index = text.find(anchor)
-    if anchor_index >= 0:
-        insert_at = text.find("\n", anchor_index)
-        if insert_at < 0:
-            insert_at = len(text)
-        else:
-            insert_at += 1
+    elif has_values:
+        updated = _insert_managed_source_block(
+            text, render_managed_policy(normalized_includes, normalized_exclusions, groups)
+        )
     else:
-        insert_at = text.rfind("\n}")
-        if insert_at < 0:
-            raise SoftwarePolicyError("cannot locate the top-level closing brace in machine configuration")
-        insert_at += 1
-
-    prefix = text[:insert_at].rstrip()
-    suffix = text[insert_at:].lstrip("\n")
-    updated = prefix + "\n\n" + render_managed_exclusions(normalized) + "\n\n" + suffix
+        updated = text
+    if any(item.group.startswith("nix.") for item in normalized_includes):
+        updated = _ensure_module_argument(updated, "pkgs")
     return updated if updated.endswith("\n") else updated + "\n"
+
+
+def update_machine_source(
+    text: str,
+    values: dict[str, list[str]],
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> str:
+    active_groups = groups if groups is not None else GROUPS
+    includes = _parse_managed_policy_source(text, active_groups)[0]
+    return _update_managed_policy_source(text, includes, values, active_groups)
 
 
 def write_managed_exclusions(
@@ -181,19 +444,15 @@ def write_managed_exclusions(
     path: Path | None = None,
     *,
     expected_digest: str | None = None,
+    groups: tuple[SelectionGroup, ...] | None = None,
 ) -> None:
     target = path or machine_file()
     original = target.read_text()
     if expected_digest is not None and source_digest(original) != expected_digest:
         raise ConcurrentMachineEdit(f"machine configuration changed while setup was open: {target}")
-    updated = update_machine_source(original, values)
+    updated = update_machine_source(original, values, groups)
     if updated != original:
         atomic_write_text(target, updated)
-
-
-def restore_machine_source(text: str, path: Path | None = None) -> None:
-    """Atomically restore a previously captured machine source document."""
-    atomic_write_text(path or machine_file(), text)
 
 
 def write_and_validate_exclusions(
@@ -201,22 +460,66 @@ def write_and_validate_exclusions(
     path: Path | None = None,
     *,
     expected_digest: str | None = None,
+    groups: tuple[SelectionGroup, ...] | None = None,
 ) -> dict[str, Any]:
-    """Write exclusions, roll back when the selected Nix machine stops evaluating."""
     target = path or machine_file()
     original = target.read_text()
     if expected_digest is not None and source_digest(original) != expected_digest:
         raise ConcurrentMachineEdit(f"machine configuration changed while setup was open: {target}")
 
-    updated = update_machine_source(original, values)
+    updated = update_machine_source(original, values, groups)
     if updated != original:
         atomic_write_text(target, updated)
     manifest = machine_manifest(refresh=True)
-    if manifest is None:
+    if manifest is None or not manifest_software_groups(manifest):
         if updated != original:
             atomic_write_text(target, original)
         invalidate_machine_manifest()
-        raise SoftwarePolicyError("Nix evaluation failed; restored the original machine configuration")
+        raise SoftwarePolicyError(
+            "software manifest evaluation failed; restored the original machine configuration"
+        )
+    return manifest
+
+
+def write_and_validate_software_policy(
+    includes: list[ManagedInclude] | tuple[ManagedInclude, ...],
+    exclusions: dict[str, list[str]],
+    *,
+    group_key: str,
+    item_id: str,
+    expected_effective: bool,
+    path: Path | None = None,
+    expected_digest: str | None = None,
+    groups: tuple[SelectionGroup, ...] | None = None,
+) -> dict[str, Any]:
+    """Atomically write direct managed include/exclude assignments and verify intent."""
+    target = path or machine_file()
+    original = target.read_text()
+    if expected_digest is not None and source_digest(original) != expected_digest:
+        raise ConcurrentMachineEdit(f"machine configuration changed while planning: {target}")
+    active_groups = groups if groups is not None else GROUPS
+    updated = _update_managed_policy_source(
+        original, includes, exclusions, active_groups
+    )
+    if updated != original:
+        atomic_write_text(target, updated)
+    try:
+        manifest = machine_manifest(refresh=True)
+        if manifest is None or not manifest_software_groups(manifest):
+            raise SoftwarePolicyError("software manifest evaluation failed")
+        _, effective, _ = _evaluated_item_state(manifest, group_key, item_id)
+        if effective != expected_effective:
+            expectation = "effective" if expected_effective else "absent from effective"
+            raise SoftwarePolicyError(
+                f"software intent verification failed: {group_key}/{item_id} is not {expectation}"
+            )
+    except Exception as exc:
+        if updated != original:
+            atomic_write_text(target, original)
+        invalidate_machine_manifest()
+        if isinstance(exc, SoftwarePolicyError):
+            raise
+        raise SoftwarePolicyError(str(exc)) from exc
     return manifest
 
 
@@ -228,46 +531,57 @@ def build_software_items(
     *,
     groups: tuple[SelectionGroup, ...] | None = None,
 ) -> dict[str, list[SoftwareItem]]:
-    """Build checkbox state from evaluated policy plus pending machine exclusions."""
-    manifest_platform = manifest.get("platform") if isinstance(manifest, dict) else None
-    active_groups = groups or groups_for_platform(str(manifest_platform or platform_name()))
+    active_groups = groups or groups_for_manifest(manifest)
     current = normalize_exclusions(managed, active_groups)
     original = normalize_exclusions(
         original_managed if original_managed is not None else managed,
         active_groups,
     )
-    option_to_key = {group.option: group.key for group in active_groups}
-    rows = {}
-    for path, include, exclude, effective in manifest_selection_rows(manifest):
-        group_key = option_to_key.get(path)
-        if group_key is not None:
-            rows[group_key] = (include, exclude, effective)
+    manifest_groups = manifest_software_groups(manifest)
     result: dict[str, list[SoftwareItem]] = {}
     needle = query.casefold().strip()
 
     for group in active_groups:
-        include, final_exclude, _ = rows.get(group.key, ([], [], []))
-        include_set = set(include)
+        selection = manifest_groups.get(group.key, {}).get("selection", {})
+        include_entries = _software_entries(selection.get("include"))
+        include_by_id = {entry["id"]: entry for entry in include_entries}
+        final_exclude = _string_list(selection.get("exclude"))
         original_set = set(original[group.key])
         current_set = set(current[group.key])
-        external_set = set(final_exclude) - original_set
+        final_counts = Counter(final_exclude)
+        managed_counts = Counter(original[group.key])
+        external_set = {
+            item_id
+            for item_id, count in final_counts.items()
+            if count > managed_counts[item_id]
+        }
         predicted_excluded = external_set | current_set
-        names = _ordered_unique([*include, *final_exclude, *original[group.key], *current[group.key]])
-        items = []
-        for name in names:
-            if needle and needle not in name.casefold():
+        item_ids = _ordered_unique([
+            *include_by_id,
+            *final_exclude,
+            *original[group.key],
+            *current[group.key],
+        ])
+        items: list[SoftwareItem] = []
+        for item_id in item_ids:
+            entry = include_by_id.get(item_id, {"id": item_id, "name": item_id})
+            name = str(entry.get("name") or item_id)
+            if needle and needle not in name.casefold() and needle not in item_id.casefold():
                 continue
-            included = name in include_set
-            locked = name in external_set
-            managed_here = name in current_set
+            included = item_id in include_by_id
+            locked = item_id in external_set
+            managed_here = item_id in current_set
             items.append(SoftwareItem(
+                id=item_id,
                 name=name,
+                version=_optional_string(entry.get("version")),
+                ref=_optional_string(entry.get("ref")),
                 included=included,
-                checked=included and name not in predicted_excluded,
+                checked=included and item_id not in predicted_excluded,
                 managed=managed_here,
                 locked=locked,
-                stale=not included and name in predicted_excluded,
-                changed=(name in current_set) != (name in original_set),
+                stale=not included and item_id in predicted_excluded,
+                changed=(item_id in current_set) != (item_id in original_set),
             ))
         result[group.key] = items
     return result
@@ -276,19 +590,19 @@ def build_software_items(
 def set_excluded(
     values: dict[str, list[str]],
     group_key: str,
-    name: str,
+    item_id: str,
     excluded: bool,
     groups: tuple[SelectionGroup, ...] | None = None,
 ) -> None:
     active_groups = groups if groups is not None else GROUPS
     group = require_group(group_key, active_groups)
-    _validate_name(name)
+    _validate_name(item_id)
     current = normalize_exclusions(values, active_groups)
     names = current[group.key]
-    if excluded and name not in names:
-        names.append(name)
-    elif not excluded and name in names:
-        names.remove(name)
+    if excluded and item_id not in names:
+        names.append(item_id)
+    elif not excluded and item_id in names:
+        names.remove(item_id)
     values.clear()
     values.update(current)
 
@@ -298,27 +612,27 @@ def require_group(
     groups: tuple[SelectionGroup, ...] | None = None,
 ) -> SelectionGroup:
     active_groups = groups if groups is not None else GROUPS
-    group_by_key = {group.key: group for group in active_groups}
-    group_by_option = {group.option: group for group in active_groups}
-    for group in active_groups:
-        if group.option.startswith("envy.darwin."):
-            group_by_option[group.option.replace("envy.darwin.", "envy.", 1)] = group
     option = value.removesuffix(".exclude")
-    key = option.removeprefix("envy.")
-    group = group_by_option.get(option) or group_by_key.get(key)
-    if group is None:
-        allowed = ", ".join(item.key for item in active_groups)
-        raise typer.BadParameter(f"unknown software group: {value}; choose one of: {allowed}")
-    return group
+    matches = [
+        group for group in active_groups
+        if value == group.key or option == group.option
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    allowed = ", ".join(item.key for item in active_groups)
+    raise typer.BadParameter(f"unknown software group: {value}; choose one of: {allowed}")
 
 
 def software_changes(
-    original: dict[str, list[str]], current: dict[str, list[str]],
+    original: dict[str, list[str]],
+    current: dict[str, list[str]],
+    groups: tuple[SelectionGroup, ...] | None = None,
 ) -> list[tuple[str, list[str], list[str]]]:
-    before = normalize_exclusions(original)
-    after = normalize_exclusions(current)
+    active_groups = groups if groups is not None else GROUPS
+    before = normalize_exclusions(original, active_groups)
+    after = normalize_exclusions(current, active_groups)
     changes = []
-    for group in GROUPS:
+    for group in active_groups:
         disabled = [name for name in after[group.key] if name not in before[group.key]]
         enabled = [name for name in before[group.key] if name not in after[group.key]]
         if disabled or enabled:
@@ -327,66 +641,313 @@ def software_changes(
 
 
 def _managed_match(text: str) -> re.Match[str] | None:
-    start_count = text.count(MANAGED_START)
-    end_count = text.count(MANAGED_END)
+    current = _named_managed_match(text, MANAGED_START, MANAGED_END, "software")
+    legacy = _named_managed_match(
+        text, LEGACY_MANAGED_START, LEGACY_MANAGED_END, "legacy software"
+    )
+    if current is not None and legacy is not None:
+        raise SoftwarePolicyError("managed software block is duplicated")
+    return current or legacy
+
+
+def _named_managed_match(
+    text: str,
+    start: str,
+    end: str,
+    label: str,
+) -> re.Match[str] | None:
+    start_count = text.count(start)
+    end_count = text.count(end)
     if start_count != end_count or start_count > 1:
-        raise SoftwarePolicyError("managed exclusions block markers are missing or duplicated")
+        raise SoftwarePolicyError(f"managed {label} block markers are missing or duplicated")
     if start_count == 0:
         return None
-    pattern = re.compile(
-        rf"(?ms)^{re.escape(MANAGED_START)}$.*?^{re.escape(MANAGED_END)}$"
-    )
+    pattern = re.compile(rf"(?ms)^{re.escape(start)}$.*?^{re.escape(end)}$")
     match = pattern.search(text)
     if match is None:
-        raise SoftwarePolicyError("cannot parse managed exclusions block")
+        raise SoftwarePolicyError(f"cannot parse managed {label} block")
     return match
 
 
-def _parse_block(block: str) -> dict[str, list[str]]:
-    values = empty_exclusions()
-    seen: set[str] = set()
+def _insert_managed_source_block(text: str, block: str) -> str:
+    anchor = "  # END ENVY MANAGED CONFIG"
+    anchor_index = text.find(anchor)
+    if anchor_index >= 0:
+        insert_at = text.find("\n", anchor_index)
+        insert_at = len(text) if insert_at < 0 else insert_at + 1
+    else:
+        insert_at = text.rfind("\n}")
+        if insert_at < 0:
+            raise SoftwarePolicyError(
+                "cannot locate the top-level closing brace in machine configuration"
+            )
+        insert_at += 1
+    prefix = text[:insert_at].rstrip()
+    suffix = text[insert_at:].lstrip("\n")
+    updated = prefix + "\n\n" + block + "\n\n" + suffix
+    return updated if updated.endswith("\n") else updated + "\n"
+
+
+def _parse_managed_policy_source(
+    text: str,
+    groups: tuple[SelectionGroup, ...],
+) -> tuple[list[ManagedInclude], dict[str, list[str]]]:
+    match = _managed_match(text)
+    if match is None:
+        return [], empty_exclusions(groups)
+    block = match.group(0)
+    exclusions = empty_exclusions(groups)
+    includes: list[ManagedInclude] = []
+    group_by_option = {group.option: group for group in groups}
+    seen: set[tuple[str, str]] = set()
     body = block.split("\n", 1)[1].rsplit("\n", 1)[0]
-    body = re.sub(r"(?m)^\s*#.*$", "", body)
-    options = "|".join(re.escape(option) for option in GROUP_BY_OPTION)
+    options = "|".join(re.escape(option) for option in group_by_option)
     assignment = re.compile(
-        rf"(?ms)^\s*({options})\.exclude\s*=\s*\[(.*?)\]\s*;[ \t]*(?:\n|$)"
+        rf"(?ms)^\s*({options})\.(include|exclude)\s*=\s*(.*?)\s*;[ \t]*(?:\n|$)"
     )
     cursor = 0
-    for match in assignment.finditer(body):
-        if body[cursor:match.start()].strip():
-            raise SoftwarePolicyError("unsupported content in managed exclusions block")
-        group = GROUP_BY_OPTION[match.group(1)]
-        if group.key in seen:
-            raise SoftwarePolicyError(f"duplicate exclusion assignment: {group.option}.exclude")
-        seen.add(group.key)
-        values[group.key] = _parse_string_list(match.group(2))
-        cursor = match.end()
-    if body[cursor:].strip():
-        raise SoftwarePolicyError("unsupported content in managed exclusions block")
-    return normalize_exclusions(values)
+    for assignment_match in assignment.finditer(body):
+        gap = body[cursor:assignment_match.start()]
+        if _strip_managed_comments(gap).strip():
+            raise SoftwarePolicyError("unsupported content in managed software block")
+        group = group_by_option[assignment_match.group(1)]
+        field = assignment_match.group(2)
+        key = (group.key, field)
+        if key in seen:
+            raise SoftwarePolicyError(f"duplicate managed assignment: {group.option}.{field}")
+        seen.add(key)
+        value = assignment_match.group(3)
+        if field == "exclude":
+            exclusions[group.key] = _parse_string_selection(value, "exclusion")
+        elif group.ecosystem == "nix":
+            includes.extend(_parse_nix_includes(value, group))
+        elif group.ecosystem == "homebrew":
+            includes.extend(
+                ManagedInclude(
+                    group=group.key,
+                    id=name,
+                    name=name,
+                    ref=f"homebrew:{'tap' if group.kind == 'repository' else group.kind}/{name}",
+                    parameters={},
+                )
+                for name in _parse_string_selection(value, "include")
+            )
+        else:
+            includes.extend(_parse_item_includes(value, group))
+        cursor = assignment_match.end()
+    if _strip_managed_comments(body[cursor:]).strip():
+        raise SoftwarePolicyError("unsupported content in managed software block")
+    return (
+        normalize_managed_includes(includes, groups),
+        normalize_exclusions(exclusions, groups),
+    )
 
 
-def _parse_string_list(body: str) -> list[str]:
+def _strip_managed_comments(value: str) -> str:
+    return re.sub(r"(?m)^\s*#.*$", "", value)
+
+
+def _parse_string_selection(value: str, label: str) -> list[str]:
+    match = re.fullmatch(r"\s*\[(.*)\]\s*", value, flags=re.DOTALL)
+    if match is None:
+        raise SoftwarePolicyError(f"managed {label} must be a quoted string list")
+    return _parse_string_list(match.group(1), label=label)
+
+
+def _parse_item_includes(value: str, group: SelectionGroup) -> list[ManagedInclude]:
+    match = re.fullmatch(
+        r'\s*builtins\.fromJSON\s+("(?:\\.|[^"\\])*")\s*',
+        value,
+        flags=re.DOTALL,
+    )
+    if match is None:
+        raise SoftwarePolicyError("managed structured include must use builtins.fromJSON")
+    try:
+        payload = json.loads(json.loads(match.group(1)))
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise SoftwarePolicyError("cannot parse managed structured include") from exc
+    if not isinstance(payload, list):
+        raise SoftwarePolicyError("managed structured include must be a list")
+    return normalize_managed_includes(
+        [{**item, "group": group.key} if isinstance(item, dict) else item for item in payload],
+        (group,),
+    )
+
+
+def _parse_nix_includes(value: str, group: SelectionGroup) -> list[ManagedInclude]:
+    match = re.fullmatch(r"\s*\[(.*)\]\s*", value, flags=re.DOTALL)
+    if match is None:
+        raise SoftwarePolicyError("managed Nix include must be a package list")
+    lines = match.group(1).splitlines()
+    includes: list[ManagedInclude] = []
+    index = 0
+    while index < len(lines):
+        if not lines[index].strip():
+            index += 1
+            continue
+        metadata_line = lines[index].strip()
+        if not metadata_line.startswith(MANAGED_INCLUDE_METADATA):
+            raise SoftwarePolicyError("managed Nix package is missing Envy metadata")
+        try:
+            metadata = json.loads(metadata_line.removeprefix(MANAGED_INCLUDE_METADATA))
+        except json.JSONDecodeError as exc:
+            raise SoftwarePolicyError("cannot parse managed Nix package metadata") from exc
+        index += 1
+        while index < len(lines) and not lines[index].strip():
+            index += 1
+        if index >= len(lines):
+            raise SoftwarePolicyError("managed Nix package expression is missing")
+        attr_path = _parse_nix_package(lines[index].strip())
+        if not isinstance(metadata, dict):
+            raise SoftwarePolicyError("managed Nix package metadata must be an object")
+        item_id = metadata.get("id")
+        ref = metadata.get("ref")
+        if not isinstance(item_id, str) or not isinstance(ref, str):
+            raise SoftwarePolicyError("managed Nix package metadata requires id and ref")
+        includes.append(ManagedInclude(
+            group=group.key,
+            id=item_id,
+            name=item_id,
+            ref=ref,
+            parameters={"attrPath": attr_path},
+        ))
+        index += 1
+    return normalize_managed_includes(includes, (group,))
+
+
+def _parse_string_list(body: str, *, label: str = "exclusion") -> list[str]:
     strings = re.compile(r'"((?:\\.|[^"\\])*)"')
     values = []
     cursor = 0
     for match in strings.finditer(body):
         if body[cursor:match.start()].strip():
-            raise SoftwarePolicyError("exclusion lists may contain only quoted strings")
+            raise SoftwarePolicyError(f"{label} lists may contain only quoted strings")
         values.append(_unescape_nix_string(match.group(1)))
         cursor = match.end()
     if body[cursor:].strip():
-        raise SoftwarePolicyError("exclusion lists may contain only quoted strings")
+        raise SoftwarePolicyError(f"{label} lists may contain only quoted strings")
     return values
 
 
+def _software_entries(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    result = []
+    for raw in value:
+        if isinstance(raw, dict) and isinstance(raw.get("id"), str):
+            result.append(raw)
+        elif isinstance(raw, str):
+            result.append({"id": raw, "name": raw})
+    return result
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _optional_string(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _evaluated_item_state(
+    manifest: dict[str, Any],
+    group_key: str,
+    item_id: str,
+) -> tuple[bool, bool, bool]:
+    """Return whether an item is included, effective, and excluded after evaluation."""
+    group = manifest_software_groups(manifest).get(group_key, {})
+    selection = group.get("selection") if isinstance(group, dict) else None
+    if not isinstance(selection, dict):
+        return False, False, False
+    included = item_id in {
+        item["id"] for item in _software_entries(selection.get("include"))
+    }
+    effective = item_id in {
+        item["id"] for item in _software_entries(selection.get("effective"))
+    }
+    excluded = item_id in _string_list(selection.get("exclude"))
+    return included, effective, excluded
+
+
 def _validate_name(name: str) -> None:
-    if not name or name != name.strip() or any(char in name for char in ('"', "\\", "\n", "\r", "\t")):
+    if (
+        not name
+        or name != name.strip()
+        or "${" in name
+        or any(ord(char) < 32 for char in name)
+        or any(char in name for char in ('"', "\\"))
+    ):
         raise SoftwarePolicyError(f"invalid software name: {name!r}")
 
 
+def _validate_text_value(value: str, label: str) -> None:
+    if "${" in value or any(ord(char) < 32 for char in value):
+        raise SoftwarePolicyError(f"invalid software {label}: {value!r}")
+
+
+def _json_value_supported(value: Any) -> bool:
+    if value is None or isinstance(value, (bool, int)):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, str):
+        return "${" not in value and not any(ord(char) < 32 for char in value)
+    if isinstance(value, list):
+        return all(_json_value_supported(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str)
+            and "${" not in key
+            and not any(ord(char) < 32 for char in key)
+            and _json_value_supported(item)
+            for key, item in value.items()
+        )
+    return False
+
+
+def _render_nix_package(item: ManagedInclude) -> str:
+    parameters = item.parameters or {}
+    attr_path = parameters.get("attrPath")
+    if not isinstance(attr_path, list) or not attr_path or not all(
+        isinstance(part, str) and part for part in attr_path
+    ):
+        raise SoftwarePolicyError(f"managed Nix package has no attr path: {item.id}")
+    return "pkgs" + "".join(f".{json.dumps(part, ensure_ascii=False)}" for part in attr_path)
+
+
+def _parse_nix_package(value: str) -> list[str]:
+    match = re.fullmatch(r'pkgs((?:\."(?:\\.|[^"\\])*")+)', value)
+    if match is None:
+        raise SoftwarePolicyError("unsupported managed Nix package expression")
+    try:
+        return [json.loads(raw) for raw in re.findall(r'("(?:\\.|[^"\\])*")', match.group(1))]
+    except json.JSONDecodeError as exc:
+        raise SoftwarePolicyError("cannot parse managed Nix package attr path") from exc
+
+
+def _ensure_module_argument(text: str, argument: str) -> str:
+    header = re.match(r"(?s)^(\s*)\{([^{}]*)\}\s*:", text)
+    if header is None:
+        raise SoftwarePolicyError(
+            f"cannot expose {argument!r} in the machine module header"
+        )
+    raw_arguments = header.group(2)
+    tokens = [token.strip() for token in raw_arguments.split(",") if token.strip()]
+    names = {token.split("?", 1)[0].strip() for token in tokens if token != "..."}
+    if argument in names:
+        return text
+    if "..." not in tokens:
+        raise SoftwarePolicyError(
+            f"machine module header must accept ... before Envy can add {argument!r}"
+        )
+    replacement = "{ " + ", ".join([argument, *tokens]) + " }:"
+    return text[:header.start()] + header.group(1) + replacement + text[header.end():]
+
+
 def _escape_nix_string(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
 
 
 def _unescape_nix_string(value: str) -> str:
@@ -397,9 +958,575 @@ def _ordered_unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _completion_policy() -> tuple[
+    tuple[SelectionGroup, ...],
+    dict[str, list[SoftwareItem]],
+]:
+    """Load completion candidates without allowing evaluation errors to escape."""
+    try:
+        manifest = machine_manifest()
+        if not manifest_software_groups(manifest):
+            return (), {}
+        groups = groups_for_manifest(manifest, include_empty=True)
+        managed = read_managed_exclusions(groups=groups)
+        return groups, build_software_items(manifest, managed, groups=groups)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return (), {}
+
+
+def _completion_candidates(action: str) -> tuple[
+    tuple[SelectionGroup, ...],
+    dict[str, list[SoftwareItem]],
+]:
+    groups, items_by_group = _completion_policy()
+    candidates = {
+        group.key: [
+            item
+            for item in items_by_group.get(group.key, [])
+            if (
+                item.included and item.checked and not item.locked
+                if action == "dis"
+                else item.managed
+                if action == "en"
+                else not item.checked and not item.locked
+                if action == "add"
+                else item.included or item.managed
+            )
+        ]
+        for group in groups
+    }
+    return groups, candidates
+
+
+def _complete_groups(incomplete: str, *, action: str) -> list[tuple[str, str]]:
+    groups, items_by_group = _completion_candidates(action)
+    return [
+        (group.key, group.label)
+        for group in groups
+        if group.key.startswith(incomplete)
+        and (
+            action == "rm"
+            or action == "add" and (group.editable_include or items_by_group[group.key])
+            or action in {"en", "dis"} and items_by_group[group.key]
+        )
+    ]
+
+
+def _complete_items(ctx, incomplete: str, *, action: str) -> list[tuple[str, str]]:
+    group_key = ctx.params.get("group") if ctx is not None else None
+    if not isinstance(group_key, str):
+        return []
+    groups, items_by_group = _completion_candidates(action)
+    try:
+        group = require_group(group_key, groups)
+    except typer.BadParameter:
+        return []
+    needle = incomplete.casefold()
+    return [
+        (
+            item.id,
+            _completion_help(item, group, action=action),
+        )
+        for item in items_by_group[group.key]
+        if (
+            item.id.casefold().startswith(needle)
+            or item.name.casefold().startswith(needle)
+            or (item.ref or "").casefold().startswith(needle)
+        )
+    ]
+
+
+def _completion_help(
+    item: SoftwareItem,
+    group: SelectionGroup,
+    *,
+    action: str,
+) -> str:
+    if action == "add":
+        intent = (
+            "add include and remove stale exclusion"
+            if item.stale
+            else "remove machine exclusion"
+        )
+    elif action == "rm" and item.checked:
+        intent = "add machine exclusion"
+    elif action == "rm" and item.stale:
+        intent = "already stale; --clean can prune"
+    elif action == "rm":
+        intent = "already excluded; --clean can normalize"
+    elif action == "en" and item.stale:
+        intent = "stale exclusion; remove machine mask"
+    else:
+        intent = ""
+    details = " ".join(filter(None, (
+        item.name if item.name != item.id else "",
+        f"v{item.version}" if item.version else "",
+    )))
+    if intent and details:
+        return f"{intent}; {details}"
+    return intent or details or group.label
+
+
+def complete_disable_groups(ctx, incomplete: str) -> list[tuple[str, str]]:
+    del ctx
+    return _complete_groups(incomplete, action="dis")
+
+
+def complete_enable_groups(ctx, incomplete: str) -> list[tuple[str, str]]:
+    del ctx
+    return _complete_groups(incomplete, action="en")
+
+
+def complete_disable_items(ctx, incomplete: str) -> list[tuple[str, str]]:
+    return _complete_items(ctx, incomplete, action="dis")
+
+
+def complete_enable_items(ctx, incomplete: str) -> list[tuple[str, str]]:
+    return _complete_items(ctx, incomplete, action="en")
+
+
+def complete_add_groups(ctx, incomplete: str) -> list[tuple[str, str]]:
+    del ctx
+    return _complete_groups(incomplete, action="add")
+
+
+def complete_remove_groups(ctx, incomplete: str) -> list[tuple[str, str]]:
+    del ctx
+    return _complete_groups(incomplete, action="rm")
+
+
+def complete_add_items(ctx, incomplete: str) -> list[tuple[str, str]]:
+    return _complete_items(ctx, incomplete, action="add")
+
+
+def complete_remove_items(ctx, incomplete: str) -> list[tuple[str, str]]:
+    return _complete_items(ctx, incomplete, action="rm")
+
+
+def complete_search_sources(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete canonical providers, including comma-separated source lists."""
+    from envy.search.providers import available_providers
+
+    prefix, separator, needle = incomplete.rpartition(",")
+    selected = set(prefix.split(",")) if separator else set()
+    previous = ctx.params.get("source", []) if ctx is not None else []
+    if isinstance(previous, list):
+        selected.update(
+            source
+            for value in previous
+            if isinstance(value, str)
+            for source in value.split(",")
+        )
+    descriptions = {
+        "nix": "Nixpkgs",
+        "homebrew": "Homebrew formulae and casks",
+        "native": "Detected Linux package manager",
+        "npm": "npm registry",
+        "pypi": "PyPI exact lookup",
+        "cargo": "crates.io",
+        "go": "pkg.go.dev",
+    }
+    try:
+        sources = sorted(available_providers())
+    except OSError:
+        return []
+    return [
+        (
+            f"{prefix},{source}" if separator else source,
+            descriptions.get(source, source),
+        )
+        for source in sources
+        if source not in selected and source.startswith(needle)
+    ]
+
+
+def _resolve_existing_item(
+    items: list[SoftwareItem],
+    value: str,
+) -> SoftwareItem | None:
+    """Prefer the stable ID before falling back to reference or display name."""
+    exact_ids = [item for item in items if item.id == value]
+    if len(exact_ids) == 1:
+        return exact_ids[0]
+    if len(exact_ids) > 1:
+        raise SoftwarePolicyError(f"stable software ID is duplicated: {value}")
+    exact_refs = [item for item in items if item.ref == value]
+    if len(exact_refs) == 1:
+        return exact_refs[0]
+    exact_names = [item for item in items if item.name == value]
+    if len(exact_refs) + len(exact_names) == 1:
+        return (exact_refs + exact_names)[0]
+    if exact_refs or exact_names:
+        choices = ", ".join(sorted({item.id for item in exact_refs + exact_names}))
+        raise SoftwarePolicyError(
+            f"software name or reference is ambiguous: {value}; use stable ID: {choices}"
+        )
+    return None
+
+
+def _resolve_managed_include(
+    includes: list[ManagedInclude],
+    group_key: str,
+    value: str,
+) -> ManagedInclude | None:
+    candidates = [item for item in includes if item.group == group_key]
+    for attribute in ("id", "ref", "name"):
+        matches = [item for item in candidates if getattr(item, attribute) == value]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            choices = ", ".join(sorted({item.id for item in matches}))
+            raise SoftwarePolicyError(
+                f"managed software {attribute} is ambiguous: {value}; use stable ID: {choices}"
+            )
+    return None
+
+
+def _managed_source_counts(
+    manifest: dict[str, Any],
+    group: SelectionGroup,
+    includes: list[ManagedInclude],
+    exclusions: dict[str, list[str]],
+) -> tuple[Counter[str], Counter[str], Counter[str]]:
+    selection = manifest_software_groups(manifest).get(group.key, {}).get("selection", {})
+    include_counts = Counter(
+        item["id"] for item in _software_entries(selection.get("include"))
+    )
+    exclude_counts = Counter(_string_list(selection.get("exclude")))
+    managed_include = Counter(
+        item.id for item in includes if item.group == group.key
+    )
+    managed_exclude = Counter(exclusions[group.key])
+    external_include = include_counts.copy()
+    external_include.subtract(managed_include)
+    external_exclude = exclude_counts.copy()
+    external_exclude.subtract(managed_exclude)
+    return include_counts, +external_include, +external_exclude
+
+
+def _nix_request(ref: str, manifest: dict[str, Any]) -> ManagedInclude:
+    attr = ref.removeprefix("nix:")
+    if not attr or any(not part for part in attr.split(".")):
+        raise SoftwarePolicyError(f"invalid Nix canonical reference: {ref}")
+    system = str(manifest.get("system") or "")
+    attr_path = attr.split(".")
+    for prefix in (["legacyPackages", system], ["packages", system]):
+        if system and attr_path[:2] == prefix:
+            attr_path = attr_path[2:]
+            break
+    result = run_process(
+        ["nix", "eval", "--raw", f"nixpkgs#{attr}.pname"],
+        capture=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0 or not (result.stdout or "").strip():
+        detail = (result.stderr or "cannot resolve package pname").strip().splitlines()[-1]
+        raise SoftwarePolicyError(f"cannot resolve {ref}: {detail[:300]}")
+    name = (result.stdout or "").strip()
+    return ManagedInclude(
+        group="",
+        id=name,
+        name=name,
+        ref=ref,
+        parameters={"attrPath": attr_path},
+    )
+
+
+def _include_for_spec(
+    group: SelectionGroup,
+    value: str,
+    manifest: dict[str, Any],
+    *,
+    explicit_ref: str | None = None,
+) -> ManagedInclude:
+    ref = explicit_ref or (value if ":" in value else None)
+    if group.ecosystem == "nix":
+        ref = ref or f"nix:{value}"
+        if not ref.startswith("nix:"):
+            raise SoftwarePolicyError(f"{group.key} requires a nix: canonical reference")
+        request = _nix_request(ref, manifest)
+        if explicit_ref is not None and value != request.id:
+            raise SoftwarePolicyError(
+                f"requested stable ID {value!r} does not match resolved Nix package {request.id!r}"
+            )
+        return ManagedInclude(
+            group=group.key,
+            id=request.id,
+            name=request.name,
+            version=request.version,
+            ref=request.ref,
+            parameters=request.parameters,
+        )
+
+    expected_prefix: str
+    if group.ecosystem == "homebrew":
+        ref_kind = "tap" if group.kind == "repository" else group.kind
+        expected_prefix = f"homebrew:{ref_kind}/"
+        ref = ref or f"{expected_prefix}{value}"
+        if not ref.startswith(expected_prefix):
+            raise SoftwarePolicyError(
+                f"{group.key} requires a {expected_prefix}<name> reference"
+            )
+        name = ref.removeprefix(expected_prefix)
+        if explicit_ref is not None and value != name:
+            raise SoftwarePolicyError(
+                f"{group.key} uses the Homebrew name as its stable ID: {name}"
+            )
+    elif group.ecosystem in {"npm", "pypi", "native"}:
+        expected_prefix = f"{group.ecosystem}:"
+        ref = ref or f"{expected_prefix}{value}"
+        if not ref.startswith(expected_prefix):
+            raise SoftwarePolicyError(
+                f"{group.key} requires a {expected_prefix}<name> reference"
+            )
+        name = ref.removeprefix(expected_prefix)
+    else:
+        raise SoftwarePolicyError(
+            f"software group does not support registry-backed includes: {group.key}"
+        )
+    _validate_name(name)
+    item_id = value if explicit_ref is not None else name
+    _validate_name(item_id)
+    return ManagedInclude(
+        group=group.key,
+        id=item_id,
+        name=name,
+        ref=ref,
+        parameters={},
+    )
+
+
+def build_desired_plan(
+    *,
+    action: str,
+    group: SelectionGroup,
+    item_value: str,
+    manifest: dict[str, Any],
+    includes: list[ManagedInclude],
+    exclusions: dict[str, list[str]],
+    clean: bool,
+    explicit_ref: str | None = None,
+) -> SoftwarePlan:
+    if action not in {"add", "rm"}:
+        raise ValueError(f"unknown desired-state action: {action}")
+    active_groups = groups_for_manifest(manifest, include_empty=True)
+    normalized_includes = normalize_managed_includes(includes, active_groups)
+    items = build_software_items(
+        manifest, exclusions, groups=(group,)
+    )[group.key]
+    managed_match = _resolve_managed_include(
+        normalized_includes, group.key, item_value
+    )
+    existing = _resolve_existing_item(
+        items, managed_match.id if managed_match is not None else item_value
+    )
+    request: ManagedInclude | None = None
+    if managed_match is not None:
+        item_id = managed_match.id
+        request = managed_match
+    elif existing is not None:
+        item_id = existing.id
+    elif action == "add":
+        if not group.editable_include:
+            raise SoftwarePolicyError(
+                f"software group does not support managed includes: {group.key}"
+            )
+        request = _include_for_spec(
+            group, item_value, manifest, explicit_ref=explicit_ref
+        )
+        item_id = request.id
+    else:
+        item_id = item_value
+        _validate_name(item_id)
+
+    include_counts, external_include, external_exclude = _managed_source_counts(
+        manifest, group, normalized_includes, exclusions
+    )
+    includes_before = tuple(normalized_includes)
+    includes_after = list(normalized_includes)
+    exclusions_before = tuple(exclusions[group.key])
+    exclusions_after = list(exclusions_before)
+    managed_for_item = [
+        item for item in includes_after
+        if item.group == group.key and item.id == item_id
+    ]
+
+    blocked = None
+    if action == "add":
+        if external_exclude[item_id] > 0:
+            blocked = "an external or hand-written exclusion still masks this stable ID"
+        else:
+            if include_counts[item_id] == 0:
+                if managed_for_item:
+                    blocked = "the existing managed contribution is missing from evaluated include"
+                else:
+                    request = request or _include_for_spec(
+                        group,
+                        existing.ref if existing and existing.ref else item_value,
+                        manifest,
+                        explicit_ref=explicit_ref,
+                    )
+                    includes_after.append(request)
+                    managed_for_item = [request]
+            if clean and external_include[item_id] > 0 and managed_for_item:
+                includes_after = [
+                    item for item in includes_after
+                    if not (item.group == group.key and item.id == item_id)
+                ]
+            exclusions_after = [item for item in exclusions_after if item != item_id]
+    else:
+        if clean and managed_for_item:
+            includes_after = [
+                item for item in includes_after
+                if not (item.group == group.key and item.id == item_id)
+            ]
+        if not clean:
+            if item_id not in exclusions_after:
+                exclusions_after.append(item_id)
+        else:
+            needs_managed_exclude = (
+                external_include[item_id] > 0 and external_exclude[item_id] == 0
+            )
+            if needs_managed_exclude and item_id not in exclusions_after:
+                exclusions_after.append(item_id)
+            elif not needs_managed_exclude:
+                exclusions_after = [item for item in exclusions_after if item != item_id]
+
+    includes_after = normalize_managed_includes(
+        includes_after, active_groups
+    )
+    expected_included = external_include[item_id] > 0 or any(
+        item.group == group.key and item.id == item_id for item in includes_after
+    )
+    expected_excluded = external_exclude[item_id] > 0 or item_id in exclusions_after
+    expected_effective = expected_included and not expected_excluded
+    if action == "add" and not blocked and not expected_effective:
+        blocked = "the proposed managed changes cannot make this item effective"
+    if action == "rm" and expected_effective:
+        blocked = "the proposed managed changes cannot remove this item from effective"
+    return SoftwarePlan(
+        action=action,
+        group=group,
+        item_id=item_id,
+        includes_before=includes_before,
+        includes_after=tuple(includes_after),
+        exclusions_before=exclusions_before,
+        exclusions_after=tuple(exclusions_after),
+        expected_included=expected_included,
+        expected_excluded=expected_excluded,
+        expected_effective=expected_effective,
+        clean=clean,
+        blocked=blocked,
+    )
+
+
+def _render_plan(plan: SoftwarePlan) -> None:
+    table = Table(title=f"Software plan - {plan.action} {plan.group.key}/{plan.item_id}")
+    table.add_column("Selection")
+    table.add_column("Change")
+    table.add_column("Stable ID")
+    table.add_column("Ownership")
+    rows = [
+        *(('include', '+', item, 'envy managed') for item in plan.include_added),
+        *(('include', '-', item, 'envy managed') for item in plan.include_removed),
+        *(('exclude', '+', item, 'envy managed') for item in plan.exclude_added),
+        *(('exclude', '-', item, 'envy managed') for item in plan.exclude_removed),
+    ]
+    if rows:
+        for row in rows:
+            table.add_row(*row)
+    else:
+        table.add_row("-", "=", plan.item_id, "no managed change")
+    log.console.print(table)
+    log.info(
+        "software",
+        "expected policy",
+        included=str(plan.expected_included).lower(),
+        excluded=str(plan.expected_excluded).lower(),
+        effective=str(plan.expected_effective).lower(),
+        clean=str(plan.clean).lower(),
+    )
+    if plan.blocked:
+        log.error("software", "plan is blocked", reason=plan.blocked)
+
+
+def _apply_desired_state(
+    group_value: str,
+    item_value: str,
+    *,
+    action: str,
+    clean: bool,
+    yes: bool,
+    dry_run: bool,
+    explicit_ref: str | None,
+) -> None:
+    manifest = _manifest_or_exit()
+    groups = groups_for_manifest(manifest, include_empty=True)
+    group = require_group(group_value, groups)
+    target = machine_file()
+    original_source = target.read_text()
+    digest = source_digest(original_source)
+    includes, exclusions = _parse_managed_policy_source(original_source, groups)
+    try:
+        plan = build_desired_plan(
+            action=action,
+            group=group,
+            item_value=item_value,
+            manifest=manifest,
+            includes=includes,
+            exclusions=exclusions,
+            clean=clean,
+            explicit_ref=explicit_ref,
+        )
+    except SoftwarePolicyError as exc:
+        log.error("software", str(exc))
+        raise typer.Exit(code=1) from exc
+    _render_plan(plan)
+    if plan.blocked:
+        raise typer.Exit(code=1)
+    if dry_run:
+        log.info("software", "dry run; no files changed")
+        return
+    if not plan.changed:
+        log.ok("software", f"already satisfies {action} intent", group=group.key, item=plan.item_id)
+        return
+    if not yes and not typer.confirm("Apply this software plan?", default=None):
+        log.info("software", "plan cancelled; no files changed")
+        return
+    updated_exclusions = {key: list(values) for key, values in exclusions.items()}
+    updated_exclusions[group.key] = list(plan.exclusions_after)
+    try:
+        evaluated = write_and_validate_software_policy(
+            list(plan.includes_after),
+            updated_exclusions,
+            group_key=group.key,
+            item_id=plan.item_id,
+            expected_effective=plan.expected_effective,
+            expected_digest=digest,
+            groups=groups,
+        )
+    except SoftwarePolicyError as exc:
+        log.error("software", str(exc))
+        raise typer.Exit(code=1) from exc
+    log.ok(
+        "software",
+        "intent applied",
+        action=action,
+        group=group.key,
+        item=plan.item_id,
+        effective=str(plan.expected_effective).lower(),
+        machine=evaluated.get("id", current_machine_id()),
+    )
+    offer_mutation_commit(
+        [target],
+        f"chore(host): {action} {plan.item_id} on {evaluated.get('id') or current_machine_id()}",
+    )
+
+
 app = typer.Typer(
     name="software",
-    help="Inspect and manage machine-local software exclusions",
+    help="Inspect, search, and manage software for the selected machine",
     invoke_without_command=True,
     no_args_is_help=False,
 )
@@ -408,87 +1535,274 @@ app = typer.Typer(
 @app.callback()
 def cmd_software(ctx: typer.Context):
     """List evaluated software policy when no subcommand is supplied."""
-    if ctx.invoked_subcommand is not None:
-        return
-    _print_policy()
+    if ctx.invoked_subcommand is None:
+        _print_policy(details=False)
 
 
 @app.command(name="list")
-def cmd_list():
+@app.command(name="ls", rich_help_panel="Aliases")
+def cmd_list(
+    details: bool = typer.Option(False, "--details", "-d", help="Include empty groups and package metadata"),
+):
     """List checkbox state for all software groups."""
-    _print_policy()
+    _print_policy(details=details)
 
 
-@app.command(name="disable")
-def cmd_disable(group: str, name: str):
-    """Exclude one contributed item on the selected machine."""
-    _change_one(group, name, excluded=True)
-
-
-@app.command(name="enable")
-def cmd_enable(group: str, name: str):
-    """Remove one machine-local exclusion."""
-    _change_one(group, name, excluded=False)
-
-
-def _change_one(group_value: str, name: str, *, excluded: bool) -> None:
-    group = require_group(group_value)
-    values = read_managed_exclusions()
-    manifest = machine_manifest()
-    if manifest is None:
-        log.error("software", "cannot evaluate the selected machine")
-        raise typer.Exit(code=1)
-    items = {
-        item.name: item
-        for item in build_software_items(manifest, values)[group.key]
-    }
-    item = items.get(name)
-    if excluded:
-        if item is None or not item.included:
-            log.error("software", "item is not contributed by the selected machine", group=group.key, name=name)
-            raise typer.Exit(code=1)
-        if item.locked:
-            log.error("software", "item is already excluded outside the managed machine block", group=group.key, name=name)
-            raise typer.Exit(code=1)
-        if item.managed:
-            log.ok("software", "already disabled", group=group.key, name=name)
-            return
-    elif name not in values[group.key]:
-        log.error("software", "item is not excluded by the managed machine block", group=group.key, name=name)
-        log.hint("External or hand-written exclusions must be edited at their source.")
-        raise typer.Exit(code=1)
-
-    set_excluded(values, group.key, name, excluded)
-    try:
-        manifest = write_and_validate_exclusions(values)
-    except SoftwarePolicyError as exc:
-        log.error("software", str(exc))
-        raise typer.Exit(code=1) from exc
-    action = "disabled" if excluded else "enabled"
-    log.ok("software", action, group=group.key, name=name, machine=manifest.get("id", "current"))
-    offer_mutation_commit(
-        [machine_file()],
-        f"chore(host): {action} {name} on {manifest.get('id', current_machine_id())}",
+@app.command(name="status")
+@app.command(name="st", rich_help_panel="Aliases")
+def cmd_status():
+    """Summarize the selected machine's evaluated software policy."""
+    manifest = _manifest_or_exit()
+    groups = groups_for_manifest(manifest, include_empty=True)
+    managed = read_managed_exclusions(groups=groups)
+    items_by_group = build_software_items(manifest, managed, groups=groups)
+    included = sum(item.included for items in items_by_group.values() for item in items)
+    effective = sum(item.checked for items in items_by_group.values() for item in items)
+    excluded = sum(not item.checked for items in items_by_group.values() for item in items)
+    log.info(
+        "software", "policy status", machine=manifest.get("id", "current"),
+        groups=len(groups), included=included, effective=effective, excluded=excluded,
     )
 
 
-def _print_policy() -> None:
+@app.command(name="disable")
+@app.command(name="dis", rich_help_panel="Aliases")
+def cmd_disable(
+    group: str = typer.Argument(
+        ..., help="Canonical software group ID",
+        autocompletion=complete_disable_groups,
+    ),
+    item_id: str = typer.Argument(
+        ..., help="Stable item ID to exclude",
+        autocompletion=complete_disable_items,
+    ),
+):
+    """Exclude one contributed item on the selected machine."""
+    _change_one(group, item_id, excluded=True)
+
+
+@app.command(name="enable")
+@app.command(name="en", rich_help_panel="Aliases")
+def cmd_enable(
+    group: str = typer.Argument(
+        ..., help="Canonical software group ID",
+        autocompletion=complete_enable_groups,
+    ),
+    item_id: str = typer.Argument(
+        ..., help="Stable managed exclusion ID to restore",
+        autocompletion=complete_enable_items,
+    ),
+):
+    """Remove one machine-local exclusion."""
+    _change_one(group, item_id, excluded=False)
+
+
+@app.command(name="add")
+def cmd_add(
+    group: str = typer.Argument(
+        ..., help="Canonical software group ID",
+        autocompletion=complete_add_groups,
+    ),
+    item: str = typer.Argument(
+        ..., help="Stable ID, package name, or canonical registry reference",
+        autocompletion=complete_add_items,
+    ),
+    clean: bool = typer.Option(False, "--clean", help="Remove redundant Envy-managed state for this item"),
+    ref: str | None = typer.Option(None, "--ref", help="Canonical registry reference when item is a custom stable ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Apply the displayed plan without confirmation"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Display the plan without writing"),
+):
+    """Ensure one software item is effective on the selected machine."""
+    _apply_desired_state(
+        group, item, action="add", clean=clean, yes=yes,
+        dry_run=dry_run, explicit_ref=ref,
+    )
+
+
+@app.command(name="remove")
+@app.command(name="rm", rich_help_panel="Aliases")
+def cmd_remove(
+    group: str = typer.Argument(
+        ..., help="Canonical software group ID",
+        autocompletion=complete_remove_groups,
+    ),
+    item: str = typer.Argument(
+        ..., help="Stable item ID, name, or reference",
+        autocompletion=complete_remove_items,
+    ),
+    clean: bool = typer.Option(False, "--clean", help="Remove redundant Envy-managed state for this item"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Apply the displayed plan without confirmation"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Display the plan without writing"),
+):
+    """Ensure one software item is not effective on the selected machine."""
+    _apply_desired_state(
+        group, item, action="rm", clean=clean, yes=yes,
+        dry_run=dry_run, explicit_ref=None,
+    )
+
+
+@app.command(name="search")
+@app.command(name="se", rich_help_panel="Aliases")
+def cmd_search(
+    query: str = typer.Argument(..., help="Package or tool name to search for"),
+    source: list[str] | None = typer.Option(
+        None, "--source", "-s", help="Restrict search providers",
+        autocompletion=complete_search_sources,
+    ),
+    limit: int = typer.Option(10, "--limit", "-n", min=1, max=100),
+    exact: bool = typer.Option(False, "--exact", help="Show exact name matches only"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    refresh: bool = typer.Option(False, "--refresh", help="Ignore the saved registry cache"),
+):
+    """Search all available software registries."""
+    from envy.search import search_and_render
+
+    search_and_render(
+        query, sources=source, limit=limit, exact=exact,
+        json_output=json_output, refresh=refresh,
+    )
+
+
+def _manifest_or_exit() -> dict[str, Any]:
     manifest = machine_manifest()
-    if manifest is None:
-        log.error("software", "cannot evaluate the selected machine")
+    if manifest is None or not manifest_software_groups(manifest):
+        log.error("software", "cannot evaluate the selected machine software manifest")
         raise typer.Exit(code=1)
-    managed = read_managed_exclusions()
-    items_by_group = build_software_items(manifest, managed)
-    table = Table(title=f"Machine software — {manifest.get('id', current_machine_id())}")
+    return manifest
+
+
+def _change_one(group_value: str, item_value: str, *, excluded: bool) -> None:
+    manifest = _manifest_or_exit()
+    groups = groups_for_manifest(manifest, include_empty=True)
+    group = require_group(group_value, groups)
+    target = machine_file()
+    original_source = target.read_text() if target.exists() else None
+    values = read_managed_exclusions(groups=groups)
+    if (
+        original_source is not None
+        and source_digest(target.read_text()) != source_digest(original_source)
+    ):
+        log.error("software", "machine configuration changed while reading policy")
+        raise typer.Exit(code=1)
+    items = build_software_items(manifest, values, groups=groups)[group.key]
+    try:
+        item = _resolve_existing_item(items, item_value)
+    except SoftwarePolicyError as exc:
+        log.error("software", str(exc), group=group.key, item=item_value)
+        raise typer.Exit(code=1)
+    if item is None:
+        log.error("software", "item is not uniquely identified", group=group.key, item=item_value)
+        raise typer.Exit(code=1)
+    if excluded:
+        if not item.included:
+            log.error("software", "item is not contributed by the selected machine", group=group.key, item=item.id)
+            raise typer.Exit(code=1)
+        if item.locked:
+            log.error("software", "item is already excluded outside the managed machine block", group=group.key, item=item.id)
+            raise typer.Exit(code=1)
+        if item.managed:
+            log.ok("software", "already disabled", group=group.key, item=item.id)
+            return
+    elif item.id not in values[group.key]:
+        if item.included and item.checked and not item.locked:
+            log.ok("software", "already enabled", group=group.key, item=item.id)
+            return
+        log.error("software", "item is not excluded by the managed machine block", group=group.key, item=item.id)
+        log.hint("External or hand-written exclusions must be edited at their source.")
+        raise typer.Exit(code=1)
+
+    set_excluded(values, group.key, item.id, excluded, groups)
+    try:
+        evaluated = write_and_validate_exclusions(
+            values,
+            expected_digest=(
+                source_digest(original_source) if original_source is not None else None
+            ),
+            groups=groups,
+        )
+    except SoftwarePolicyError as exc:
+        log.error("software", str(exc))
+        raise typer.Exit(code=1) from exc
+    included_after, effective_after, excluded_after = _evaluated_item_state(
+        evaluated, group.key, item.id
+    )
+    machine = evaluated.get("id", "current")
+    if excluded:
+        if included_after and excluded_after and not effective_after:
+            log.ok("software", "disabled", group=group.key, item=item.id, machine=machine)
+            commit_action = f"disable {item.id}"
+        else:
+            log.warn(
+                "software", "managed exclusion saved, but evaluated state is unexpected",
+                group=group.key, item=item.id, machine=machine,
+            )
+            commit_action = f"exclude {item.id}"
+    elif not included_after and excluded_after:
+        log.warn(
+            "software",
+            "managed stale exclusion removed; item remains excluded by another policy",
+            group=group.key, item=item.id, machine=machine,
+        )
+        log.hint("The item is not contributed, and an external stale exclusion still exists.")
+        commit_action = f"remove managed stale exclusion for {item.id}"
+    elif not included_after:
+        log.ok(
+            "software", "stale exclusion removed",
+            group=group.key, item=item.id, machine=machine,
+        )
+        log.hint("The item is not contributed by any active module, so no software was enabled.")
+        commit_action = f"remove stale exclusion for {item.id}"
+    elif effective_after:
+        log.ok("software", "enabled", group=group.key, item=item.id, machine=machine)
+        commit_action = f"enable {item.id}"
+    elif excluded_after:
+        log.warn(
+            "software", "managed exclusion removed; item remains excluded by another policy",
+            group=group.key, item=item.id, machine=machine,
+        )
+        log.hint("Edit the hand-written or imported exclusion at its source to enable the item.")
+        commit_action = f"remove managed exclusion for {item.id}"
+    else:
+        log.warn(
+            "software", "managed exclusion removed, but item is still not effective",
+            group=group.key, item=item.id, machine=machine,
+        )
+        commit_action = f"remove managed exclusion for {item.id}"
+    target_machine = evaluated.get("id") or current_machine_id()
+    offer_mutation_commit(
+        [machine_file()],
+        f"chore(host): {commit_action} on {target_machine}",
+    )
+
+
+def _print_policy(*, details: bool) -> None:
+    manifest = _manifest_or_exit()
+    groups = groups_for_manifest(manifest, include_empty=details)
+    managed = read_managed_exclusions(groups=groups)
+    items_by_group = build_software_items(manifest, managed, groups=groups)
+    table = Table(title=f"Machine software - {manifest.get('id', current_machine_id())}")
     table.add_column("Group")
     table.add_column("State")
     table.add_column("Name")
+    if details:
+        table.add_column("Version")
+        table.add_column("Reference")
     table.add_column("Source")
-    for group in GROUPS:
-        for item in items_by_group[group.key]:
+    for group in groups:
+        items = items_by_group[group.key]
+        if not items and details:
+            row = [group.label, "-", "<empty>"]
+            if details:
+                row.extend(["", ""])
+            table.add_row(*row, group.key)
+            continue
+        for item in items:
             state = Text("[x]" if item.checked else ("[-]" if item.locked else "[ ]"))
             source = "machine exclusion" if item.managed else ("external exclusion" if item.locked else "included")
             if item.stale:
                 source = "stale exclusion"
-            table.add_row(group.label, state, item.name, source)
+            row = [group.label, state, item.name]
+            if details:
+                row.extend([item.version or "", item.ref or ""])
+            table.add_row(*row, source)
     log.console.print(table)

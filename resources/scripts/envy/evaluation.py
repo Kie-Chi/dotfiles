@@ -14,16 +14,7 @@ from typing import Any, Iterator
 from envy.utils import DOTFILES_DIR, current_machine_id, machine_manifest_attr, platform_name
 
 
-SELECTION_GROUPS = (
-    ("packages", "home", "envy.packages.home", None),
-    ("packages", "system", "envy.darwin.packages.system", "darwin"),
-    ("packages", "fonts", "envy.darwin.packages.fonts", "darwin"),
-    ("homebrew", "brews", "envy.darwin.homebrew.brews", "darwin"),
-    ("homebrew", "casks", "envy.darwin.homebrew.casks", "darwin"),
-    ("homebrew", "taps", "envy.darwin.homebrew.taps", "darwin"),
-)
-
-CACHE_SCHEMA = 1
+CACHE_SCHEMA = 2
 _CACHE_ENV = "ENVY_NO_CACHE"
 _COMMAND_TIMEOUT = 5
 
@@ -248,29 +239,50 @@ def manifest_settings(manifest: dict[str, Any] | None) -> dict[str, str]:
 def manifest_selection_rows(
     manifest: dict[str, Any] | None,
 ) -> Iterator[tuple[str, list[str], list[str], list[str]]]:
-    """Yield path plus evaluated include/exclude/effective selection lists."""
-    if not manifest:
-        return
-    inclusions = manifest.get("inclusions", {})
-    exclusions = manifest.get("exclusions", {})
-    platform = manifest.get("platform")
-    for domain, group, path, required_platform in SELECTION_GROUPS:
-        if required_platform is not None and platform != required_platform:
+    """Yield option path plus evaluated software selection IDs."""
+    for group in manifest_software_groups(manifest).values():
+        path = group.get("optionPath")
+        selection = group.get("selection")
+        if not isinstance(path, str) or not isinstance(selection, dict):
             continue
-        include = _string_list(_nested(inclusions, domain, group))
-        exclude = _string_list(_nested(exclusions, domain, group))
-        effective = _string_list(_nested(manifest, domain, group))
-        yield path, include, exclude, effective
+        yield (
+            path,
+            _entry_ids(selection.get("include")),
+            _string_list(selection.get("exclude")),
+            _entry_ids(selection.get("effective")),
+        )
 
 
-def _nested(data: Any, first: str, second: str) -> Any:
-    if not isinstance(data, dict):
+def manifest_software_groups(
+    manifest: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    """Return validated manifest v2 software groups keyed by canonical ID."""
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
+        return {}
+    software = manifest.get("software")
+    groups = software.get("groups") if isinstance(software, dict) else None
+    if not isinstance(groups, dict):
+        return {}
+    return {
+        str(group_id): group
+        for group_id, group in groups.items()
+        if isinstance(group, dict)
+    }
+
+
+def _entry_ids(value: Any) -> list[str]:
+    if not isinstance(value, list):
         return []
-    section = data.get(first, {})
-    return section.get(second, []) if isinstance(section, dict) else []
+    ids: list[str] = []
+    for item in value:
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            ids.append(item["id"])
+        elif isinstance(item, str):
+            ids.append(item)
+    return ids
 
 
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [str(item) for item in value]
+    return [str(item) for item in value if isinstance(item, str)]
