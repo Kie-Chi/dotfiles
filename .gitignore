@@ -6,5 +6,5 @@ result
 # Sops encrypted secrets — safe to commit (encrypted with age)
 # secrets/secrets.yaml
 # Old secrets.nix (replaced by machine config + sops)
-secrets.nix
+/secrets.nix
 __pycache__
