@@ -5,6 +5,10 @@ on:
   push:
     branches: [master]
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   platform:
     strategy:
@@ -17,9 +21,9 @@ jobs:
             system: x86_64-linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v17
-      - uses: DeterminateSystems/magic-nix-cache-action@v9
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: DeterminateSystems/flakehub-cache-action@v3
       - name: Evaluate the cross-platform flake
         run: nix flake check path:. --no-build
       - name: Run Envy Python tests
