@@ -4,17 +4,17 @@ let
   mode = config.envy.vscode.mode;
   useLocalConfig = mode == "local";
   selected = machinePlatform != "linux" || config.envy.linux.option == "desktop";
-  enabled = selected && !(builtins.elem "vscode" config.envy.packages.home.exclude);
+  enabled = selected && !(builtins.elem "vscode" config.envy.software.nix.packages.exclude);
 in
 {
   config = lib.mkMerge [
   (lib.mkIf selected {
-    envy.packages.home.include = [ pkgs.vscode ];
+    envy.software.nix.packages.include = [ pkgs.vscode ];
   })
   (lib.mkIf enabled {
   programs.vscode = {
     enable = true;
-    # Installation is owned by envy.packages.home so machine exclusions apply.
+    # Installation is owned by envy.software.nix.packages so machine exclusions apply.
     package = null;
     mutableExtensionsDir = !useLocalConfig;
     profiles.default = lib.mkIf useLocalConfig {

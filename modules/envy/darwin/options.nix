@@ -19,15 +19,16 @@ in
       };
     };
 
-    packages = {
-      system = packageSelection "Darwin system packages";
-      fonts = packageSelection "Darwin font packages";
-    };
-
-    homebrew = {
-      brews = stringSelection "Darwin Homebrew formulae";
-      casks = stringSelection "Darwin Homebrew casks";
-      taps = stringSelection "Darwin Homebrew taps";
+    software = {
+      nix = {
+        systemPackages = packageSelection "Darwin system packages";
+        fonts = packageSelection "Darwin font packages";
+      };
+      homebrew = {
+        formulae = stringSelection "Darwin Homebrew formulae";
+        casks = stringSelection "Darwin Homebrew casks";
+        repositories = stringSelection "Darwin Homebrew repositories";
+      };
     };
   };
 }

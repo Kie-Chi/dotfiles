@@ -3,7 +3,7 @@
 let
   proxyStatus = config.envy.darwin.proxy.mode;
   enabled = proxyStatus != "none"
-    && !(builtins.elem "clash-verge-rev" config.envy.darwin.homebrew.casks.exclude);
+    && !(builtins.elem "clash-verge-rev" config.envy.darwin.software.homebrew.casks.exclude);
   enableTun = config.envy.darwin.proxy.tun;
   renderYaml = lib.generators.toYAML {};
 in

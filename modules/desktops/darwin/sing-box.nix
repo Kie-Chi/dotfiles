@@ -1,5 +1,5 @@
 { pkgs, ... }:
 
 {
-  envy.packages.home.include = [ pkgs.sing-box ];
+  envy.software.nix.packages.include = [ pkgs.sing-box ];
 }

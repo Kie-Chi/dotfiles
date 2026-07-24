@@ -2,9 +2,9 @@
 
 {
   # Software stays grouped by its owning module. Individual machines remove
-  # entries with envy.darwin.homebrew.<kind>.exclude instead of per-app enable flags.
-  envy.darwin.homebrew = {
-    brews.include = [
+  # entries with envy.darwin.software.homebrew.<kind>.exclude instead of per-app enable flags.
+  envy.darwin.software.homebrew = {
+    formulae.include = [
       "gh"
       "chsrc"
       "gum"

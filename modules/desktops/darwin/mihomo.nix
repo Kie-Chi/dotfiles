@@ -9,7 +9,7 @@ let
   isTunMode = config.envy.darwin.proxy.tun;
   proxyConfigured = proxyStatus != "none";
   serviceEnabled = proxyConfigured
-    && builtins.elem "mihomo" config.envy.darwin.homebrew.brews.effective;
+    && builtins.elem "mihomo" config.envy.darwin.software.homebrew.formulae.effective;
 
   # --- Shared Shell Functions for Interface Detection ---
   detectionLogic = ''
@@ -99,7 +99,7 @@ let
   '';
 in
 {
-  envy.darwin.homebrew.brews.include = lib.optionals proxyConfigured [ "mihomo" ];
+  envy.darwin.software.homebrew.formulae.include = lib.optionals proxyConfigured [ "mihomo" ];
 
   launchd.daemons.mihomo = lib.mkIf serviceEnabled {
     script = if isTunMode

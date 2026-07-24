@@ -9,7 +9,7 @@ let
   };
 in
 {
-  config = lib.mkIf (!(builtins.elem "squirrel-app" config.envy.darwin.homebrew.casks.exclude)) {
+  config = lib.mkIf (!(builtins.elem "squirrel-app" config.envy.darwin.software.homebrew.casks.exclude)) {
 
   home.activation.installRimeIce = sys.task.activation {
     name = "installRimeIce";

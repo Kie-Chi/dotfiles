@@ -2,7 +2,7 @@
 
 let
   agentConfig = config.agents.claude;
-  packageEnabled = !(builtins.elem "claude" config.envy.packages.home.exclude);
+  packageEnabled = !(builtins.elem "claude" config.envy.software.nix.packages.exclude);
   promptFile = ".config/ccli/prompt";
 
   claudeWithDefaults = pkgs.writeShellApplication {
@@ -50,7 +50,7 @@ in
   };
 
   config = lib.mkIf packageEnabled {
-    envy.packages.home.include = [
+    envy.software.nix.packages.include = [
       claudeWithDefaults
     ] ++ lib.optional agentConfig.ccliAlias ccli;
 

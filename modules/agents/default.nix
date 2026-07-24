@@ -4,6 +4,7 @@
   imports = [
     ./claude.nix
     ./skills.nix
+    ./tools.nix
   ] ++ lib.optionals (machinePlatform == "linux") [ ./linux.nix ];
 
   # Shared agent defaults. Provider modules define reusable options; this file

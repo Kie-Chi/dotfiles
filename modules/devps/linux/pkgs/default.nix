@@ -5,7 +5,7 @@
     ./pkg.nix
     ./net-pkg.nix
   ];
-  envy.packages.home.include = with pkgs; [
+  envy.software.nix.packages.include = with pkgs; [
     (pkgs.callPackage ./tod.nix {})
   ];
 }

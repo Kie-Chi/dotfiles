@@ -2,7 +2,7 @@
 
 let
   inherit (lib) mkOption types;
-  inherit (import ./selection-options.nix { inherit lib; }) packageSelection;
+  inherit (import ./selection-options.nix { inherit lib; }) packageSelection itemSelection;
   targetPlatform =
     if pkgs.stdenv.hostPlatform.isDarwin then "darwin"
     else if pkgs.stdenv.hostPlatform.isLinux then "linux"
@@ -59,7 +59,11 @@ in
       description = "Whether VS Code settings are managed locally or by Settings Sync.";
     };
 
-    packages.home = packageSelection "cross-platform Home Manager packages";
+    software = {
+      nix.packages = packageSelection "cross-platform Home Manager packages";
+      npm.tools = itemSelection "cross-platform user-level NPM tools";
+      pypi.tools = itemSelection "cross-platform user-level PyPI tools installed by uv";
+    };
 
     mirrors.mode = mkOption {
       type = types.enum [ "upstream" "china" ];

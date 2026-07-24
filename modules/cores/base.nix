@@ -9,7 +9,7 @@
 { pkgs, config, lib, machinePlatform, ... }:
 
 {
-  envy.packages.home.include = with pkgs; [
+  envy.software.nix.packages.include = with pkgs; [
     # base
     git
     git-lfs

@@ -168,7 +168,7 @@ let
 in
 {
   home.activation.configureZotero = lib.mkIf (
-    !(builtins.elem "zotero" config.envy.darwin.homebrew.casks.exclude)
+    !(builtins.elem "zotero" config.envy.darwin.software.homebrew.casks.exclude)
   ) (sys.task.activation {
     name = "configureZotero";
     script = "${configureZotero}";

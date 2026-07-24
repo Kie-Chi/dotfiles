@@ -1,7 +1,7 @@
 { config, lib, sys, ... }:
 
 {
-  config = lib.mkIf (!(builtins.elem "raycast" config.envy.darwin.homebrew.casks.exclude)) {
+  config = lib.mkIf (!(builtins.elem "raycast" config.envy.darwin.software.homebrew.casks.exclude)) {
   # --- sops template: raycast AI providers with encrypted keys ---
   sops.templates."raycast-providers" = {
     path = "${config.home.homeDirectory}/.config/raycast/ai/providers.yaml";

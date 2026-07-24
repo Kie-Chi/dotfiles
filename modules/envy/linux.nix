@@ -1,16 +1,38 @@
 { config, lib, ... }:
 
 let
+  manifestLib = import ./manifest.nix { inherit lib; };
   policy = config.envy.linux;
-  homePolicy = config.envy.packages.home;
+  homePolicy = config.envy.software;
+  compatibleItems = items:
+    lib.all
+      (values: builtins.length (lib.unique values) == 1)
+      (builtins.attrValues (lib.groupBy (item: item.id) items));
   mirrorProfile = (import ../mirrors/catalog.nix).${config.envy.mirrors.mode};
   commonMirrors = builtins.removeAttrs mirrorProfile [ "apt" "dockerInstallerMirror" "homebrew" "probes" ];
+  selectItems = selection: lib.filter
+    (item: !(builtins.elem item.id selection.exclude))
+    (lib.unique selection.include);
 in
 {
   imports = [ ./linux/options.nix ];
 
   config = {
+    assertions = [
+      {
+        assertion = compatibleItems policy.software.native.packages.include;
+        message = "envy.linux.software.native.packages contains the same stable ID with conflicting metadata";
+      }
+      {
+        assertion = compatibleItems policy.software.url.artifacts.include;
+        message = "envy.linux.software.url.artifacts contains the same stable ID with conflicting metadata";
+      }
+    ];
+    envy.linux.software.native.packages.effective = selectItems policy.software.native.packages;
+    envy.linux.software.url.artifacts.effective = selectItems policy.software.url.artifacts;
+
     envy.machine.manifest = {
+      schemaVersion = 2;
       id = config.envy.machine.id;
       platform = config.envy.machine.platform;
       system = config.envy.machine.system;
@@ -35,27 +57,63 @@ in
         dockerInstallerMirror = mirrorProfile.dockerInstallerMirror;
         probes = mirrorProfile.probes.common ++ mirrorProfile.probes.linux;
       };
-      packages = {
-        home = map lib.getName homePolicy.effective;
-        system = [ ];
-        fonts = [ ];
-      };
-      homebrew = { brews = [ ]; casks = [ ]; taps = [ ]; };
-      inclusions = {
-        packages = {
-          home = map lib.getName homePolicy.include;
-          system = [ ];
-          fonts = [ ];
+      software.groups = {
+        "nix.user.package" = manifestLib.group {
+          label = "Nix packages";
+          optionPath = "envy.software.nix.packages";
+          ecosystem = "nix";
+          platforms = [ "darwin" "linux" ];
+          scope = "user";
+          kind = "package";
+          installer = "home-manager";
+          reconcileUpgrade = true;
+          reconcileRemove = true;
+          editableInclude = true;
+          selection = manifestLib.packageSelection homePolicy.nix.packages;
         };
-        homebrew = { brews = [ ]; casks = [ ]; taps = [ ]; };
-      };
-      exclusions = {
-        packages = {
-          home = homePolicy.exclude;
-          system = [ ];
-          fonts = [ ];
+        "native.system.package" = manifestLib.group {
+          label = "Native system packages";
+          optionPath = "envy.linux.software.native.packages";
+          ecosystem = "native";
+          platforms = [ "linux" ];
+          scope = "system";
+          kind = "package";
+          installer = "native-package-manager";
+          editableInclude = true;
+          selection = manifestLib.itemSelection policy.software.native.packages;
         };
-        homebrew = { brews = [ ]; casks = [ ]; taps = [ ]; };
+        "url.system.artifact" = manifestLib.group {
+          label = "System artifacts";
+          optionPath = "envy.linux.software.url.artifacts";
+          ecosystem = "url";
+          platforms = [ "linux" ];
+          scope = "system";
+          kind = "artifact";
+          installer = "native-artifact";
+          selection = manifestLib.itemSelection policy.software.url.artifacts;
+        };
+        "npm.user.tool" = manifestLib.group {
+          label = "NPM tools";
+          optionPath = "envy.software.npm.tools";
+          ecosystem = "npm";
+          platforms = [ "darwin" "linux" ];
+          scope = "user";
+          kind = "tool";
+          installer = "npm";
+          editableInclude = true;
+          selection = manifestLib.itemSelection homePolicy.npm.tools;
+        };
+        "pypi.user.tool" = manifestLib.group {
+          label = "Python tools";
+          optionPath = "envy.software.pypi.tools";
+          ecosystem = "pypi";
+          platforms = [ "darwin" "linux" ];
+          scope = "user";
+          kind = "tool";
+          installer = "uv";
+          editableInclude = true;
+          selection = manifestLib.itemSelection homePolicy.pypi.tools;
+        };
       };
     };
   };

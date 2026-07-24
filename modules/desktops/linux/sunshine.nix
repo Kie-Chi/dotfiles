@@ -2,7 +2,7 @@
 
 let
   isDesktop = config.envy.linux.option == "desktop";
-  enabled = isDesktop && !(builtins.elem "sunshine" config.envy.packages.home.exclude);
+  enabled = isDesktop && !(builtins.elem "sunshine" config.envy.software.nix.packages.exclude);
   gnomeIntegration = config.envy.linux.desktop == "gnome"
     || config.envy.linux.desktop == "all";
   sunshineAutostartDesktop = pkgs.runCommand "sunshine-autostart-desktop" {} ''
@@ -14,7 +14,7 @@ in
 {
   config = lib.mkMerge [
     (lib.mkIf isDesktop {
-      envy.packages.home.include = [ pkgs.sunshine ];
+      envy.software.nix.packages.include = [ pkgs.sunshine ];
     })
     (lib.mkIf enabled {
   systemd.user.services.sunshine = {

@@ -13,7 +13,7 @@ let
 in
 {
   config = lib.mkIf enabled {
-    envy.packages.home.include = (with pkgs; [ wmctrl xdotool ]) ++ [ quakeHelper ];
+    envy.software.nix.packages.include = (with pkgs; [ wmctrl xdotool ]) ++ [ quakeHelper ];
 
     dconf.settings = {
       "org/gnome/desktop/background" = {

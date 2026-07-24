@@ -7,7 +7,7 @@ let
     config.allowUnfree = true;
   };
 
-  mkConfiguration = machineId: option: desktop: exclude:
+  mkConfigurationWith = machineId: option: desktop: exclude: extraPolicy:
     inputs.home-manager.lib.homeManagerConfiguration {
       inherit pkgs;
       extraSpecialArgs = {
@@ -21,7 +21,7 @@ let
       modules = [
         ../home.nix
         ({ ... }: {
-          imports = [ ../hosts/default.nix ];
+          imports = [ ../hosts/default.nix extraPolicy ];
           envy.user.name = "policy-check";
           envy.user.home = "/home/policy-check";
           envy.repository.path = "/home/policy-check/.dotfiles";
@@ -33,7 +33,7 @@ let
           envy.llm.deepseek.model = "model";
           envy.vscode.mode = "remote";
           envy.linux = { inherit option desktop; };
-          envy.packages.home = { inherit exclude; };
+          envy.software.nix.packages = { inherit exclude; };
         })
         inputs.sops-nix.homeManagerModules.sops
         {
@@ -42,7 +42,8 @@ let
         }
       ];
     };
-
+  mkConfiguration = machineId: option: desktop: exclude:
+    mkConfigurationWith machineId option desktop exclude { };
   server = mkConfiguration "policy-server" "server" "all" [ ];
   none = mkConfiguration "policy-none" "desktop" "none" [ ];
   gnome = mkConfiguration "policy-gnome" "desktop" "gnome" [ ];
@@ -52,6 +53,21 @@ let
   sunshineExcluded = mkConfiguration "policy-sunshine-excluded" "desktop" "gnome" [ "sunshine" ];
   vscodeExcluded = mkConfiguration "policy-vscode-excluded" "desktop" "gnome" [ "vscode" ];
   waydroidExcluded = mkConfiguration "policy-waydroid-excluded" "desktop" "gnome" [ "waydroid" ];
+  directSelections = mkConfigurationWith
+    "policy-direct-selections"
+    "server"
+    "none"
+    [ ]
+    ({ pkgs, ... }: {
+      envy.software.nix.packages.include = [ pkgs.hello ];
+      envy.linux.software.native.packages.include = [
+        {
+          id = "curl";
+          name = "curl";
+          ref = "native:curl";
+        }
+      ];
+    });
 
   packageNames = configuration: map inputs.nixpkgs.lib.getName configuration.config.home.packages;
   hasPackage = name: configuration: builtins.elem name (packageNames configuration);
@@ -77,6 +93,15 @@ in
 assert serverForbiddenPackages == [ ];
 assert serverForbiddenActivations == [ ];
 assert hasActivation "configureAptMirror" server;
+assert hasActivation "installNativePackages" server;
+assert hasActivation "installNpmTools" server;
+assert hasActivation "installPypiTools" server;
+assert server.config.envy.machine.manifest.schemaVersion == 2;
+assert server.config.envy.machine.manifest.software.groups ? "nix.user.package";
+assert server.config.envy.machine.manifest.software.groups ? "native.system.package";
+assert server.config.envy.machine.manifest.software.groups ? "npm.user.tool";
+assert server.config.envy.machine.manifest.software.groups ? "pypi.user.tool";
+assert !(server.config.envy.machine.manifest.software.groups ? "homebrew.system.cask");
 assert server.config.envy.machine.manifest.mirrors ? apt;
 assert !(server.config.envy.machine.manifest.mirrors ? homebrew);
 assert server.config.home.sessionVariables.UV_DEFAULT_INDEX ==
@@ -117,6 +142,10 @@ assert !hasPackage "waydroid" waydroidExcluded;
 assert !hasPackage "waydroid-helper" waydroidExcluded;
 assert !hasActivation "installWayDroid" waydroidExcluded;
 assert !(builtins.hasAttr "id.waydro.waydroid_helper" waydroidExcluded.config.xdg.desktopEntries);
+assert hasPackage "hello" directSelections;
+assert builtins.any
+  (item: item.id == "curl")
+  directSelections.config.envy.machine.manifest.software.groups."native.system.package".selection.effective;
 pkgs.runCommand "envy-linux-policy-boundaries" { } ''
   touch $out
 ''

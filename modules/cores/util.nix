@@ -64,5 +64,5 @@ let
 
 in
 {
-  envy.packages.home.include = packagedScripts ++ [ envyPackage ];
+  envy.software.nix.packages.include = packagedScripts ++ [ envyPackage ];
 }

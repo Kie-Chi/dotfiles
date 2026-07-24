@@ -1,20 +1,26 @@
 { config, lib, ... }:
 
 let
+  manifestLib = import ./manifest.nix { inherit lib; };
   unique = values: lib.unique values;
+  compatiblePackages = packages:
+    lib.all
+      (values: builtins.length (lib.unique values) == 1)
+      (builtins.attrValues (lib.groupBy lib.getName packages));
   selectPackages = selection: lib.filter
     (package: !(builtins.elem (lib.getName package) selection.exclude))
     (unique selection.include);
   selectStrings = selection: lib.subtractLists selection.exclude (unique selection.include);
   policy = config.envy.darwin;
+  softwarePolicy = policy.software;
   mirrorProfile = (import ../mirrors/catalog.nix).${config.envy.mirrors.mode};
   commonMirrors = builtins.removeAttrs mirrorProfile [ "apt" "dockerInstallerMirror" "homebrew" "probes" ];
-  systemPackages = selectPackages policy.packages.system;
-  fontPackages = selectPackages policy.packages.fonts;
-  brews = selectStrings policy.homebrew.brews;
-  casks = selectStrings policy.homebrew.casks;
-  taps = selectStrings policy.homebrew.taps;
-  homePolicy = config.home-manager.users.${config.envy.user.name}.envy.packages.home;
+  systemPackages = selectPackages softwarePolicy.nix.systemPackages;
+  fontPackages = selectPackages softwarePolicy.nix.fonts;
+  brews = selectStrings softwarePolicy.homebrew.formulae;
+  casks = selectStrings softwarePolicy.homebrew.casks;
+  taps = selectStrings softwarePolicy.homebrew.repositories;
+  homePolicy = config.home-manager.users.${config.envy.user.name}.envy.software;
 in
 {
   imports = [
@@ -23,13 +29,24 @@ in
   ];
 
   config = {
-    envy.darwin.packages.system.effective = systemPackages;
-    envy.darwin.packages.fonts.effective = fontPackages;
-    envy.darwin.homebrew.brews.effective = brews;
-    envy.darwin.homebrew.casks.effective = casks;
-    envy.darwin.homebrew.taps.effective = taps;
+    assertions = [
+      {
+        assertion = compatiblePackages softwarePolicy.nix.systemPackages.include;
+        message = "envy.darwin.software.nix.systemPackages contains one stable ID with different derivations";
+      }
+      {
+        assertion = compatiblePackages softwarePolicy.nix.fonts.include;
+        message = "envy.darwin.software.nix.fonts contains one stable ID with different derivations";
+      }
+    ];
+    envy.darwin.software.nix.systemPackages.effective = systemPackages;
+    envy.darwin.software.nix.fonts.effective = fontPackages;
+    envy.darwin.software.homebrew.formulae.effective = brews;
+    envy.darwin.software.homebrew.casks.effective = casks;
+    envy.darwin.software.homebrew.repositories.effective = taps;
 
     envy.machine.manifest = {
+      schemaVersion = 2;
       id = config.envy.machine.id;
       platform = config.envy.machine.platform;
       system = config.envy.machine.system;
@@ -53,34 +70,100 @@ in
         homebrew = mirrorProfile.homebrew;
         probes = mirrorProfile.probes.common ++ mirrorProfile.probes.darwin;
       };
-      packages = {
-        home = map lib.getName homePolicy.effective;
-        system = map lib.getName systemPackages;
-        fonts = map lib.getName fontPackages;
-      };
-      homebrew = { inherit brews casks taps; };
-      inclusions = {
-        packages = {
-          home = map lib.getName homePolicy.include;
-          system = map lib.getName policy.packages.system.include;
-          fonts = map lib.getName policy.packages.fonts.include;
+      software.groups = {
+        "nix.user.package" = manifestLib.group {
+          label = "Nix packages";
+          optionPath = "envy.software.nix.packages";
+          ecosystem = "nix";
+          platforms = [ "darwin" "linux" ];
+          scope = "user";
+          kind = "package";
+          installer = "home-manager";
+          reconcileUpgrade = true;
+          reconcileRemove = true;
+          editableInclude = true;
+          selection = manifestLib.packageSelection homePolicy.nix.packages;
         };
-        homebrew = {
-          brews = policy.homebrew.brews.include;
-          casks = policy.homebrew.casks.include;
-          taps = policy.homebrew.taps.include;
+        "nix.system.package" = manifestLib.group {
+          label = "Darwin system packages";
+          optionPath = "envy.darwin.software.nix.systemPackages";
+          ecosystem = "nix";
+          platforms = [ "darwin" ];
+          scope = "system";
+          kind = "package";
+          installer = "nix-darwin";
+          reconcileUpgrade = true;
+          reconcileRemove = true;
+          editableInclude = true;
+          selection = manifestLib.packageSelection softwarePolicy.nix.systemPackages;
         };
-      };
-      exclusions = {
-        packages = {
-          home = homePolicy.exclude;
-          system = policy.packages.system.exclude;
-          fonts = policy.packages.fonts.exclude;
+        "nix.system.font" = manifestLib.group {
+          label = "Darwin fonts";
+          optionPath = "envy.darwin.software.nix.fonts";
+          ecosystem = "nix";
+          platforms = [ "darwin" ];
+          scope = "system";
+          kind = "font";
+          installer = "nix-darwin";
+          reconcileUpgrade = true;
+          reconcileRemove = true;
+          editableInclude = true;
+          selection = manifestLib.packageSelection softwarePolicy.nix.fonts;
         };
-        homebrew = {
-          brews = policy.homebrew.brews.exclude;
-          casks = policy.homebrew.casks.exclude;
-          taps = policy.homebrew.taps.exclude;
+        "homebrew.system.formula" = manifestLib.group {
+          label = "Homebrew formulae";
+          optionPath = "envy.darwin.software.homebrew.formulae";
+          ecosystem = "homebrew";
+          platforms = [ "darwin" ];
+          scope = "system";
+          kind = "formula";
+          installer = "homebrew";
+          editableInclude = true;
+          selection = manifestLib.stringSelection "homebrew:formula" softwarePolicy.homebrew.formulae;
+        };
+        "homebrew.system.cask" = manifestLib.group {
+          label = "Homebrew casks";
+          optionPath = "envy.darwin.software.homebrew.casks";
+          ecosystem = "homebrew";
+          platforms = [ "darwin" ];
+          scope = "system";
+          kind = "cask";
+          installer = "homebrew";
+          editableInclude = true;
+          selection = manifestLib.stringSelection "homebrew:cask" softwarePolicy.homebrew.casks;
+        };
+        "homebrew.system.repository" = manifestLib.group {
+          label = "Homebrew repositories";
+          optionPath = "envy.darwin.software.homebrew.repositories";
+          ecosystem = "homebrew";
+          platforms = [ "darwin" ];
+          scope = "system";
+          kind = "repository";
+          installer = "homebrew";
+          editableInclude = true;
+          selection = manifestLib.stringSelection "homebrew:tap" softwarePolicy.homebrew.repositories;
+        };
+        "npm.user.tool" = manifestLib.group {
+          label = "NPM tools";
+          optionPath = "envy.software.npm.tools";
+          ecosystem = "npm";
+          platforms = [ "darwin" "linux" ];
+          scope = "user";
+          kind = "tool";
+          installer = "npm";
+          editableInclude = true;
+          selection = manifestLib.itemSelection homePolicy.npm.tools;
+        };
+        "pypi.user.tool" = manifestLib.group {
+          label = "Python tools";
+          optionPath = "envy.software.pypi.tools";
+          ecosystem = "pypi";
+          platforms = [ "darwin" "linux" ];
+          scope = "user";
+          kind = "tool";
+          installer = "uv";
+          editableInclude = true;
+          selection = manifestLib.itemSelection homePolicy.pypi.tools;
         };
       };
     };

@@ -3,7 +3,7 @@
 let
   enabled = config.envy.linux.option == "desktop"
     && (config.envy.linux.desktop == "niri" || config.envy.linux.desktop == "all")
-    && !(builtins.elem "niri" config.envy.packages.home.exclude);
+    && !(builtins.elem "niri" config.envy.software.nix.packages.exclude);
   niri-scratchpad-script = pkgs.writers.writePython3Bin "niri-scratchpad"
     { 
       libraries = [ ]; 
@@ -146,6 +146,6 @@ if __name__ == "__main__":
 in
 {
   config = lib.mkIf enabled {
-    envy.packages.home.include = [ niri-scratchpad ];
+    envy.software.nix.packages.include = [ niri-scratchpad ];
   };
 }

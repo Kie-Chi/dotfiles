@@ -49,5 +49,5 @@ let
   };
 in
 {
-  envy.packages.home.include = [ okular ];
+  envy.software.nix.packages.include = [ okular ];
 }

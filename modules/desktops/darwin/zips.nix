@@ -34,5 +34,5 @@ let
 
 in
 {
-  envy.packages.home.include = [ wireguard-macos-app ];
+  envy.software.nix.packages.include = [ wireguard-macos-app ];
 }

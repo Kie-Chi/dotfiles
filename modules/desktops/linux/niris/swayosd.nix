@@ -3,7 +3,7 @@
 let
   enabled = config.envy.linux.option == "desktop"
     && (config.envy.linux.desktop == "niri" || config.envy.linux.desktop == "all")
-    && !(builtins.elem "niri" config.envy.packages.home.exclude);
+    && !(builtins.elem "niri" config.envy.software.nix.packages.exclude);
   swayosdPkg = pkgs.swayosd;
 in
 {

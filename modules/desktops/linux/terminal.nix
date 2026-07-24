@@ -8,7 +8,7 @@ let
 in
 {
   config = lib.mkIf enabled {
-    envy.packages.home.include = with pkgs; [ tilix ];
+    envy.software.nix.packages.include = with pkgs; [ tilix ];
 
     dconf.settings = {
       "com/gexperts/Tilix" = {

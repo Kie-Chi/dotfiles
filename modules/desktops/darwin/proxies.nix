@@ -4,9 +4,9 @@ let
   proxyStatus = config.envy.darwin.proxy.mode;
   proxyConfigured = proxyStatus != "none";
   mihomoEnabled = proxyConfigured
-    && !(builtins.elem "mihomo" config.envy.darwin.homebrew.brews.exclude);
+    && !(builtins.elem "mihomo" config.envy.darwin.software.homebrew.formulae.exclude);
   proxychainsEnabled = proxyConfigured
-    && !(builtins.elem "proxychains-ng" config.envy.darwin.homebrew.brews.exclude);
+    && !(builtins.elem "proxychains-ng" config.envy.darwin.software.homebrew.formulae.exclude);
 in
 {
   sops.secrets.proxy-url = {

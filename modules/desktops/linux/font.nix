@@ -5,7 +5,7 @@ let
 in
 {
   config = lib.mkIf isDesktop {
-  envy.packages.home.include = with pkgs; [
+  envy.software.nix.packages.include = with pkgs; [
     maple-mono.NF-CN
     noto-fonts-cjk-sans
     noto-fonts-cjk-serif

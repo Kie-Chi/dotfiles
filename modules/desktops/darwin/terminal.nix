@@ -7,16 +7,16 @@ let
   };
 in
 {
-  envy.darwin.packages.fonts.include = with pkgs; [
+  envy.darwin.software.nix.fonts.include = with pkgs; [
     maple-mono.NF-CN
     noto-fonts-cjk-sans
     noto-fonts-color-emoji
   ];
 
-  envy.darwin.homebrew.casks.include = [ "iterm2" ];
+  envy.darwin.software.homebrew.casks.include = [ "iterm2" ];
 
   home-manager.users."${config.envy.user.name}" = lib.mkIf (
-    builtins.elem "iterm2" config.envy.darwin.homebrew.casks.effective
+    builtins.elem "iterm2" config.envy.darwin.software.homebrew.casks.effective
   ) {
     home.file."iterm2-dracula-profile" = {
       target = "Library/Application Support/iTerm2/DynamicProfiles/Dracula.json";

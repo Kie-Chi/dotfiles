@@ -4,7 +4,7 @@
 let
   selected = config.envy.linux.option == "desktop"
     && (config.envy.linux.desktop == "niri" || config.envy.linux.desktop == "all");
-  enabled = selected && !(builtins.elem "niri" config.envy.packages.home.exclude);
+  enabled = selected && !(builtins.elem "niri" config.envy.software.nix.packages.exclude);
   wallpaperPath = ../../../resources/images/background.jpg;
   screenshotHelper = pkgs.writeShellApplication {
     name = "screenshot";
@@ -62,10 +62,10 @@ in
 {
   config = lib.mkMerge [
     (lib.mkIf selected {
-      envy.packages.home.include = [ pkgs.niri ];
+      envy.software.nix.packages.include = [ pkgs.niri ];
     })
     (lib.mkIf enabled {
-  envy.packages.home.include = (with pkgs; [
+  envy.software.nix.packages.include = (with pkgs; [
     nemo
     fuzzel
     alacritty

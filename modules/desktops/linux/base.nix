@@ -2,7 +2,7 @@
 
 let
   isDesktop = config.envy.linux.option == "desktop";
-  waydroidEnabled = isDesktop && !(builtins.elem "waydroid" config.envy.packages.home.exclude);
+  waydroidEnabled = isDesktop && !(builtins.elem "waydroid" config.envy.software.nix.packages.exclude);
   xresourceDesktop = pkgs.runCommand "xresource-desktop" {} ''
     mkdir -p $out/share/applications
     cp ${../../../files/desktop/xresource.desktop} $out/share/applications/xresource.desktop
@@ -13,7 +13,7 @@ let
 in
 {
   config = lib.mkIf isDesktop {
-  envy.packages.home.include = (with pkgs; [
+  envy.software.nix.packages.include = (with pkgs; [
     # utils
     xclip
     xsel
