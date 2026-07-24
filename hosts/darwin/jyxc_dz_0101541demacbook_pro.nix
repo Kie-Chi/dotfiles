@@ -51,6 +51,11 @@
     "neteasemusic"
     "skim"
     "iina"
+    "maven"
+  ];
+
+  envy.darwin.software.homebrew.formulae.include = [
+    "maven"
   ];
 
   envy.software.pypi.tools.include = builtins.fromJSON "[{\"id\":\"browser-use\",\"name\":\"browser-use\",\"ref\":\"pypi:browser-use\"}]";
