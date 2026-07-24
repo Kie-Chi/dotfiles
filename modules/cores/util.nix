@@ -1,7 +1,9 @@
 { config, pkgs, lib, ... }:
 
 let
-  scriptsSrc = lib.cleanSource ../../resources/scripts;
+  # The flake source is already filtered and materialized. Creating another
+  # cleanSource here races under Nix 2.34 when flake outputs evaluate in parallel.
+  scriptsSrc = ../../resources/scripts;
 
   # Package single-file scripts, skipping the "envy" entry (it's now a Python package directory)
   packageScriptsFromDir = dirPath:

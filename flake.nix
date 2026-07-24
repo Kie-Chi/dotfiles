@@ -161,7 +161,8 @@
           gnupg
         ] ++ [ inputs.home-manager.packages.${system}.default ];
         shellHook = ''
-          export PYTHONPATH="${toString ./.}/resources/scripts:$PYTHONPATH"
+          export ENVY_DEV_SHELL=1
+          export PYTHONPATH="${./resources/scripts}:$PYTHONPATH"
           echo "[DEBUG] devShell: setup environment ready"
           echo "[DEBUG] Available tools: jq, sops, age, ssh-to-age, python3, typer, rich, prompt_toolkit, home-manager"
         '';

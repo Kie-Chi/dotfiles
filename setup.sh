@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRES_SCRIPT="$BASE_DIR/requires.sh"
@@ -13,6 +13,7 @@ export ENVY_DOTFILES="$BASE_DIR"
 # Source Nix profile if not already in PATH (handles "nix installed but PATH not set" scenario)
 if ! command -v nix >/dev/null 2>&1; then
     if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+        # shellcheck source=/dev/null
         . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
     fi
 fi
@@ -24,6 +25,7 @@ if ! command -v nix >/dev/null 2>&1; then
         "$REQUIRES_SCRIPT"
         # Source Nix profile again after fresh install (subprocess env doesn't propagate to parent)
         if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+            # shellcheck source=/dev/null
             . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
         fi
     else
@@ -36,7 +38,7 @@ fi
 # STEP 2: Enter devShell and run setup.py
 # ==========================================
 
-if [ -n "$IN_NIX_SHELL" ]; then
+if [ "${ENVY_DEV_SHELL:-0}" = "1" ]; then
     # Already in devShell, just run setup.py
     echo "[DEBUG] Already in Nix dev shell"
     export PYTHONPATH="$BASE_DIR/resources/scripts:${PYTHONPATH:-}"

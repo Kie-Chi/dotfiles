@@ -1,13 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # ==============================================================================
 # requires.sh - Install Nix if not present
 #
-# Only installs Nix itself. All other dependencies (jq, sops, age, gum, etc.)
+# Only installs Nix itself. All other dependencies (jq, sops, age, Python, etc.)
 # are provided by the devShell defined in flake.nix.
 # ==============================================================================
 
-set -e
+set -euo pipefail
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -29,7 +29,7 @@ install_nix() {
     fi
 
     msg_info "Nix not found. Installing Nix package manager..."
-    read -p "Press Enter to continue, or Ctrl+C to cancel." </dev/tty
+    read -r -p "Press Enter to continue, or Ctrl+C to cancel." </dev/tty
 
     curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
 
@@ -38,6 +38,7 @@ install_nix() {
 
     # Source Nix profile in this process so subsequent function calls can use nix
     if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+        # shellcheck source=/dev/null
         . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
     fi
 }
