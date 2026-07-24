@@ -1,30 +1,21 @@
 import os
-import re
-import subprocess
-import sys
-from pathlib import Path
 
 import typer
 from typing import Optional
 
 from envy import log
 from envy import _check_schema_api
-from envy.config import app as config_app, refine_all
+from envy.config import app as config_app
 from envy.doctor import app as doctor_app
 from envy.key import app as key_app
 from envy.mirror import app as mirror_app
-from envy.host import (
-    app as host_app,
-    current_machine_file,
-    initialize_machine,
-    require_current_machine_file,
-)
-from envy.utils import (
-    DOTFILES_DIR, SETUP_SCRIPT, PLATFORM,
-    SYSTEM_PROFILE, current_machine_id, flake_target, machine_build_attr,
-    platform_name,
-    run_cmd, run_hm, run_apply, esudo,
-)
+from envy.host import app as host_app
+from envy.process import run_process
+from envy.workflows.check import check_or_exit
+from envy.workflows.update import update_homebrew, update_inputs
+from envy.workflows import system as system_workflow
+from envy.workflows import git as git_workflow
+from envy.utils import DOTFILES_DIR, PLATFORM
 
 
 # ==========================================
@@ -34,22 +25,12 @@ from envy.utils import (
 
 def complete_git_remotes(ctx, incomplete):
     """Complete git remote names for envy push."""
-    result = subprocess.run(
-        ["git", "remote"], capture_output=True, text=True,
-        cwd=str(DOTFILES_DIR), check=False,
-    )
-    remotes = result.stdout.strip().split() if result.stdout else []
-    return [name for name in remotes if name.startswith(incomplete)]
+    return git_workflow.complete_remotes(incomplete)
 
 
 def complete_git_branches(ctx, incomplete):
     """Complete local Git branch names for push/sync branch options."""
-    result = subprocess.run(
-        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"],
-        capture_output=True, text=True, cwd=str(DOTFILES_DIR), check=False,
-    )
-    branches = result.stdout.strip().splitlines() if result.stdout else []
-    return [name for name in branches if name.startswith(incomplete)]
+    return git_workflow.complete_branches(incomplete)
 
 
 def complete_rollback_target(ctx, incomplete):
@@ -71,6 +52,13 @@ cli = typer.Typer(
     no_args_is_help=True,
 )
 
+update_app = typer.Typer(
+    name="update",
+    help="Update flake inputs or Homebrew metadata with validation.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
 
 @cli.callback()
 def main_callback(
@@ -82,257 +70,6 @@ def main_callback(
     _check_schema_api()
 
 
-def _refine_before_apply() -> None:
-    machine_path = current_machine_file()
-    if not machine_path.exists():
-        log.warn("host", "machine configuration is missing", path=str(machine_path))
-        if not sys.stdin.isatty():
-            log.hint(f"Run: envy host init {machine_path.stem}")
-            raise typer.Exit(code=1)
-        if not typer.confirm("Create it from hosts/default.nix now?", default=None):
-            raise typer.Abort()
-        mode = typer.prompt("Creation mode (import/copy)", default="import")
-        initialize_machine(machine_path.stem, mode)
-
-    report = refine_all(write=True, strict=True, include_secrets=True)
-    if not report.ok:
-        raise typer.Exit(code=1)
-
-
-def _git_output(*args: str) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=str(DOTFILES_DIR),
-        capture_output=True, text=True, check=False,
-    )
-    return result.stdout.strip()
-
-
-def _git_changed_paths() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=str(DOTFILES_DIR), capture_output=True, text=True, check=False,
-    )
-    paths: list[str] = []
-    entries = result.stdout.split("\0")
-    index = 0
-    while index < len(entries):
-        entry = entries[index]
-        if len(entry) < 4:
-            index += 1
-            continue
-        status = entry[:2]
-        paths.append(entry[3:])
-        # In -z format a rename/copy is followed by a second NUL-delimited
-        # source path. The first path is the destination we want to classify.
-        index += 2 if "R" in status or "C" in status else 1
-    return paths
-
-
-def _ordered_unique(values: list[str]) -> list[str]:
-    return list(dict.fromkeys(value for value in values if value))
-
-
-def _selected_git_remotes(remote: str | None) -> list[str]:
-    if remote:
-        return [remote]
-    remotes_raw = _git_output("remote")
-    return remotes_raw.split() if remotes_raw else []
-
-
-def _affected_machines(paths: list[str]) -> tuple[list[str], bool]:
-    known = sorted(
-        f"{platform}/{path.stem}"
-        for platform in ("darwin", "linux")
-        for path in (DOTFILES_DIR / "hosts" / platform).glob("*.nix")
-        if path.is_file()
-    )
-    affected: set[str] = set()
-    shared = False
-    for path in paths:
-        match = re.fullmatch(r"hosts/(darwin|linux)/([^/]+)\.nix", path)
-        if match:
-            affected.add(f"{match.group(1)}/{match.group(2)}")
-        else:
-            shared = True
-    return (known if shared else sorted(affected), shared)
-
-
-def _outgoing_impact(
-    remotes: list[str], branch: str, new_branches: set[str],
-) -> tuple[list[str], set[str], dict[str, int]]:
-    """Collect paths and unique commits that would be sent to target remotes."""
-    paths: list[str] = []
-    commits: set[str] = set()
-    counts: dict[str, int] = {}
-    for remote in remotes:
-        revision = "HEAD" if remote in new_branches else f"{remote}/{branch}..HEAD"
-        remote_commits = [
-            line.strip() for line in _git_output("rev-list", revision).splitlines()
-            if line.strip()
-        ]
-        counts[remote] = len(remote_commits)
-        commits.update(remote_commits)
-        if not remote_commits:
-            continue
-        paths.extend(
-            line.strip().strip('"')
-            for line in _git_output("log", "--format=", "--name-only", revision).splitlines()
-            if line.strip()
-        )
-    return _ordered_unique(paths), commits, counts
-
-
-def _enforce_push_scope(
-    paths: list[str], *, machine_only: bool, self_only: bool,
-) -> tuple[list[str], bool]:
-    """Validate optional machine scope guards and return impact classification."""
-    affected, shared = _affected_machines(paths)
-    if self_only:
-        selected = current_machine_id()
-        expected = f"hosts/{platform_name()}/{selected}.nix"
-        outside = [path for path in paths if path != expected]
-        if outside:
-            log.error(
-                "git",
-                "--self refuses changes outside the selected machine file",
-                machine=selected,
-            )
-            for path in outside:
-                log.hint(path)
-            raise typer.Exit(code=1)
-    elif machine_only and shared:
-        log.error("git", "--machine-only refuses shared changes")
-        for path in paths:
-            if not re.fullmatch(r"hosts/(?:darwin|linux)/[^/]+\.nix", path):
-                log.hint(path)
-        raise typer.Exit(code=1)
-    return affected, shared
-
-
-def _show_push_impact(
-    *,
-    paths: list[str],
-    worktree_paths: list[str],
-    outgoing_commits: set[str],
-    counts: dict[str, int],
-    affected: list[str],
-    shared: bool,
-    branch: str,
-) -> None:
-    change_scope = "shared" if shared else ("machine-only" if paths else "history-only")
-    log.info(
-        "git",
-        "push impact",
-        change_scope=change_scope,
-        files=len(paths),
-        worktree=len(worktree_paths),
-        outgoing_commits=len(outgoing_commits),
-    )
-    for remote, count in counts.items():
-        log.info("git", "push destination", branch=f"{remote}/{branch}", commits=count)
-    for path in paths:
-        log.hint(path)
-    if affected:
-        log.info("host", "affected machine targets", machines=", ".join(affected))
-
-
-def _confirm_push_scope(
-    *,
-    shared: bool,
-    affected: list[str],
-    remotes: list[str],
-    branch: str,
-    has_worktree_changes: bool,
-) -> bool:
-    action = "Commit and push" if has_worktree_changes else "Push"
-    destinations = ", ".join(f"{remote}/{branch}" for remote in remotes)
-    if shared:
-        return typer.confirm(
-            f"{action} SHARED changes affecting {len(affected)} machine(s) to {destinations}?",
-            default=None,
-        )
-    machines = ", ".join(affected) if affected else "no machine files"
-    return typer.confirm(
-        f"{action} machine-only changes for {machines} to {destinations}?",
-        default=None,
-    )
-
-
-def _run_checked_git(args: list[str], action: str) -> None:
-    result = subprocess.run(["git", *args], cwd=str(DOTFILES_DIR), check=False)
-    if result.returncode != 0:
-        log.error("git", f"{action} failed")
-        raise typer.Exit(code=result.returncode)
-
-
-def _preflight_push_remotes(remotes: list[str], branch: str) -> set[str]:
-    """Fetch every destination and reject remote-ahead branches before committing."""
-    new_branches: set[str] = set()
-    for remote in remotes:
-        log.step("git", "checking push destination", branch=f"{remote}/{branch}")
-        fetch = subprocess.run(
-            ["git", "fetch", remote], cwd=str(DOTFILES_DIR), check=False,
-        )
-        if fetch.returncode != 0:
-            log.error("git", "remote preflight failed", remote=remote)
-            raise typer.Exit(code=fetch.returncode)
-
-        remote_ref = f"{remote}/{branch}"
-        verify = subprocess.run(
-            ["git", "rev-parse", "--verify", remote_ref],
-            cwd=str(DOTFILES_DIR), capture_output=True, check=False,
-        )
-        if verify.returncode != 0:
-            new_branches.add(remote)
-            continue
-
-        remote_ahead = _git_output("rev-list", "--count", f"HEAD..{remote_ref}")
-        if not remote_ahead.isdigit():
-            log.error("git", "could not compare the remote branch", branch=remote_ref)
-            raise typer.Exit(code=1)
-        if int(remote_ahead) > 0:
-            log.error(
-                "git",
-                "remote branch is ahead; refusing to create a divergent local commit",
-                branch=remote_ref,
-            )
-            log.hint("Stash or discard local work, then run envy sync before committing.")
-            raise typer.Exit(code=1)
-    return new_branches
-
-
-def _git_is_ancestor(older: str, newer: str) -> bool:
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", older, newer],
-        cwd=str(DOTFILES_DIR), capture_output=True, check=False,
-    )
-    if result.returncode == 0:
-        return True
-    if result.returncode == 1:
-        return False
-    log.error("git", "could not compare branch ancestry", older=older, newer=newer)
-    raise typer.Exit(code=result.returncode)
-
-
-def _select_sync_target(remote_refs: list[str]) -> str:
-    """Choose the newest linearly compatible ref, or reject remote divergence."""
-    target = "HEAD"
-    for remote_ref in remote_refs:
-        if _git_is_ancestor(remote_ref, target):
-            continue
-        if _git_is_ancestor(target, remote_ref):
-            target = remote_ref
-            continue
-        log.error(
-            "git",
-            "remote branches have diverged; refusing to create a merge commit",
-            left=target,
-            right=remote_ref,
-        )
-        raise typer.Exit(code=1)
-    return target
-
-
 # ==========================================
 # SUBCOMMANDS
 # ==========================================
@@ -342,9 +79,7 @@ def _select_sync_target(remote_refs: list[str]) -> str:
 @cli.command(name="switch", rich_help_panel="Aliases")
 def cmd_apply():
     """Apply the configuration (home-manager on Linux, nix-darwin on macOS)."""
-    _refine_before_apply()
-    require_current_machine_file()
-    run_apply()
+    system_workflow.apply_configuration()
 
 
 @cli.command(name="sync")
@@ -362,80 +97,56 @@ def cmd_sync(
     build_only: bool = typer.Option(False, "--build-only", help="Build the selected machine without applying"),
 ):
     """Fast-forward the shared branch and apply the selected machine."""
-    if _git_changed_paths():
-        log.error("git", "working tree is not clean; refusing to synchronize")
-        log.hint("Commit or stash the changes first.")
-        raise typer.Exit(code=1)
+    git_workflow.sync(
+        remote=remote, branch=branch, no_apply=no_apply, build_only=build_only,
+    )
 
-    current_branch = _git_output("branch", "--show-current")
-    if current_branch != branch:
-        log.error("git", "current branch is not the configured shared branch",
-                  current=current_branch or "<detached>", expected=branch)
-        raise typer.Exit(code=1)
 
-    remotes = _selected_git_remotes(remote)
-    if not remotes:
-        log.error("git", "no Git remotes are configured")
-        raise typer.Exit(code=1)
-
-    remote_refs: list[str] = []
-    for selected_remote in remotes:
-        log.step("git", "fetching remote", remote=selected_remote)
-        _run_checked_git(["fetch", selected_remote], "fetch")
-        remote_ref = f"{selected_remote}/{branch}"
-        verify = subprocess.run(
-            ["git", "rev-parse", "--verify", remote_ref], cwd=str(DOTFILES_DIR),
-            capture_output=True, check=False,
-        )
-        if verify.returncode != 0:
-            if remote is not None:
-                log.error("git", "remote branch does not exist", branch=remote_ref)
-                raise typer.Exit(code=1)
-            log.warn("git", "remote does not provide the shared branch", branch=remote_ref)
-            continue
-        remote_refs.append(remote_ref)
-
-    if not remote_refs:
-        log.error("git", "no remote provides the requested shared branch", branch=branch)
-        raise typer.Exit(code=1)
-
-    target = _select_sync_target(remote_refs)
-    if target == "HEAD":
-        log.info("git", "local branch already contains every compatible remote")
-    else:
-        log.step("git", "fast-forwarding shared branch", branch=target)
-        _run_checked_git(["merge", "--ff-only", target], "fast-forward")
-    if no_apply:
-        log.ok("sync", "repository synchronized; apply skipped")
+@update_app.callback(invoke_without_command=True)
+def cmd_update(ctx: typer.Context):
+    """Update all flake inputs, validate every machine, then refresh Homebrew on Darwin."""
+    if ctx.invoked_subcommand is not None:
         return
-
-    _refine_before_apply()
-    require_current_machine_file()
-    if build_only:
-        machine_id = current_machine_id()
-        attr = machine_build_attr(machine_id)
-        log.step("host", "building selected machine", machine=machine_id)
-        result = subprocess.run(
-            ["nix", "build", "--impure", "--no-link", attr],
-            cwd=str(DOTFILES_DIR), check=False,
-        )
-        if result.returncode != 0:
-            raise typer.Exit(code=result.returncode)
-        log.ok("host", "machine build completed", machine=machine_id)
-        return
-    run_apply()
-
-
-@cli.command(name="update")
-@cli.command(name="u", rich_help_panel="Aliases")
-def cmd_update():
-    """Update flake inputs (nixpkgs, etc.)."""
-    log.step("flake", "updating flake inputs")
-    subprocess.run(["nix", "flake", "update"], cwd=str(DOTFILES_DIR))
+    update_inputs(validate=True)
     if PLATFORM == "darwin":
-        subprocess.run(["brew", "update"])
-    log.ok("flake", "flake inputs updated")
+        update_homebrew()
     log.hint("Run: envy apply")
+
+
+@update_app.command(name="inputs")
+def cmd_update_inputs(
+    input_name: Optional[str] = typer.Argument(None, help="One flake input; omit for all"),
+    no_check: bool = typer.Option(False, "--no-check", help="Skip all-machine validation"),
+):
+    """Update one or all flake inputs and roll back flake.lock on validation failure."""
+    update_inputs(input_name, validate=not no_check)
+
+
+@update_app.command(name="brew")
+def cmd_update_brew():
+    """Refresh Homebrew metadata only."""
+    if PLATFORM != "darwin":
+        log.error("update", "Homebrew update is available only on Darwin")
+        raise typer.Exit(code=1)
+    update_homebrew()
+
+
+@cli.command(name="check")
+def cmd_check_all(
+    all_machines: bool = typer.Option(False, "--all", help="Check every Darwin and Linux machine"),
+    changed: bool = typer.Option(False, "--changed", help="Check machines affected by worktree changes"),
+    selected_platform: Optional[str] = typer.Option(
+        None, "--platform", help="Restrict checks to darwin or linux"
+    ),
+    build: bool = typer.Option(False, "--build", help="Build selected local-platform targets"),
+):
+    """Evaluate current, changed, or all cross-platform machine targets."""
+    check_or_exit(
+        all_machines=all_machines,
+        changed=changed,
+        selected_platform=selected_platform,
+        build=build,
+    )
 
 
 @cli.command(name="init")
@@ -443,14 +154,7 @@ def cmd_update():
 @cli.command(name="bootstrap", rich_help_panel="Aliases")
 def cmd_init():
     """Bootstrap configuration (home-manager on Linux, nix-darwin on macOS)."""
-    _refine_before_apply()
-    require_current_machine_file()
-    if PLATFORM == "darwin":
-        run_apply()
-    else:
-        log.step("hm", "bootstrapping Home Manager from flake")
-        run_hm("switch", "--flake", flake_target(), "--impure")
-    log.ok("bootstrap", "bootstrap completed successfully")
+    system_workflow.bootstrap_configuration()
 
 
 @cli.command(name="rollback")
@@ -459,64 +163,14 @@ def cmd_rollback(
     target: str = typer.Argument(None, help="Generation number or 'list'", autocompletion=complete_rollback_target),
 ):
     """Rollback to a previous configuration generation."""
-    if PLATFORM == "darwin":
-        _rollback_darwin(target)
-    else:
-        _rollback_linux(target)
-
-
-def _rollback_darwin(target: Optional[str] = None):
-    """Darwin rollback via nix-env on system profile."""
-    profile = str(SYSTEM_PROFILE)
-    if target is None:
-        log.step("rollback", "rolling back to previous generation")
-        esudo("-H", "nix-env", "-p", profile, "--rollback", capture=True)
-        log.step("rollback", "re-activating previous configuration")
-        esudo("-H", profile + "/activate", capture=False)
-        log.ok("rollback", "rollback complete")
-    elif target == "list":
-        log.step("rollback", "current system generations")
-        esudo("-H", "nix-env", "-p", profile, "--list-generations", capture=True)
-    else:
-        try:
-            gen_num = int(target)
-        except ValueError:
-            log.error("rollback", "invalid argument, must be a number or 'list'")
-            raise typer.Exit(code=1)
-        log.step("rollback", f"switching system profile to generation {gen_num}")
-        esudo("-H", "nix-env", "-p", profile, "--set-generation", str(gen_num), capture=True)
-        log.step("rollback", f"activating configuration {gen_num}")
-        esudo("-H", profile + "/activate", capture=False)
-        log.ok("rollback", f"switched to generation {gen_num} successfully")
-
-
-def _rollback_linux(target: Optional[str] = None):
-    """Linux rollback via home-manager."""
-    if target is None:
-        log.step("rollback", "rolling back to previous generation")
-        run_hm("switch", "--rollback")
-        log.ok("rollback", "rollback successful")
-    elif target == "list":
-        log.step("rollback", "available Home Manager generations")
-        run_hm("generations")
-    else:
-        try:
-            gen_num = int(target)
-        except ValueError:
-            log.error("rollback", "invalid argument, must be a number or 'list'")
-            raise typer.Exit(code=1)
-        log.step("rollback", f"switching to generation {gen_num}")
-        run_hm("switch", "--generation", str(gen_num))
-        log.ok("rollback", f"switched to generation {gen_num} successfully")
+    system_workflow.rollback_configuration(target)
 
 
 @cli.command(name="edit")
 @cli.command(name="e", rich_help_panel="Aliases")
 def cmd_edit():
     """Open the dotfiles directory in your default editor."""
-    editor = os.environ.get("EDITOR", "vim")
-    log.step("editor", f"opening dotfiles in $EDITOR ({editor})")
-    subprocess.run([editor, str(DOTFILES_DIR)])
+    system_workflow.open_editor()
 
 
 @cli.command(name="push")
@@ -541,106 +195,21 @@ def cmd_push(
     ),
 ):
     """Commit and push changes to all remotes, or a specified one."""
-    current_branch = _git_output("branch", "--show-current")
-    if not current_branch:
-        log.error("git", "cannot push from a detached HEAD")
-        raise typer.Exit(code=1)
-    if current_branch != branch:
-        log.error(
-            "git",
-            "current branch is not the configured shared branch",
-            current=current_branch,
-            expected=branch,
-        )
-        log.hint(f"Switch to {branch}, or pass --branch {current_branch} for an intentional branch push.")
-        raise typer.Exit(code=1)
-
-    remotes = _selected_git_remotes(remote)
-    if not remotes:
-        log.error("git", "no Git remotes are configured")
-        raise typer.Exit(code=1)
-
-    # Fetch and compare every destination before creating a local commit. This
-    # keeps a remote-ahead shared branch recoverable with a simple fast-forward.
-    new_branches = _preflight_push_remotes(remotes, current_branch)
-
-    worktree_paths = _git_changed_paths()
-    outgoing_paths, outgoing_commits, counts = _outgoing_impact(
-        remotes, current_branch, new_branches,
+    git_workflow.push(
+        msg=msg,
+        remote=remote,
+        branch=branch,
+        machine_only=machine_only,
+        self_only=self_only,
+        yes=yes,
     )
-    paths = _ordered_unique([*worktree_paths, *outgoing_paths])
-    affected, shared = _enforce_push_scope(
-        paths, machine_only=machine_only, self_only=self_only,
-    )
-    has_push_work = bool(worktree_paths or outgoing_commits)
-    if has_push_work:
-        _show_push_impact(
-            paths=paths,
-            worktree_paths=worktree_paths,
-            outgoing_commits=outgoing_commits,
-            counts=counts,
-            affected=affected,
-            shared=shared,
-            branch=current_branch,
-        )
-        if not yes and not _confirm_push_scope(
-            shared=shared,
-            affected=affected,
-            remotes=remotes,
-            branch=current_branch,
-            has_worktree_changes=bool(worktree_paths),
-        ):
-            raise typer.Abort()
-
-    if worktree_paths:
-        _run_checked_git(["add", "-A"], "staging")
-        log.step("git", "committing changes")
-        _run_checked_git(["commit", "-m", msg], "commit")
-
-    # Push to each remote
-    failed = 0
-    for r in remotes:
-        if r not in new_branches:
-            local_commits = run_cmd(
-                ["git", "rev-list", "--count", f"{r}/{current_branch}..HEAD"],
-                check=False, capture=True,
-            )
-            local_commits = int(local_commits) if local_commits and local_commits.isdigit() else 0
-            if local_commits > 0:
-                log.step("git", f"pushing to {r}/{current_branch}")
-                result = subprocess.run(
-                    ["git", "push", r, current_branch],
-                    cwd=str(DOTFILES_DIR),
-                )
-                if result.returncode == 0:
-                    log.ok("git", f"pushed to {r} successfully")
-                else:
-                    log.error("git", f"failed to push to {r}")
-                    failed += 1
-            else:
-                log.info("git", f"already up to date with {r}/{current_branch}")
-        else:
-            log.step("git", f"creating new branch on {r}/{current_branch}")
-            result = subprocess.run(
-                ["git", "push", "-u", r, current_branch],
-                cwd=str(DOTFILES_DIR),
-            )
-            if result.returncode == 0:
-                log.ok("git", f"branch pushed to {r} successfully")
-            else:
-                log.error("git", f"failed to push to {r}")
-                failed += 1
-
-    if failed > 0:
-        log.error("git", f"{failed} remote(s) failed")
-        raise typer.Exit(code=1)
 
 
 @cli.command(name="status")
 @cli.command(name="st", rich_help_panel="Aliases")
 def cmd_status():
     """Show the git status of the dotfiles repository."""
-    subprocess.run(["git", "status"], cwd=str(DOTFILES_DIR))
+    run_process(["git", "status"], cwd=DOTFILES_DIR, check=True)
 
 
 @cli.command(name="diff")
@@ -648,7 +217,7 @@ def cmd_status():
 @cli.command(name="dif", rich_help_panel="Aliases")
 def cmd_diff():
     """Show the git difference of the dotfiles repository."""
-    subprocess.run(["git", "diff"], cwd=str(DOTFILES_DIR))
+    run_process(["git", "diff"], cwd=DOTFILES_DIR, check=True)
 
 
 @cli.command(name="git")
@@ -657,43 +226,34 @@ def cmd_git(
 ):
     """Execute git commands in the dotfiles directory."""
     git_args = args if args else []
-    subprocess.run(["git", *git_args], cwd=str(DOTFILES_DIR))
+    run_process(["git", *git_args], cwd=DOTFILES_DIR, check=True)
 
 
 @cli.command(name="clean")
 @cli.command(name="gc", rich_help_panel="Aliases")
-def cmd_clean():
+def cmd_clean(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm generation deletion"),
+    older_than: Optional[str] = typer.Option(
+        None, "--older-than", help="Delete only generations older than a Nix duration, e.g. 30d"
+    ),
+    brew: bool = typer.Option(
+        True, "--brew/--no-brew", help="Run Homebrew cleanup on Darwin"
+    ),
+):
     """Run Nix garbage collection to clean old generations."""
-    log.step("nix", "cleaning up old generations")
-    if PLATFORM == "darwin":
-        esudo("-H", "nix-collect-garbage", "-d", capture=False)
-        subprocess.run(["nix-collect-garbage", "-d"])
-        subprocess.run(["nix-store", "--optimise"])
-        subprocess.run(["brew", "cleanup"])
-    else:
-        subprocess.run(["nix-collect-garbage", "-d"])
-    log.ok("nix", "cleanup complete")
+    system_workflow.clean_generations(yes=yes, older_than=older_than, brew=brew)
 
 
 @cli.command(name="setup")
 @cli.command(name="configure", rich_help_panel="Aliases")
 def cmd_setup():
     """Run the setup script to configure secrets."""
-    log.step("setup", "running setup")
-    result = subprocess.run(["/bin/bash", str(SETUP_SCRIPT)], check=False)
-    if result.returncode != 0:
-        log.error("setup", "configuration failed", exit_code=result.returncode)
-        raise typer.Exit(code=result.returncode)
-    machine_path = current_machine_file()
-    if not machine_path.exists():
-        log.warn("host", "machine configuration is missing", path=str(machine_path))
-        if sys.stdin.isatty() and typer.confirm("Create it from hosts/default.nix now?", default=None):
-            mode = typer.prompt("Creation mode (import/copy)", default="import")
-            initialize_machine(machine_path.stem, mode)
-        else:
-            log.hint("Run: envy host init")
-    log.ok("setup", "configuration complete")
+    system_workflow.run_setup()
 
+
+# Register validated update workflow and alias.
+cli.add_typer(update_app, name="update")
+cli.add_typer(update_app, name="u", rich_help_panel="Aliases")
 
 # Register config subgroup — "c" alias registered separately
 cli.add_typer(config_app, name="config")

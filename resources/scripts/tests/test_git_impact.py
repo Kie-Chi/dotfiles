@@ -10,32 +10,34 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from envy import main
+from envy.workflows import git as git_workflow
+from envy.workflows import system as system_workflow
 
 
 class GitImpactTests(unittest.TestCase):
     def test_refine_creates_missing_machine_after_explicit_mode_selection(self):
         missing = Path("/tmp/missing-machine.nix")
         report = SimpleNamespace(ok=True)
-        with patch.object(main, "current_machine_file", return_value=missing), patch.object(
-            main.sys.stdin, "isatty", return_value=True
+        with patch.object(system_workflow, "current_machine_file", return_value=missing), patch.object(
+            system_workflow.sys.stdin, "isatty", return_value=True
         ), patch.object(main.typer, "confirm", return_value=True), patch.object(
             main.typer, "prompt", return_value="copy"
-        ), patch.object(main, "initialize_machine") as initialize, patch.object(
-            main, "refine_all", return_value=report
+        ), patch.object(system_workflow, "initialize_machine") as initialize, patch.object(
+            system_workflow, "refine_all", return_value=report
         ):
-            main._refine_before_apply()
+            system_workflow.refine_before_apply()
 
         initialize.assert_called_once_with("missing-machine", "copy")
 
     def test_refine_noninteractive_missing_machine_stops_before_migration(self):
         missing = Path("/tmp/missing-machine.nix")
-        with patch.object(main, "current_machine_file", return_value=missing), patch.object(
-            main.sys.stdin, "isatty", return_value=False
-        ), patch.object(main, "initialize_machine") as initialize, patch.object(
-            main, "refine_all"
+        with patch.object(system_workflow, "current_machine_file", return_value=missing), patch.object(
+            system_workflow.sys.stdin, "isatty", return_value=False
+        ), patch.object(system_workflow, "initialize_machine") as initialize, patch.object(
+            system_workflow, "refine_all"
         ) as refine:
             with self.assertRaises(typer.Exit):
-                main._refine_before_apply()
+                system_workflow.refine_before_apply()
 
         initialize.assert_not_called()
         refine.assert_not_called()
@@ -50,8 +52,8 @@ class GitImpactTests(unittest.TestCase):
             ),
             returncode=0,
         )
-        with patch.object(main.subprocess, "run", return_value=completed):
-            paths = main._git_changed_paths()
+        with patch.object(git_workflow, "run_process", return_value=completed):
+            paths = git_workflow.changed_paths()
         self.assertEqual(paths, [
             "resources/scripts/envy/main.py",
             "docs/file with spaces.md",
@@ -63,7 +65,7 @@ class GitImpactTests(unittest.TestCase):
         with patch.object(
             main.log, "console", Console(file=output, color_system=None, width=160)
         ):
-            main._show_push_impact(
+            git_workflow.show_push_impact(
                 paths=["modules/cores/base.nix"],
                 worktree_paths=[],
                 outgoing_commits={"c1"},
@@ -82,12 +84,19 @@ class GitImpactTests(unittest.TestCase):
 
     def test_branch_completion_lists_matching_local_branches(self):
         completed = SimpleNamespace(stdout="master\nfeature/test\n", returncode=0)
-        with patch.object(main.subprocess, "run", return_value=completed):
+        with patch.object(git_workflow, "git_output", return_value=completed.stdout.strip()):
             items = main.complete_git_branches(None, "mas")
         self.assertEqual(items, ["master"])
 
+    def test_checked_git_query_failure_cannot_be_treated_as_empty_output(self):
+        failed = SimpleNamespace(returncode=7, stdout="", stderr="query failed")
+        with patch.object(git_workflow, "run_process", return_value=failed):
+            with self.assertRaises(typer.Exit) as raised:
+                git_workflow.git_output_checked("rev-list", "HEAD")
+        self.assertEqual(raised.exception.exit_code, 7)
+
     def test_machine_files_affect_only_their_targets(self):
-        affected, shared = main._affected_machines([
+        affected, shared = git_workflow.affected_machines([
             "hosts/linux/two.nix",
         ])
         self.assertFalse(shared)
@@ -100,8 +109,8 @@ class GitImpactTests(unittest.TestCase):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("{ ... }: {}\n")
-            with patch.object(main, "DOTFILES_DIR", root):
-                affected, shared = main._affected_machines([
+            with patch.object(git_workflow, "DOTFILES_DIR", root):
+                affected, shared = git_workflow.affected_machines([
                     "modules/cores/base.nix",
                 ])
         self.assertTrue(shared)
@@ -118,8 +127,8 @@ class GitImpactTests(unittest.TestCase):
                 "hosts/darwin/one.nix"
             ),
         }
-        with patch.object(main, "_git_output", side_effect=lambda *args: outputs[args]):
-            paths, commits, counts = main._outgoing_impact(
+        with patch.object(git_workflow, "git_output_checked", side_effect=lambda *args: outputs[args]):
+            paths, commits, counts = git_workflow.outgoing_impact(
                 ["origin", "backup"], "master", set(),
             )
         self.assertEqual(paths, ["modules/cores/base.nix", "hosts/darwin/one.nix"])
@@ -127,27 +136,27 @@ class GitImpactTests(unittest.TestCase):
         self.assertEqual(counts, {"origin": 2, "backup": 1})
 
     def test_self_scope_allows_only_the_selected_machine(self):
-        with patch.object(main, "current_machine_id", return_value="one"), patch.object(
-            main, "platform_name", return_value="darwin"
+        with patch.object(git_workflow, "current_machine_id", return_value="one"), patch.object(
+            git_workflow, "platform_name", return_value="darwin"
         ):
-            affected, shared = main._enforce_push_scope(
+            affected, shared = git_workflow.enforce_push_scope(
                 ["hosts/darwin/one.nix"], machine_only=False, self_only=True,
             )
         self.assertEqual(affected, ["darwin/one"])
         self.assertFalse(shared)
 
     def test_self_scope_rejects_other_machine_and_shared_paths(self):
-        with patch.object(main, "current_machine_id", return_value="one"), patch.object(
-            main, "platform_name", return_value="darwin"
+        with patch.object(git_workflow, "current_machine_id", return_value="one"), patch.object(
+            git_workflow, "platform_name", return_value="darwin"
         ):
             with self.assertRaises(typer.Exit):
-                main._enforce_push_scope(
+                git_workflow.enforce_push_scope(
                     ["hosts/linux/two.nix", "modules/cores/base.nix"],
                     machine_only=False, self_only=True,
                 )
 
     def test_machine_only_allows_multiple_machine_files(self):
-        affected, shared = main._enforce_push_scope(
+        affected, shared = git_workflow.enforce_push_scope(
             ["hosts/darwin/one.nix", "hosts/linux/two.nix"],
             machine_only=True,
             self_only=False,
@@ -157,27 +166,29 @@ class GitImpactTests(unittest.TestCase):
 
     def test_machine_only_rejects_shared_paths(self):
         with self.assertRaises(typer.Exit):
-            main._enforce_push_scope(
+            git_workflow.enforce_push_scope(
                 ["hosts/darwin/one.nix", "modules/cores/base.nix"],
                 machine_only=True,
                 self_only=False,
             )
 
     def test_outgoing_shared_commits_require_confirmation_with_clean_worktree(self):
-        with patch.object(main, "_git_output", return_value="master"), patch.object(
-            main, "_selected_git_remotes", return_value=["origin"]
+        with patch.object(git_workflow, "git_output_checked", return_value="master"), patch.object(
+            git_workflow, "selected_remotes", return_value=["origin"]
         ), patch.object(
-            main, "_preflight_push_remotes", return_value=set()
+            git_workflow, "preflight_push_remotes", return_value=set()
         ), patch.object(
-            main, "_git_changed_paths", return_value=[]
+            git_workflow, "changed_paths", return_value=[]
         ), patch.object(
-            main, "_outgoing_impact",
+            git_workflow, "outgoing_impact",
             return_value=(["modules/cores/base.nix"], {"c1"}, {"origin": 1}),
-        ), patch.object(main, "_show_push_impact"), patch.object(
-            main, "_confirm_push_scope", return_value=False
+        ), patch.object(git_workflow, "assert_git_secret_safety"), patch.object(
+            git_workflow, "show_push_impact"
+        ), patch.object(
+            git_workflow, "confirm_push_scope", return_value=False
         ) as confirm:
             with self.assertRaises(typer.Abort):
-                main.cmd_push(
+                git_workflow.push(
                     msg="test", remote=None, branch="master", machine_only=False,
                     self_only=False, yes=False,
                 )
@@ -190,8 +201,8 @@ class GitImpactTests(unittest.TestCase):
             ("backup/master", "origin/master"): False,
             ("origin/master", "backup/master"): True,
         }
-        with patch.object(main, "_git_is_ancestor", side_effect=lambda older, newer: ancestry[(older, newer)]):
-            target = main._select_sync_target(["origin/master", "backup/master"])
+        with patch.object(git_workflow, "git_is_ancestor", side_effect=lambda older, newer: ancestry[(older, newer)]):
+            target = git_workflow.select_sync_target(["origin/master", "backup/master"])
         self.assertEqual(target, "backup/master")
 
     def test_sync_rejects_divergent_remote_branches(self):
@@ -201,34 +212,59 @@ class GitImpactTests(unittest.TestCase):
             ("backup/master", "origin/master"): False,
             ("origin/master", "backup/master"): False,
         }
-        with patch.object(main, "_git_is_ancestor", side_effect=lambda older, newer: ancestry[(older, newer)]):
+        with patch.object(git_workflow, "git_is_ancestor", side_effect=lambda older, newer: ancestry[(older, newer)]):
             with self.assertRaises(typer.Exit):
-                main._select_sync_target(["origin/master", "backup/master"])
+                git_workflow.select_sync_target(["origin/master", "backup/master"])
 
     def test_push_preflight_rejects_remote_ahead_before_commit(self):
-        results = [
-            SimpleNamespace(returncode=0),  # fetch
-            SimpleNamespace(returncode=0),  # rev-parse --verify
-        ]
-        with patch.object(main.subprocess, "run", side_effect=results), patch.object(
-            main, "_git_output", return_value="2"
+        verify = SimpleNamespace(returncode=0)
+        with patch.object(git_workflow, "run_checked_git"), patch.object(
+            git_workflow, "run_process", return_value=verify
+        ), patch.object(
+            git_workflow, "git_output_checked", return_value="2"
         ):
             with self.assertRaises(typer.Exit):
-                main._preflight_push_remotes(["origin"], "master")
+                git_workflow.preflight_push_remotes(["origin"], "master")
 
     def test_push_preflight_allows_a_new_remote_branch(self):
-        results = [
-            SimpleNamespace(returncode=0),  # fetch
-            SimpleNamespace(returncode=1),  # rev-parse --verify
-        ]
-        with patch.object(main.subprocess, "run", side_effect=results):
-            new_branches = main._preflight_push_remotes(["backup"], "master")
+        verify = SimpleNamespace(returncode=1)
+        with patch.object(git_workflow, "run_checked_git"), patch.object(
+            git_workflow, "run_process", return_value=verify
+        ):
+            new_branches = git_workflow.preflight_push_remotes(["backup"], "master")
         self.assertEqual(new_branches, {"backup"})
 
+    def test_push_new_remote_branch_does_not_query_a_missing_tracking_ref(self):
+        def checked(*args):
+            if args == ("branch", "--show-current"):
+                return "master"
+            raise AssertionError(f"unexpected query: {args}")
+
+        pushed = SimpleNamespace(returncode=0)
+        with patch.object(git_workflow, "git_output_checked", side_effect=checked), patch.object(
+            git_workflow, "selected_remotes", return_value=["backup"]
+        ), patch.object(
+            git_workflow, "preflight_push_remotes", return_value={"backup"}
+        ), patch.object(git_workflow, "changed_paths", return_value=[]), patch.object(
+            git_workflow, "outgoing_impact", return_value=([], set(), {"backup": 0})
+        ), patch.object(git_workflow, "enforce_secret_safety"), patch.object(
+            git_workflow, "run_process", return_value=pushed
+        ) as run:
+            git_workflow.push(
+                msg="test", remote=None, branch="master", machine_only=False,
+                self_only=False, yes=True,
+            )
+
+        run.assert_called_once_with(
+            ["git", "push", "-u", "backup", "master"],
+            cwd=git_workflow.DOTFILES_DIR,
+            check=False,
+        )
+
     def test_push_rejects_an_unintentional_machine_branch(self):
-        with patch.object(main, "_git_output", return_value="darwin-work-macbook"):
+        with patch.object(git_workflow, "git_output_checked", return_value="darwin-work-macbook"):
             with self.assertRaises(typer.Exit):
-                main.cmd_push(
+                git_workflow.push(
                     msg="test",
                     remote=None,
                     branch="master",
