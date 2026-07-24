@@ -15,6 +15,7 @@ from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window, HSplit, FormattedTextControl, ConditionalContainer
 from prompt_toolkit.layout.controls import BufferControl
+from prompt_toolkit.layout.processors import ConditionalProcessor, PasswordProcessor
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.widgets import Frame
@@ -205,6 +206,12 @@ def get_visible_fields(values: dict) -> list:
     return items
 
 
+def _display_value(field: FieldDef, value: object) -> str:
+    if field.dest == "secret":
+        return "<set>" if value else "<empty>"
+    return str(value)
+
+
 def _list_text(state: AppState) -> list:
     items = get_visible_fields(state.values)
     if state.cursor >= len(items):
@@ -216,7 +223,7 @@ def _list_text(state: AppState) -> list:
         if f.group != current_group:
             current_group = f.group
             lines.append(("class:group", f"\n  ── {current_group} ──\n"))
-        val = state.values.get(f.path, "")
+        val = _display_value(f, state.values.get(f.path, ""))
         tag = "[S] " if f.dest == "secret" else ""
         if f.choices:
             tag += f"({','.join(f.choices)}) "
@@ -322,7 +329,7 @@ def _edit_frame_title(state: AppState) -> list:
 def _edit_context(state: AppState) -> list:
     """Dim current value line shown inside the edit frame."""
     f = state.editing_field
-    val = state.values.get(f.path, "")
+    val = _display_value(f, state.values.get(f.path, ""))
     return [("class:dim", f"  Current: {val}")]
 
 
@@ -388,7 +395,18 @@ def build_application(state: AppState) -> Application:
     # --- Edit text mode (framed) ---
     edit_context = FormattedTextControl(lambda: _edit_context(state))
     edit_context_window = Window(content=edit_context, height=1)
-    edit_buffer_control = BufferControl(buffer=state.edit_buffer)
+    edit_buffer_control = BufferControl(
+        buffer=state.edit_buffer,
+        input_processors=[
+            ConditionalProcessor(
+                PasswordProcessor(),
+                filter=Condition(
+                    lambda: state.editing_field is not None
+                    and state.editing_field.dest == "secret"
+                ),
+            )
+        ],
+    )
     edit_buffer_window = Window(content=edit_buffer_control, height=1)
     edit_text_container = ConditionalContainer(
         content=Frame(
@@ -592,7 +610,7 @@ def build_application(state: AppState) -> Application:
     def _(event):
         state.result = SetupResult(
             values=dict(state.values),
-            exclusions=normalize_exclusions(state.exclusions),
+            exclusions=normalize_exclusions(state.exclusions, state.policy_groups),
         )
         event.app.exit()
 
@@ -629,7 +647,7 @@ def show_changes(
     old_exclusions: dict[str, list[str]],
     new_exclusions: dict[str, list[str]],
 ) -> bool:
-    """Display changed fields — secrets shown in plain text for verification."""
+    """Display changed fields without exposing secret values."""
     changes = []
     for f in ALL_FIELDS:
         if f.ignore:
@@ -638,6 +656,9 @@ def show_changes(
         new = new_values.get(f.path, "")
         if old != new:
             tag = "SECRET" if f.dest == "secret" else "MACHINE"
+            if f.dest == "secret":
+                old = _display_value(f, old)
+                new = _display_value(f, new)
             changes.append((f"{tag}: {f.prompt}", old, new))
 
     for label, disabled, enabled in software_changes(old_exclusions, new_exclusions):
