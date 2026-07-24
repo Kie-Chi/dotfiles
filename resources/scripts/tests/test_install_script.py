@@ -20,12 +20,18 @@ class InstallScriptTests(unittest.TestCase):
         setup.write_text(
             "#!/usr/bin/env bash\n"
             "set -eu\n"
+            ". \"$ENVY_DOTFILES/resources/scripts/mirror-env.sh\"\n"
             "printf '%s\\n' \"${ENVY_DOTFILES:?}\" > \"$ENVY_DOTFILES/setup-ran\"\n"
+            "printf '%s\\n' \"${ENVY_MIRROR:?}\" > \"$ENVY_DOTFILES/setup-mirror\"\n"
+            "printf '%s\\n' \"${NIX_CONFIG:-}\" > \"$ENVY_DOTFILES/setup-nix-config\"\n"
         )
         setup.chmod(0o755)
+        mirror_script = self.source / "resources" / "scripts" / "mirror-env.sh"
+        mirror_script.parent.mkdir(parents=True)
+        mirror_script.write_text((ROOT / "resources" / "scripts" / "mirror-env.sh").read_text())
         self._git(self.source, "init", "-q")
         self._git(self.source, "symbolic-ref", "HEAD", "refs/heads/master")
-        self._git(self.source, "add", "setup.sh")
+        self._git(self.source, "add", "setup.sh", "resources/scripts/mirror-env.sh")
         self._git(
             self.source,
             "-c", "user.name=Envy Test",
@@ -86,6 +92,66 @@ class InstallScriptTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((target / "setup-ran").read_text().strip(), str(target))
+        self.assertEqual((target / "setup-mirror").read_text().strip(), "china")
+        self.assertIn("mirrors.ustc.edu.cn", (target / "setup-nix-config").read_text())
+
+    def test_upstream_mirror_does_not_inject_china_nix_config(self):
+        target = self.root / "checkout"
+
+        terminal, input_fd = pty.openpty()
+        try:
+            result = self._install(target, "--mirror", "upstream", stdin=input_fd)
+        finally:
+            os.close(input_fd)
+            os.close(terminal)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((target / "setup-mirror").read_text().strip(), "upstream")
+        self.assertNotIn("mirrors.ustc.edu.cn", (target / "setup-nix-config").read_text())
+
+    def test_invalid_mirror_is_rejected_before_clone(self):
+        target = self.root / "checkout"
+
+        result = self._install(target, "--mirror", "invalid", "--no-setup")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(target.exists())
+        self.assertIn("--mirror must be", result.stderr)
+
+    def test_help_documents_mirror_selection(self):
+        result = subprocess.run(
+            ["bash", str(INSTALL_SCRIPT), "--help"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--mirror MODE", result.stdout)
+        self.assertIn("ENVY_MIRROR", result.stdout)
+
+    def test_bootstrap_mirror_environment_is_idempotent(self):
+        script = ROOT / "resources" / "scripts" / "mirror-env.sh"
+        environment = dict(os.environ)
+        for name in ("ENVY_MIRROR_ENV_APPLIED", "NIX_CONFIG"):
+            environment.pop(name, None)
+        environment["ENVY_MIRROR"] = "china"
+
+        result = subprocess.run(
+            [
+                "bash", "-c",
+                '. "$1"; . "$1"; printf "%s\\n" "$NIX_CONFIG"',
+                "envy-mirror-test", str(script),
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count("extra-substituters"), 1)
 
     def test_setup_without_a_terminal_fails_with_clone_only_guidance(self):
         target = self.root / "checkout"
@@ -104,6 +170,14 @@ class InstallScriptTests(unittest.TestCase):
         stdin=None,
     ) -> subprocess.CompletedProcess:
         environment = dict(os.environ)
+        for name in (
+            "ENVY_MIRROR", "ENVY_MIRROR_ENV_APPLIED", "NIX_CONFIG",
+            "npm_config_registry", "UV_DEFAULT_INDEX", "GOPROXY",
+            "RUSTUP_DIST_SERVER", "RUSTUP_UPDATE_ROOT",
+            "CARGO_REGISTRIES_CRATES_IO_INDEX",
+            "CARGO_REGISTRIES_CRATES_IO_PROTOCOL",
+        ):
+            environment.pop(name, None)
         environment.update({
             "ENVY_REPOSITORY_URL": str(self.source),
             "ENVY_BRANCH": "master",

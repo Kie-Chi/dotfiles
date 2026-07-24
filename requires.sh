@@ -31,7 +31,8 @@ install_nix() {
     msg_info "Nix not found. Installing Nix package manager..."
     read -r -p "Press Enter to continue, or Ctrl+C to cancel." </dev/tty
 
-    curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+    local nix_installer_url="${ENVY_NIX_INSTALLER_URL:-https://install.determinate.systems/nix}"
+    curl --proto '=https' --tlsv1.2 -sSf -L "$nix_installer_url" | sh -s -- install
 
     msg_success "Nix installation complete."
     msg_warn "You may need to re-login or restart your shell for Nix to be available."

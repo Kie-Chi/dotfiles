@@ -5,6 +5,7 @@ set -euo pipefail
 repository_url="${ENVY_REPOSITORY_URL:-https://github.com/Kie-Chi/dotfiles.git}"
 branch="${ENVY_BRANCH:-master}"
 target="${ENVY_DOTFILES:-${HOME:?HOME is not set}/.dotfiles}"
+mirror="${ENVY_MIRROR:-china}"
 run_setup=1
 temporary_dir=""
 
@@ -18,11 +19,13 @@ Options:
   --repo URL       Git repository URL
   --branch NAME    Branch to clone (default: master)
   --target PATH    Checkout path (default: $HOME/.dotfiles)
+  --mirror MODE    Bootstrap mirror: china or upstream (default: china)
   --no-setup       Clone only; do not run setup.sh
   -h, --help       Show this help
 
 Environment equivalents:
-  ENVY_REPOSITORY_URL, ENVY_BRANCH, ENVY_DOTFILES
+  ENVY_REPOSITORY_URL, ENVY_BRANCH, ENVY_DOTFILES, ENVY_MIRROR
+  ENVY_NIX_INSTALLER_URL overrides the Determinate Nix installer endpoint.
 EOF
 }
 
@@ -55,6 +58,11 @@ while [ "$#" -gt 0 ]; do
             target="$2"
             shift 2
             ;;
+        --mirror)
+            [ "$#" -ge 2 ] || fail "--mirror requires a value"
+            mirror="$2"
+            shift 2
+            ;;
         --no-setup)
             run_setup=0
             shift
@@ -72,6 +80,14 @@ done
 [ -n "$repository_url" ] || fail "repository URL cannot be empty"
 [ -n "$branch" ] || fail "branch cannot be empty"
 [ -n "$target" ] || fail "target cannot be empty"
+
+case "$mirror" in
+    china|upstream)
+        ;;
+    *)
+        fail "--mirror must be 'china' or 'upstream'"
+        ;;
+esac
 
 case "$target" in
     /|"$HOME")
@@ -108,6 +124,7 @@ if [ "$run_setup" -eq 0 ]; then
 fi
 
 export ENVY_DOTFILES="$target"
+export ENVY_MIRROR="$mirror"
 if [ -t 0 ]; then
     exec "$BASH" "$target/setup.sh"
 fi

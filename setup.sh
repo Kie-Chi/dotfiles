@@ -4,7 +4,13 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRES_SCRIPT="$BASE_DIR/requires.sh"
+MIRROR_ENV_SCRIPT="$BASE_DIR/resources/scripts/mirror-env.sh"
 export ENVY_DOTFILES="$BASE_DIR"
+
+# Bootstrap-time mirrors make the first nix develop usable before a machine
+# module has been evaluated and applied.
+# shellcheck source=resources/scripts/mirror-env.sh
+. "$MIRROR_ENV_SCRIPT"
 
 # ==========================================
 # STEP 1: Ensure Nix is available
