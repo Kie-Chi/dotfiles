@@ -29,6 +29,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `modules/envy/options.nix` | `envy.*` schema for meaningful machine values, package/Homebrew selections, and metadata. |
 | `modules/envy/darwin.nix` / `modules/envy/linux.nix` / `modules/envy/home.nix` | Platform manifest and package/Homebrew aggregators. |
 | `modules/llm/default.nix` | Shared LLM sops declarations, environment template, and shell integration. |
+| `modules/mirrors/` | Versioned mirror catalog, common ecosystem environment, and Darwin/Linux implementations. |
 | `modules/cores/secrets.nix` | Core password secret required by host-level activation tasks. |
 | `modules/agents/` | Agent installers, provider wrappers, declarative skill catalog, and shared skill selection. |
 | `docs/agents.md` | Architecture and maintenance guide for agent providers and skill subpackages. |
@@ -44,6 +45,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `docs/doctor.md` | Knowledge base for `envy doctor`: app detection, login checks, macOS TCC permissions, and maintenance workflow. |
 | `docs/machines.md` | Multi-machine option model, host initialization, package overrides, and shared-branch workflow. |
 | `docs/install.md` | Remote bootstrap, pinned release, custom target, and existing-checkout behavior. |
+| `docs/mirrors.md` | Two-stage bootstrap/declarative mirror policy, endpoint scope, probes, and ownership boundaries. |
 | `setup.sh` | Thin launcher: install Nix → enter devShell → exec setup.py. |
 | `requires.sh` | Installs Nix if missing. Nothing else — devShell provides all tools. |
 
@@ -53,6 +55,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 modules/
   envy/      — machine value/selection schema, final aggregators, and manifest
   llm/       — shared LLM credentials, environment template, and shell integration
+  mirrors/   — shared endpoint catalog plus Darwin/Linux consumers
   agents/    — LLM agent installers, wrappers, and skill discovery
   cores/     — base packages, shell, git, ssh, utils
   devps/     — common editor/VS Code features plus linux/ implementation
@@ -105,6 +108,7 @@ Hybrid approach (in `setup.py`):
 | `envy host list` / `envy host status` | List repository machines or show the locally selected target |
 | `envy host select <id>` | Change `.device-label`'s machine ID without changing machine policy |
 | `envy host check [id]` | Evaluate one machine system derivation without applying it |
+| `envy mirror status` / `probe` | Inspect or read-only probe the evaluated mirror policy |
 | `envy sync --no-apply` | Fast-forward the shared `master` branch without applying |
 | `envy sync --build-only` | Fast-forward and build only the selected machine |
 | `envy push` | Classify worktree plus outgoing commits, confirm shared impact, and push only after remote-ahead checks |
@@ -162,6 +166,7 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 - **Never** put sensitive values in Nix eval-time expressions. They must go through sops (file path or template).
 - Setup may show whether a secret is set, but its lists, edit context, input, and summaries must never display secret values.
 - Keep `install.sh` repository-independent and policy-free: it may clone/reuse a checkout and hand off to setup, but machine creation, software selection, config, and secrets belong to `setup.py`.
+- Mirror policy is versioned in `modules/mirrors/catalog.nix`. Bootstrap may inject the selected static environment before first evaluation; apply owns persistent config. Never run `chsrc` automatically, overwrite system-owned APT sources, or rewrite fixed-hash source URLs through an untrusted generic proxy.
 - Keep all machines on the shared `master` branch. Machine differences belong in `hosts/<platform>/<id>.nix`, not long-lived platform or machine branches.
 - Do not introduce a required profile layer. A machine module is the final unit of configuration; `hosts/default.nix` is only an optional imported default.
 - Keep package lists and custom derivations in their owning business modules. `modules/envy/` may declare the generic selection schema, aggregate `include`/`exclude`, and expose the manifest, but must not become a central software catalog.

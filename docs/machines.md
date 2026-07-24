@@ -197,6 +197,18 @@ setup 中按 Space 只修改内存里的 pending 状态；按 `s` 退出才进�
 
 `envy config show` 默认只展示非空 exclusions；`--details` 展示 include/exclude/effective。Linux details 只显示公共 Home packages，不伪造 Homebrew 或 Darwin system/font 组。
 
+## Mirror Policy
+
+镜像模式是跨平台 machine setting；平台差异由 feature 内部处理：
+
+```nix
+{
+  envy.mirrors.mode = "china"; # or "upstream"
+}
+```
+
+公共语言生态使用同一 catalog，Darwin 额外配置 Homebrew，Linux 额外配置 Ubuntu/Debian APT 与 Docker installer。检查最终求值结果使用 `envy mirror status`，连通性检查使用 `envy mirror probe`。完整 ownership 与 bootstrap 边界见 [mirrors.md](mirrors.md)。
+
 新机器可以先通过 [install.md](install.md) 的远程 bootstrap 取得仓库。Bootstrap 只进入现有 setup 流程，不决定 Machine ID、import/copy 或任何软件 policy。
 
 ## Feature-first Modules

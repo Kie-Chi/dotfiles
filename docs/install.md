@@ -20,6 +20,14 @@ curl --proto '=https' --tlsv1.2 -fsSL \
   https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh | bash
 ```
 
+默认 bootstrap mirror 是 `china`。显式使用上游环境：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh \
+  | bash -s -- --mirror upstream
+```
+
 任何 `curl | bash` 都会执行远程内容。更容易审查的方式是先下载：
 
 ```bash
@@ -55,15 +63,17 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 --repo URL       Git repository URL
 --branch NAME    要 clone 的 branch 或 tag，默认 master
 --target PATH    checkout 路径，默认 $HOME/.dotfiles
+--mirror MODE    bootstrap mirror：china 或 upstream，默认 china
 --no-setup       只 clone，不运行 setup.sh
 ```
 
-对应环境变量是 `ENVY_REPOSITORY_URL`、`ENVY_BRANCH` 和 `ENVY_DOTFILES`。例如：
+对应环境变量是 `ENVY_REPOSITORY_URL`、`ENVY_BRANCH`、`ENVY_DOTFILES` 和 `ENVY_MIRROR`。`ENVY_NIX_INSTALLER_URL` 可以显式覆盖 Determinate Nix Installer 下载地址；仓库不会自动信任第三方 installer mirror。例如：
 
 ```bash
 ENVY_REPOSITORY_URL='git@github.com:Kie-Chi/dotfiles.git' \
 ENVY_BRANCH='master' \
 ENVY_DOTFILES="$HOME/src/dotfiles" \
+ENVY_MIRROR='china' \
 bash install.sh
 ```
 
@@ -89,3 +99,4 @@ install.sh -> clone/reuse checkout -> setup.sh -> Nix devShell -> setup.py
 - setup 的列表、输入和变更摘要会遮罩 secret，只显示是否为空，不打印 secret 原文。
 
 Machine policy 的 import/copy 语义及软件状态见 [machines.md](machines.md)。
+bootstrap 与 apply 后的镜像职责、APT ownership 和 GitHub/source download 限制见 [mirrors.md](mirrors.md)。

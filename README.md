@@ -12,6 +12,7 @@ flake.nix
 ├── hosts/darwin/<machine-id>.nix
 ├── hosts/linux/<machine-id>.nix
 ├── modules/envy/                  # option、聚合和 machine manifest
+├── modules/mirrors/               # 公共 catalog 与 Darwin/Linux 镜像实现
 ├── modules/llm/                   # 公共 LLM secrets、环境模板与 shell 接入
 ├── modules/cores/                 # 公共 shell、Git、SSH 和工具
 ├── modules/desktops/
@@ -92,9 +93,13 @@ envy host select <machine-id>
 | `envy config refine` | 迁移并补全本平台 machine/schema |
 | `envy config show [--details]` | 展示求值后的 scalar 与软件 policy；details 展开 include/exclude/effective |
 | `envy config software` | 管理当前机器的软件 exclusions |
+| `envy mirror status` | 展示当前 machine 求值后生效的镜像端点 |
+| `envy mirror probe` | 只读探测镜像 HTTP 状态与延迟 |
 | `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载 |
 
 `envy push` 和 `envy sync` 默认要求当前分支为 `master`。`--branch` 只是显式操作临时分支
+
+国内网络默认使用 `envy.mirrors.mode = "china"`。首次 setup 的临时环境、APT/Homebrew 行为、探针及不能透明镜像的下载见 [docs/mirrors.md](docs/mirrors.md)。
 
 ## Machine Policy
 
