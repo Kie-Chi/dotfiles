@@ -1,11 +1,13 @@
 import importlib.util
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 
 def _load_setup_module():
-    path = Path(__file__).resolve().parents[3] / "setup.py"
+    root = Path(os.environ.get("ENVY_TEST_ROOT", Path(__file__).resolve().parents[3]))
+    path = root / "setup.py"
     spec = importlib.util.spec_from_file_location("envy_setup_test", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

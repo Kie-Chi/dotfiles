@@ -168,6 +168,54 @@
         '';
       };
 
+      mkEnvyPythonCheck = system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          python = pkgs.python3.withPackages (ps: [
+            ps.typer
+            ps.rich
+            ps.prompt-toolkit
+            ps.pyyaml
+          ]);
+        in pkgs.runCommand "envy-python-tests" {
+          nativeBuildInputs = [ python pkgs.git ];
+        } ''
+          export HOME="$TMPDIR/home"
+          mkdir -p "$HOME"
+          export PYTHONPATH="${./resources/scripts}"
+          export ENVY_TEST_ROOT="${./.}"
+          cd ${./.}
+          python -m unittest discover -s ${./resources/scripts/tests} -p 'test_*.py'
+          touch "$out"
+        '';
+
+      mkEnvyShellCheck = system:
+        let pkgs = nixpkgs.legacyPackages.${system};
+        in pkgs.runCommand "envy-shell-checks" {
+          nativeBuildInputs = [ pkgs.bash pkgs.shellcheck ];
+        } ''
+          cd ${./.}
+          bash -n envy
+          bash -n install.sh
+          bash -n setup.sh
+          bash -n requires.sh
+          bash -n resources/scripts/mirror-env.sh
+          shellcheck -x envy install.sh setup.sh requires.sh resources/scripts/mirror-env.sh
+          touch "$out"
+        '';
+
+      mkSecretSafetyCheck = system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+        in pkgs.runCommand "envy-secret-safety" {
+          nativeBuildInputs = [ python ];
+        } ''
+          export PYTHONPATH="${./resources/scripts}"
+          python -c 'from pathlib import Path; from envy.sops_format import content_is_sops_encrypted; assert content_is_sops_encrypted(Path("${./secrets/secrets.yaml}").read_text())'
+          touch "$out"
+        '';
+
       darwinConfigurations = lib.mapAttrs' (fileName: value:
         lib.nameValuePair (lib.removeSuffix ".nix" fileName)
           (mkDarwinConfiguration fileName value)) darwinMachines;
@@ -217,7 +265,13 @@
       devShells.aarch64-darwin.default = mkDevShell "aarch64-darwin";
       devShells.x86_64-linux.default = mkDevShell "x86_64-linux";
       checks.aarch64-darwin.platform-option-boundaries = mkPlatformOptionCheck "aarch64-darwin";
+      checks.aarch64-darwin.envy-python-tests = mkEnvyPythonCheck "aarch64-darwin";
+      checks.aarch64-darwin.envy-shell-checks = mkEnvyShellCheck "aarch64-darwin";
+      checks.aarch64-darwin.secret-safety = mkSecretSafetyCheck "aarch64-darwin";
       checks.x86_64-linux.platform-option-boundaries = mkPlatformOptionCheck "x86_64-linux";
       checks.x86_64-linux.linux-policy-boundaries = linuxPolicyCheck;
+      checks.x86_64-linux.envy-python-tests = mkEnvyPythonCheck "x86_64-linux";
+      checks.x86_64-linux.envy-shell-checks = mkEnvyShellCheck "x86_64-linux";
+      checks.x86_64-linux.secret-safety = mkSecretSafetyCheck "x86_64-linux";
     };
 }

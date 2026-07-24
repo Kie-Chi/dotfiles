@@ -1,0 +1,35 @@
+name: Envy checks
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            system: aarch64-darwin
+          - os: ubuntu-24.04
+            system: x86_64-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+      - name: Evaluate the cross-platform flake
+        run: nix flake check path:. --no-build
+      - name: Run Envy Python tests
+        run: nix build "path:.#checks.${{ matrix.system }}.envy-python-tests"
+      - name: Run shell checks
+        run: nix build "path:.#checks.${{ matrix.system }}.envy-shell-checks"
+      - name: Guard encrypted secrets
+        run: nix build "path:.#checks.${{ matrix.system }}.secret-safety"
+      - name: Check platform option boundaries
+        run: nix build "path:.#checks.${{ matrix.system }}.platform-option-boundaries"
+      - name: Check Linux desktop/server policy boundaries
+        if: matrix.system == 'x86_64-linux'
+        run: nix build path:.#checks.x86_64-linux.linux-policy-boundaries
