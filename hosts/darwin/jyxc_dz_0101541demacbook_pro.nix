@@ -47,7 +47,6 @@
     "neteasemusic"
     "skim"
     "iina"
-    "codex"
   ];
   # END ENVY MANAGED SOFTWARE
 
