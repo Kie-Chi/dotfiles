@@ -48,6 +48,8 @@
     "skim"
     "iina"
   ];
+
+  envy.software.pypi.tools.include = builtins.fromJSON "[{\"id\":\"browser-use\",\"name\":\"browser-use\",\"ref\":\"pypi:browser-use\"}]";
   # END ENVY MANAGED SOFTWARE
 
   # Add hand-maintained machine-specific envy.* policy below this line.
