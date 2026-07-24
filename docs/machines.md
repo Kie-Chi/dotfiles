@@ -1,6 +1,6 @@
 # Cross-platform Machine Configuration
 
-仓库采用一个 `master` 和一个 host module 对应一台设备的模型。平台与机器差异属于 Nix policy，不属于 Git 分支结构。
+仓库采用一个 `master` 和一个 host module 对应一台设备的模型
 
 ## Host Layout
 
@@ -25,12 +25,11 @@ hosts/linux/workstation.nix
 hosts/default.nix
 ```
 
-没有 registry，也没有 profile 层：
 
-- `hosts/default.nix` 只是可选的公共默认 module。
-- Host 可以 import 它、copy 它，或完全独立定义。
-- 最终非敏感配置始终由 `hosts/<platform>/<id>.nix` 表达。
-- `.device-label` 只选择本机 target 与 sops label，不保存 Nix policy。
+- `hosts/default.nix` 只是可选的公共默认 module
+- Host 可以 import 它、copy 它，或完全独立定义
+- 最终非敏感配置始终由 `hosts/<platform>/<id>.nix` 表达
+- `.device-label` 只选择本机 target 与 sops label
 
 ## Creating A Host
 
@@ -97,12 +96,12 @@ Envy 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文�
 
 | Option | Meaning |
 |---|---|
-| `envy.user.*` | 用户名与 Home 目录。 |
-| `envy.repository.path` | 当前机器的 checkout 路径。 |
-| `envy.git.*` | Git identity。 |
-| `envy.llm.*` | 非敏感 Base URL 和模型。 |
-| `envy.vscode.mode` | VS Code local/remote policy。 |
-| `envy.packages.home.include/exclude/effective` | 公共 Home Manager package 选择机制。 |
+| `envy.user.*` | 用户名与 Home 目录 |
+| `envy.repository.path` | 当前机器的 checkout 路径 |
+| `envy.git.*` | Git identity |
+| `envy.llm.*` | 非敏感 Base URL 和模型 |
+| `envy.vscode.mode` | VS Code local/remote policy |
+| `envy.packages.home.include/exclude/effective` | 公共 Home Manager package 选择机制 |
 
 同一公共 module 可以在 Darwin 与 Linux 上贡献不同的具体 package；只要选择机制相同，option 仍保持公共。
 
@@ -110,12 +109,12 @@ Envy 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文�
 
 | Option | Meaning |
 |---|---|
-| `envy.darwin.proxy.*` | Darwin proxy service/TUN policy。 |
-| `envy.darwin.packages.system.*` | nix-darwin system packages。 |
-| `envy.darwin.packages.fonts.*` | nix-darwin fonts。 |
-| `envy.darwin.homebrew.brews.*` | Homebrew formulae。 |
-| `envy.darwin.homebrew.casks.*` | Homebrew casks。 |
-| `envy.darwin.homebrew.taps.*` | Homebrew taps。 |
+| `envy.darwin.proxy.*` | Darwin proxy service/TUN policy |
+| `envy.darwin.packages.system.*` | nix-darwin system packages |
+| `envy.darwin.packages.fonts.*` | nix-darwin fonts |
+| `envy.darwin.homebrew.brews.*` | Homebrew formulae |
+| `envy.darwin.homebrew.casks.*` | Homebrew casks |
+| `envy.darwin.homebrew.taps.*` | Homebrew taps |
 
 Linux 没有 proxy option 或 proxy secret declaration。
 
@@ -130,9 +129,9 @@ Linux 没有 proxy option 或 proxy secret declaration。
 GNOME、Niri，也不会生成 Fcitx、Sunshine、Waydroid 或 SwayOSD 服务和
 activation。`option = "desktop"` 时，desktop selector 再决定导入 GNOME、
 Niri、两者（`all`）或都不导入（`none`）；公共 desktop 工具仍由 desktop
-类型统一拥有。
+类型统一拥有
 
-新 option 只有在已经出现真实机器行为差异时才添加。不要为所有共享基础设施制造没有使用场景的 `enable`。
+新 option 只有在已经出现真实机器行为差异时才添加。不要为所有共享基础设施制造没有使用场景的 `enable`
 
 ## Managed Config Block
 
@@ -185,7 +184,20 @@ Darwin Homebrew：
 
 `envy config software` 和 setup 的 checkbox 只维护 `ENVY MANAGED EXCLUSIONS`。它们不移动 derivation、不修改 module include，也不替用户决定初始软件集合。
 
+软件列表状态含义：
+
+| State | Source | Meaning |
+|---|---|---|
+| `[x]` | `included` | 来自 module include，当前机器会安装。 |
+| `[ ]` | `machine exclusion` | 当前 host 的 managed exclusions 主动禁用。 |
+| `[-]` | `external exclusion` | managed block 之外的 Nix policy 禁用；setup 不会覆盖。 |
+| `[ ]` | `stale exclusion` | exclusion 中仍有名称，但当前 include 已不再提供它。 |
+
+setup 中按 Space 只修改内存里的 pending 状态；按 `s` 退出才进入变更确认与写入。按 `q` 或 Esc 退出不会修改 host 文件。`pending` 表示它与打开 setup 时的 machine exclusion 不同，不表示已经写盘。
+
 `envy config show` 默认只展示非空 exclusions；`--details` 展示 include/exclude/effective。Linux details 只显示公共 Home packages，不伪造 Homebrew 或 Darwin system/font 组。
+
+新机器可以先通过 [install.md](install.md) 的远程 bootstrap 取得仓库。Bootstrap 只进入现有 setup 流程，不决定 Machine ID、import/copy 或任何软件 policy。
 
 ## Feature-first Modules
 
@@ -201,7 +213,7 @@ modules/devps/default.nix
   -> devps/linux/default.nix (Linux-only host mutation)
 ```
 
-仓库只有两个组合根，不再散布 `system.nix` 转发层：
+仓库只有两个组合根
 
 ```text
 flake.nix
@@ -220,12 +232,6 @@ flake.nix
        -> modules/desktops/default.nix
        -> modules/libs/default.nix
 ```
-
-组合根只负责接线和 Home Manager 最小身份初始化，secret、template、activation
-与平台环境归消费它们的 feature 所有。`machinePlatform` 由 flake
-作为 special argument 传入，用于选择 imports 和机器策略；不再维护独立的
-`isDarwin` special argument。底层包实现可以读取 `pkgs.stdenv.hostPlatform`，
-并由 Envy assertion 检查其与 `machinePlatform` 一致。
 
 Python schema 同样拆分为：
 

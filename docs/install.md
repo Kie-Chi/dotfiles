@@ -1,0 +1,91 @@
+# Installation and Bootstrap
+
+`install.sh` 是仓库之外的一层薄 bootstrap：它负责取得 checkout，然后把控制权交给仓库内的 `setup.sh`。Machine ID、import/copy 模式、软件 exclusions、非敏感配置和 secrets 仍由 setup 流程管理
+
+## Requirements
+
+开始前需要：
+
+- macOS 或 Linux，具有 Bash、Git 和网络连接
+- 使用远程命令时需要 `curl`；已下载脚本可以直接用 Bash 执行
+- 运行交互式 setup 时需要真实终端。无 TTY 的 CI 环境应使用 `--no-setup`
+- 首次安装 Nix 可能要求 `sudo`。`setup.sh` 通过 `requires.sh` 使用 Determinate Nix Installer，然后进入本仓库的 devShell
+
+## Remote Bootstrap
+
+从默认 `master` clone 到 `~/.dotfiles` 并启动交互式 setup：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh | bash
+```
+
+任何 `curl | bash` 都会执行远程内容。更容易审查的方式是先下载：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fL \
+  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh \
+  -o /tmp/envy-install.sh
+less /tmp/envy-install.sh
+bash /tmp/envy-install.sh
+```
+
+`master` 会持续变化。可复现安装应使用已审查的 release tag，并让 raw URL 与 clone ref 保持一致：
+
+```bash
+ENVY_RELEASE='<tag>'
+curl --proto '=https' --tlsv1.2 -fsSL \
+  "https://raw.githubusercontent.com/Kie-Chi/dotfiles/$ENVY_RELEASE/install.sh" \
+  | ENVY_BRANCH="$ENVY_RELEASE" bash
+```
+
+## Options
+
+只取得仓库，不启动 setup：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh \
+  | bash -s -- --no-setup
+```
+
+本地脚本支持以下参数：
+
+```text
+--repo URL       Git repository URL
+--branch NAME    要 clone 的 branch 或 tag，默认 master
+--target PATH    checkout 路径，默认 $HOME/.dotfiles
+--no-setup       只 clone，不运行 setup.sh
+```
+
+对应环境变量是 `ENVY_REPOSITORY_URL`、`ENVY_BRANCH` 和 `ENVY_DOTFILES`。例如：
+
+```bash
+ENVY_REPOSITORY_URL='git@github.com:Kie-Chi/dotfiles.git' \
+ENVY_BRANCH='master' \
+ENVY_DOTFILES="$HOME/src/dotfiles" \
+bash install.sh
+```
+
+## Existing Checkouts
+
+目标不存在时，bootstrap 先 clone 到 `mktemp` 创建的临时目录，再移动到目标路径。clone 失败不会留下半成品 target。
+
+目标已经是 Git checkout 时，脚本直接使用它；不会隐式执行 `fetch`、`pull`、`reset` 或切换 branch。这样不会覆盖本地修改，但也意味着 bootstrap 不负责更新已有仓库。进入正常工作流后使用 `envy sync`。
+
+目标存在但不是 Git checkout 时，脚本会拒绝继续且不会删除其中内容。它还拒绝把 `/` 或 `$HOME` 当作 target。
+
+## Responsibility Boundary
+
+完整流程是：
+
+```text
+install.sh -> clone/reuse checkout -> setup.sh -> Nix devShell -> setup.py
+```
+
+- `install.sh` 只负责 repository bootstrap 和终端交接。
+- `setup.sh` 只负责准备 Nix/devShell 并启动 setup。
+- `setup.py` 创建或选择 host、编辑 machine 配置和 software exclusions，并管理 sops secrets。
+- setup 的列表、输入和变更摘要会遮罩 secret，只显示是否为空，不打印 secret 原文。
+
+Machine policy 的 import/copy 语义及软件状态见 [machines.md](machines.md)。

@@ -32,6 +32,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `modules/cores/secrets.nix` | Core password secret required by host-level activation tasks. |
 | `modules/agents/` | Agent installers, provider wrappers, declarative skill catalog, and shared skill selection. |
 | `docs/agents.md` | Architecture and maintenance guide for agent providers and skill subpackages. |
+| `install.sh` | Repository-independent bootstrap: clone/reuse a checkout, then hand off to setup with an interactive terminal. |
 | `setup.py` | Python rich + prompt_toolkit sequential CLI for initial setup and config editing. Reuses `envy.config` schema/read-write helpers, manages machine software exclusions, shows a change summary, then saves, encrypts, and offers one scoped Git commit for the selected machine and changed sops files. |
 | `resources/scripts/envy/config.py` | Machine managed-block and secret validation/read-write engine used by setup and `envy config`. |
 | `resources/scripts/envy/evaluation.py` | Shared reader for the evaluated machine manifest, with process-local and Git-fingerprinted persistent caches used by config views, setup, software policy, and doctor. |
@@ -42,6 +43,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `resources/scripts/envy/log.py` | Shared logging helpers for envy commands. |
 | `docs/doctor.md` | Knowledge base for `envy doctor`: app detection, login checks, macOS TCC permissions, and maintenance workflow. |
 | `docs/machines.md` | Multi-machine option model, host initialization, package overrides, and shared-branch workflow. |
+| `docs/install.md` | Remote bootstrap, pinned release, custom target, and existing-checkout behavior. |
 | `setup.sh` | Thin launcher: install Nix → enter devShell → exec setup.py. |
 | `requires.sh` | Installs Nix if missing. Nothing else — devShell provides all tools. |
 
@@ -92,6 +94,7 @@ Hybrid approach (in `setup.py`):
 
 | Command | Purpose |
 |---|---|
+| `bash install.sh` | Clone/reuse the configured checkout and hand off to setup; intended to work as a raw GitHub bootstrap. |
 | `bash setup.sh` | Run setup TUI (auto-enters devShell) |
 | `envy config check` | Check `.device-label`, the selected machine file, and secrets.yaml without writing |
 | `envy config refine` | Migrate/refine device metadata, the machine managed block, and secret paths before apply |
@@ -109,7 +112,7 @@ Hybrid approach (in `setup.py`):
 | `envy doctor` / `envy dr` | Check platform config, app install/running/state/login hints, and Darwin TCC where applicable |
 | `envy doctor apps --only chrome,codex` | Check selected apps only. Values can be repeated or comma-separated; aliases are defined in `APP_ALIASES`. |
 | `envy doctor apps --only perm` | Check only declared macOS TCC permissions |
-| `nix develop` | Enter devShell (jq, sops, age, ssh-to-age, python3, textual) |
+| `nix develop` | Enter devShell (jq, sops, age, ssh-to-age, Python, Typer, Rich, and prompt_toolkit) |
 | `envy apply` | Apply the locally selected `path:.#<machine-id>` target |
 | `sops --decrypt secrets/secrets.yaml` | View encrypted secrets |
 | `sops updatekeys secrets/secrets.yaml` | Re-encrypt with updated .sops.yaml keys |
@@ -157,6 +160,8 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 ## Important rules
 
 - **Never** put sensitive values in Nix eval-time expressions. They must go through sops (file path or template).
+- Setup may show whether a secret is set, but its lists, edit context, input, and summaries must never display secret values.
+- Keep `install.sh` repository-independent and policy-free: it may clone/reuse a checkout and hand off to setup, but machine creation, software selection, config, and secrets belong to `setup.py`.
 - Keep all machines on the shared `master` branch. Machine differences belong in `hosts/<platform>/<id>.nix`, not long-lived platform or machine branches.
 - Do not introduce a required profile layer. A machine module is the final unit of configuration; `hosts/default.nix` is only an optional imported default.
 - Keep package lists and custom derivations in their owning business modules. `modules/envy/` may declare the generic selection schema, aggregate `include`/`exclude`, and expose the manifest, but must not become a central software catalog.

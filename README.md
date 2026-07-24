@@ -1,6 +1,6 @@
 # Chi's Cross-platform Dotfiles
 
-基于 Nix Flakes、nix-darwin、Home Manager 与 sops-nix 的声明式 Darwin/Linux 配置。所有机器共享 `master`，机器差异由平台目录中的独立 host module 表达，不再为平台或设备维护长期 Git 分支。
+基于 Nix Flakes、nix-darwin、Home Manager 与 sops-nix 的声明式 Darwin/Linux 配置
 
 ## Architecture
 
@@ -38,19 +38,29 @@ flake 不再分别拼装散落的系统模块。Darwin 配置只导入 `darwin.n
 
 每台机器的 host module 是全部非敏感机器配置的唯一来源。Git 忽略的 `.device-label` 只保存本机选择的 `machine_id` 与 sops key label，不参与 Nix policy。
 
-Option 遵循“公共优先”原则：
+Option 遵循公共优先原则：
 
-- 两个平台语义和处理方式一致时使用 `envy.user.*`、`envy.git.*`、`envy.llm.*`、`envy.vscode.mode`、`envy.packages.home.*`。
-- 只有平台专有能力使用 `envy.darwin.*` 或 `envy.linux.*`。
-- Proxy 是 Darwin 专有能力，仅存在 `envy.darwin.proxy.*`；Linux schema、host 和 doctor 均不声明 proxy。
+- 多平台语义和处理方式一致时使用 `envy.user.*`、`envy.git.*`、`envy.llm.*`、`envy.vscode.mode`、`envy.packages.home.*`
+- 只有平台专有能力使用 `envy.darwin.*` 或 `envy.linux.*`
 
 ## Quick Start
 
+一键取得仓库并进入交互式 setup：
+
 ```bash
-git clone https://github.com/Kie-Chi/.dotfiles.git ~/.dotfiles
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh | bash
+```
+
+或者手动 clone：
+
+```bash
+git clone https://github.com/Kie-Chi/dotfiles.git ~/.dotfiles
 cd ~/.dotfiles
 bash setup.sh
 ```
+
+远程命令会执行当前 `master` 上的脚本。需要先审查内容、固定 release tag、自定义 clone 目标或只下载仓库时，请看 [docs/install.md](docs/install.md)。
 
 当当前 Machine ID 尚无 host 文件时，可以选择：
 
@@ -71,20 +81,20 @@ envy host select <machine-id>
 
 | Command | Purpose |
 |---|---|
-| `envy apply` | Refine 并应用当前平台的 machine target。 |
-| `envy sync` | 从远端快进共享 `master`，成功后应用当前机器。 |
-| `envy sync --no-apply` | 仅同步，不应用。 |
-| `envy sync --build-only` | 同步后只构建当前平台 target。 |
-| `envy push "<message>"` | 分析 worktree 与 outgoing commits，确认影响范围后提交并 push。 |
-| `envy push --machine-only` | 只允许 `hosts/darwin/*.nix` 与 `hosts/linux/*.nix`。 |
-| `envy push --self` | 只允许当前平台、当前 `.device-label` 所选 host 文件。 |
-| `envy config check` | 只读检查 device metadata、host module 与 secrets。 |
-| `envy config refine` | 迁移并补全本平台 machine/schema。 |
-| `envy config show [--details]` | 展示求值后的 scalar 与软件 policy；details 展开 include/exclude/effective。 |
-| `envy config software` | 管理当前机器的软件 exclusions。 |
-| `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载。 |
+| `envy apply` | Refine 并应用当前平台的 machine target |
+| `envy sync` | 从远端快进共享 `master`，成功后应用当前机器 |
+| `envy sync --no-apply` | 仅同步，不应用 |
+| `envy sync --build-only` | 同步后只构建当前平台 target |
+| `envy push "<message>"` | 分析 worktree 与 outgoing commits，确认影响范围后提交并 push |
+| `envy push --machine-only` | 只允许 `hosts/darwin/*.nix` 与 `hosts/linux/*.nix` |
+| `envy push --self` | 只允许当前平台、当前 `.device-label` 所选 host 文件 |
+| `envy config check` | 只读检查 device metadata、host module 与 secrets |
+| `envy config refine` | 迁移并补全本平台 machine/schema |
+| `envy config show [--details]` | 展示求值后的 scalar 与软件 policy；details 展开 include/exclude/effective |
+| `envy config software` | 管理当前机器的软件 exclusions |
+| `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载 |
 
-`envy push` 和 `envy sync` 默认要求当前分支为 `master`。`--branch` 只是显式操作临时分支的逃生口，不是 platform 或 machine 选择器。
+`envy push` 和 `envy sync` 默认要求当前分支为 `master`。`--branch` 只是显式操作临时分支
 
 ## Machine Policy
 
@@ -129,9 +139,7 @@ Linux 专有 policy 只出现在 Linux host：
 
 `envy.linux.option = "server"` 会禁用整个 Linux desktop 层，忽略 desktop
 selector。`option = "desktop"` 时，`envy.linux.desktop` 分别使用 `gnome`、
-`niri`、`all`（两者）或 `none`（只保留公共 desktop 工具）。
-
-软件 definition 和 derivation 留在负责该功能的 module 中；`modules/envy` 只拥有通用选择 schema、最终聚合与 manifest，不是中央软件清单。
+`niri`、`all`（两者）或 `none`
 
 ## Secrets
 
@@ -139,15 +147,17 @@ selector。`option = "desktop"` 时，`envy.linux.desktop` 分别使用 `gnome`�
 - 敏感值：sops 加密的 `secrets/secrets.yaml`。
 - Darwin age key：`~/Library/Application Support/sops/age/keys.txt`。
 - Linux age key：`~/.config/sops/age/keys.txt`。
-- Proxy URL secret 仅由 Darwin 配置声明和使用。
 
-不要把 API key、密码或带 token 的 URL 放进 Nix 求值期表达式。新增设备的 age public key 加入 `.sops.yaml` 后运行：
+!!!不要把 API key、密码或带 token 的 URL 放进 Nix 求值期表达式
+新增设备的 age public key 加入 `.sops.yaml` 后运行：
 
 ```bash
 sops updatekeys secrets/secrets.yaml
 ```
 
-完整 machine 设计见 [docs/machines.md](docs/machines.md)，doctor 维护说明见 [docs/doctor.md](docs/doctor.md)。
+- 完整安装说明见 [docs/install.md](docs/install.md)
+- machine 设计见 [docs/machines.md](docs/machines.md)
+- doctor 维护说明见 [docs/doctor.md](docs/doctor.md)
 
 ## License
 
