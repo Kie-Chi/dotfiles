@@ -61,6 +61,12 @@ in
 
     packages.home = packageSelection "cross-platform Home Manager packages";
 
+    mirrors.mode = mkOption {
+      type = types.enum [ "upstream" "china" ];
+      default = "china";
+      description = "Network mirror policy used by bootstrap and managed package ecosystems.";
+    };
+
     git = {
       name = mkOption {
         type = types.nonEmptyStr;

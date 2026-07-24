@@ -131,12 +131,29 @@ let
         }
       '';
 
+      aptFn = ''
+        apt_envy() {
+          APT_CMD="${cmds.apt}"
+          if [ ! -x "$APT_CMD" ]; then
+            APT_CMD="$(command -v apt)"
+          fi
+          if [ -f /etc/apt/sources.list.d/envy-mirror.sources ]; then
+            esudo "$APT_CMD" \
+              -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/envy-mirror.sources \
+              -o Dir::Etc::sourceparts=- \
+              "$@"
+          else
+            esudo "$APT_CMD" "$@"
+          fi
+        }
+      '';
+
       updateFn = ''
         pkg_update() {
           PKG_MANAGER="$(detect_pkg_manager)"
           case "$PKG_MANAGER" in
             apt)
-              esudo ${cmds.apt} update
+              apt_envy update
               ;;
             dnf)
               esudo /usr/bin/dnf makecache -y
@@ -164,7 +181,7 @@ let
           PKG_MANAGER="$(detect_pkg_manager)"
           case "$PKG_MANAGER" in
             apt)
-              esudo ${cmds.apt} install -y "$@"
+              apt_envy install -y "$@"
               ;;
             dnf)
               esudo /usr/bin/dnf install -y "$@"
@@ -192,7 +209,7 @@ let
           PKG_MANAGER="$(detect_pkg_manager)"
           case "$PKG_MANAGER" in
             apt)
-              esudo ${cmds.apt} install -y "$@"
+              apt_envy install -y "$@"
               ;;
             dnf)
               esudo /usr/bin/dnf install -y "$@"
@@ -319,6 +336,7 @@ let
         # Package management functions (Linux only)
         ${pkg.detectManagerFn or ""}
         ${pkg.isInstalledFn or ""}
+        ${pkg.aptFn or ""}
         ${pkg.updateFn or ""}
         ${pkg.installFn or ""}
         ${pkg.installFilesFn or ""}

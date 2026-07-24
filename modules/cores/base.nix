@@ -50,12 +50,6 @@
     }
   '';
 
-  home.file.".config/nix/nix.conf" = lib.mkIf (machinePlatform == "linux") {
-    text = ''
-      substituters = https://mirrors.ustc.edu.cn/nix-channels/store https://cache.nixos.org/
-    '';
-  };
-
   home.sessionPath = [
     "${config.envy.user.home}/.local/bin"
   ];

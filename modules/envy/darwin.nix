@@ -7,6 +7,8 @@ let
     (unique selection.include);
   selectStrings = selection: lib.subtractLists selection.exclude (unique selection.include);
   policy = config.envy.darwin;
+  mirrorProfile = (import ../mirrors/catalog.nix).${config.envy.mirrors.mode};
+  commonMirrors = builtins.removeAttrs mirrorProfile [ "apt" "dockerInstallerMirror" "homebrew" "probes" ];
   systemPackages = selectPackages policy.packages.system;
   fontPackages = selectPackages policy.packages.fonts;
   brews = selectStrings policy.homebrew.brews;
@@ -44,6 +46,12 @@ in
         "envy.darwin.proxy.mode" = policy.proxy.mode;
         "envy.darwin.proxy.tun" = policy.proxy.tun;
         "envy.vscode.mode" = config.envy.vscode.mode;
+        "envy.mirrors.mode" = config.envy.mirrors.mode;
+      };
+      mirrors = commonMirrors // {
+        mode = config.envy.mirrors.mode;
+        homebrew = mirrorProfile.homebrew;
+        probes = mirrorProfile.probes.common ++ mirrorProfile.probes.darwin;
       };
       packages = {
         home = map lib.getName homePolicy.effective;

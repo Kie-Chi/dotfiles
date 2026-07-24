@@ -1,5 +1,11 @@
 { pkgs, config, lib, sys, ... }:
 
+let
+  mirrorProfile = (import ../../mirrors/catalog.nix).${config.envy.mirrors.mode};
+  dockerMirrorArg = lib.optionalString
+    (mirrorProfile.dockerInstallerMirror != null)
+    "--mirror ${mirrorProfile.dockerInstallerMirror}";
+in
 {
   envy.packages.home.include = with pkgs; [
     # env management
@@ -23,23 +29,14 @@
     '';
   };
 
-  home.file.".condarc".text = ''
-    envs_dirs:
-      - ~/.mamba/envs
-    pkgs_dirs:
-      - ~/.mamba/pkgs
-    channels:
-      - conda-forge
-      - defaults
-  '';
-
   home.activation.installNativeDocker = sys.task.root {
     name = "installNativeDocker";
+    after = [ "configureAptMirror" ];
     script = ''
       if [ ! -e $HOME/.config/dotfiles/docker.installed ]; then
         log_info "No Docker found, installing..."
         $DRY_RUN_CMD ${pkgs.curl}/bin/curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-        $DRY_RUN_CMD esudo ${sys.cmds.sh} /tmp/get-docker.sh --mirror Aliyun
+        $DRY_RUN_CMD esudo ${sys.cmds.sh} /tmp/get-docker.sh ${dockerMirrorArg}
         $DRY_RUN_CMD esudo ${sys.cmds.usermod} -aG docker ${config.envy.user.name}
         if [ -z "$DRY_RUN_CMD" ]; then
           if id -nG "${config.envy.user.name}" | ${sys.cmds.grep} -qw "docker"; then

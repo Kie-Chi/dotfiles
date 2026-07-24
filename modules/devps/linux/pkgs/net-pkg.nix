@@ -32,6 +32,7 @@ in
 {
   home.activation.installNetworkSystemPkgs = lib.mkIf isDesktop (sys.task.root {
     name = "network-pkgs";
+    after = [ "configureAptMirror" ];
     pre = ''
       MISSING_NET_PKGS=""
       log_debug "starting network package installation"

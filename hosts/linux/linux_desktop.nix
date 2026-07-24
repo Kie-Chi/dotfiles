@@ -23,6 +23,9 @@
   envy.llm.deepseek.url = "https://api.deepseek.com";
   envy.llm.deepseek.model = "deepseek-v4-pro";
 
+  # --- MIRRORS CONFIG ---
+  envy.mirrors.mode = "china";
+
   # --- VSCODE CONFIG ---
   envy.vscode.mode = "remote";
 

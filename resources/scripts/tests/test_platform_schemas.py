@@ -11,6 +11,7 @@ class PlatformSchemaTests(unittest.TestCase):
     def test_common_fields_have_no_platform_prefix(self):
         paths = {field.path for field in COMMON_MACHINE_FIELDS}
         self.assertIn("envy.vscode.mode", paths)
+        self.assertIn("envy.mirrors.mode", paths)
         self.assertTrue(all(not path.startswith("envy.darwin.") for path in paths))
         self.assertTrue(all(not path.startswith("envy.linux.") for path in paths))
 

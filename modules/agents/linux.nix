@@ -3,7 +3,8 @@
 let
   isDesktop = config.envy.linux.option == "desktop";
   npmPrefix = "$HOME/.npm-global";
-  npmRegistry = "https://registry.npmmirror.com";
+  mirrorProfile = (import ../mirrors/catalog.nix).${config.envy.mirrors.mode};
+  npmRegistry = mirrorProfile.npm.registry;
   rtk = pkgs.callPackage ./linux/rtk.nix { };
 
   agentPlugins = [
@@ -54,6 +55,8 @@ in
       export npm_config_prefix=${npmPrefix}
       export npm_config_cache="$HOME/.cache/npm"
       export npm_config_registry=${npmRegistry}
+      export PIP_INDEX_URL=${lib.escapeShellArg mirrorProfile.python.index}
+      export UV_DEFAULT_INDEX=${lib.escapeShellArg mirrorProfile.python.index}
 
       ${lib.concatMapStringsSep "\n" installPlugin agentPlugins}
     '';

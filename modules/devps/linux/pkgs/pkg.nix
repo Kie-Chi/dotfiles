@@ -13,6 +13,7 @@ in
 {
   home.activation.installSystemPkgs = sys.task.root {
     name = "system-pkgs";
+    after = [ "configureAptMirror" ];
     pre = ''
       RAW_PKGS=(${pkgStrings})
       MISSING_PKGS=""

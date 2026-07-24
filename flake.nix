@@ -191,6 +191,18 @@
           (configuration:
             configuration.options.envy ? linux
             && !(configuration.options.envy ? darwin))
+          (builtins.attrValues homeConfigurations)
+        && lib.all
+          (configuration:
+            configuration.config.envy.machine.manifest.mirrors ? homebrew
+            && !(configuration.config.envy.machine.manifest.mirrors ? apt)
+            && !(configuration.config.envy.machine.manifest.mirrors ? dockerInstallerMirror))
+          (builtins.attrValues darwinConfigurations)
+        && lib.all
+          (configuration:
+            configuration.config.envy.machine.manifest.mirrors ? apt
+            && configuration.config.envy.machine.manifest.mirrors ? dockerInstallerMirror
+            && !(configuration.config.envy.machine.manifest.mirrors ? homebrew))
           (builtins.attrValues homeConfigurations);
       mkPlatformOptionCheck = system:
         assert platformOptionBoundaries;

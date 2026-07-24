@@ -76,6 +76,11 @@ let
 in
 assert serverForbiddenPackages == [ ];
 assert serverForbiddenActivations == [ ];
+assert hasActivation "configureAptMirror" server;
+assert server.config.envy.machine.manifest.mirrors ? apt;
+assert !(server.config.envy.machine.manifest.mirrors ? homebrew);
+assert server.config.home.sessionVariables.UV_DEFAULT_INDEX ==
+  "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple";
 assert builtins.attrNames server.config.systemd.user.services == [ "sops-nix" ];
 assert !hasGnome server && !hasNiri server;
 assert !hasGnome none && !hasNiri none;

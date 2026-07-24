@@ -3,6 +3,7 @@
 {
   imports = [
     ./modules/envy/home.nix
+    ./modules/mirrors
     ./modules/llm
     ./modules/agents
     ./modules/cores

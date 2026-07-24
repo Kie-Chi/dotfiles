@@ -107,6 +107,7 @@ in
 
   home.activation.installWayDroid = lib.mkIf waydroidEnabled (sys.task.activation {
     name = "installWayDroid";
+    after = [ "configureAptMirror" ];
     asRoot = true;
     script = ''
       ${sys.cmds.curl} -fsSL https://repo.waydro.id > /tmp/waydroid.sh

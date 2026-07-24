@@ -3,6 +3,8 @@
 let
   policy = config.envy.linux;
   homePolicy = config.envy.packages.home;
+  mirrorProfile = (import ../mirrors/catalog.nix).${config.envy.mirrors.mode};
+  commonMirrors = builtins.removeAttrs mirrorProfile [ "apt" "dockerInstallerMirror" "homebrew" "probes" ];
 in
 {
   imports = [ ./linux/options.nix ];
@@ -25,6 +27,13 @@ in
         "envy.vscode.mode" = config.envy.vscode.mode;
         "envy.linux.desktop" = policy.desktop;
         "envy.linux.option" = policy.option;
+        "envy.mirrors.mode" = config.envy.mirrors.mode;
+      };
+      mirrors = commonMirrors // {
+        mode = config.envy.mirrors.mode;
+        apt = mirrorProfile.apt;
+        dockerInstallerMirror = mirrorProfile.dockerInstallerMirror;
+        probes = mirrorProfile.probes.common ++ mirrorProfile.probes.linux;
       };
       packages = {
         home = map lib.getName homePolicy.effective;
