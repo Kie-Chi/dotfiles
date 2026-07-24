@@ -261,9 +261,22 @@ resources/scripts/envy/schemas/linux/
 
 ```bash
 envy sync --no-apply
-envy host check
+envy check
 envy push --self "feat(host): tune work macbook"
 ```
+
+提交共享模块前使用跨平台检查：
+
+```bash
+envy check --all
+envy check --changed
+envy check --platform linux
+envy check --all --build
+```
+
+`--changed` 中只有 machine 文件变化时只选这些 targets；出现任意 shared 路径时保守地
+选择全部 machines。`--build` 只构建当前平台 target，外平台仍执行 derivation 求值。
+CI 在 `aarch64-darwin` 与 `x86_64-linux` 分别运行 Python、shell 和 secret-safety checks。
 
 Push impact 分类：
 
@@ -273,5 +286,12 @@ Push impact 分类：
 `--machine-only` 可以包含多个平台的多个 host；`--self` 只允许当前平台与当前 machine 文件。守卫同时检查 worktree 与 outgoing commits，并在 `git add` 前拒绝越界路径。
 
 `envy push` 会先 fetch 目标 remotes。任一远端领先时，在创建 commit 前停止。`envy sync` 只接受线性兼容历史并 fast-forward，不自动创建 merge commit。
+
+Push 在 staging 前验证 worktree、index 与 `HEAD` 都保留加密的
+`secrets/secrets.yaml`，并逐个检查所有 outgoing commits 中对应 Git object。任何
+现存版本不是 sops 密文，或当前三层缺失该文件时都会拒绝 push；这项
+检查独立于 `--self`、`--machine-only` 和 `--yes`，不能被确认选项跳过。多 remote
+push 会分别报告 succeeded、failed、unchanged；部分失败时保留已成功结果并输出每个
+失败 remote 的精确重试命令。
 
 默认 branch 是 `master`。`--branch` 只用于明确操作当前临时分支，不参与 host 或平台选择。

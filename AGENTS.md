@@ -37,6 +37,9 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `setup.py` | Python rich + prompt_toolkit sequential CLI for initial setup and config editing. Reuses `envy.config` schema/read-write helpers, manages machine software exclusions, shows a change summary, then saves, encrypts, and offers one scoped Git commit for the selected machine and changed sops files. |
 | `resources/scripts/envy/config.py` | Machine managed-block and secret validation/read-write engine used by setup and `envy config`. |
 | `resources/scripts/envy/evaluation.py` | Shared reader for the evaluated machine manifest, with process-local and Git-fingerprinted persistent caches used by config views, setup, software policy, and doctor. |
+| `resources/scripts/envy/{process,secure_io,transaction}.py` | Shared command boundary, atomic/private file I/O, and multi-file rollback primitives. |
+| `resources/scripts/envy/workflows/` | Check, update, system lifecycle, and shared-branch Git workflows kept out of the CLI registration layer. |
+| `resources/scripts/envy/keys/` | Age/sops storage, device identity, and recovery-key encryption primitives. |
 | `resources/scripts/envy/software.py` | Managed machine-exclusion block, checkbox model, CLI, atomic writes, and evaluation rollback. |
 | `resources/scripts/envy/host.py` | Creates and inspects per-machine files; init only asks for Machine ID and import/copy mode. |
 | `resources/scripts/envy/schemas/{common,darwin,linux}/` | Common and platform-only config/app schemas; top-level schema modules dispatch to the current platform. |
@@ -109,6 +112,8 @@ Hybrid approach (in `setup.py`):
 | `envy host select <id>` | Change `.device-label`'s machine ID without changing machine policy |
 | `envy host check [id]` | Evaluate one machine system derivation without applying it |
 | `envy mirror status` / `probe` | Inspect or read-only probe the evaluated mirror policy |
+| `envy check [--all|--changed] [--platform ...] [--build]` | Evaluate or locally build selected cross-platform machine targets |
+| `envy update` / `envy update inputs [name]` | Update inputs transactionally and validate every machine before retaining `flake.lock` |
 | `envy sync --no-apply` | Fast-forward the shared `master` branch without applying |
 | `envy sync --build-only` | Fast-forward and build only the selected machine |
 | `envy push` | Classify worktree plus outgoing commits, confirm shared impact, and push only after remote-ahead checks |
@@ -116,6 +121,8 @@ Hybrid approach (in `setup.py`):
 | `envy doctor` / `envy dr` | Check platform config, app install/running/state/login hints, and Darwin TCC where applicable |
 | `envy doctor apps --only chrome,codex` | Check selected apps only. Values can be repeated or comma-separated; aliases are defined in `APP_ALIASES`. |
 | `envy doctor apps --only perm` | Check only declared macOS TCC permissions |
+| `envy doctor system` / `network` | Check host workflow prerequisites or explicitly probe evaluated mirror endpoints |
+| `envy key repair` | Repair interrupted key rotations, permissions, and encrypted recovery state |
 | `nix develop` | Enter devShell (jq, sops, age, ssh-to-age, Python, Typer, Rich, and prompt_toolkit) |
 | `envy apply` | Apply the locally selected `path:.#<machine-id>` target |
 | `sops --decrypt secrets/secrets.yaml` | View encrypted secrets |

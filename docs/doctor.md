@@ -14,15 +14,23 @@ envy doctor apps --only chrome,codex,gh,tailscale
 envy doctor apps --only codex,vscode --only auth,sync
 envy doctor apps --only perm
 envy doctor apps --strict
+envy doctor system
+envy doctor network
+envy doctor all
 ```
 
 `--only` accepts section tokens, canonical app keys, and aliases from `APP_ALIASES`. Values can be repeated or comma-separated. App selections are ORed with other apps; section selections are ORed with other sections; app and section selections are ANDed together.
+
+The default `envy doctor` runs config, system, and app checks but deliberately skips
+network probes. `envy doctor network` performs the read-only mirror probes explicitly;
+`envy doctor all` includes every section and may therefore be slower or depend on current
+network conditions.
 
 ## File Map
 
 | File | Role |
 |---|---|
-| `resources/scripts/envy/doctor/app.py` | Typer commands for `envy doctor`, `envy dr`, `all`, `apps`, and `config`. |
+| `resources/scripts/envy/doctor/app.py` | Typer commands for `envy doctor`, `all`, `apps`, `config`, `system`, and `network`. |
 | `resources/scripts/envy/doctor/runner.py` | Runs sections, renders the Rich table, computes exit codes. |
 | `resources/scripts/envy/doctor/model.py` | Shared `CheckResult` model, section constants, and `ok/warn/error/info` helpers. |
 | `resources/scripts/envy/doctor/selection.py` | Unified `--only` parser for section/app filters. |
@@ -34,6 +42,8 @@ envy doctor apps --strict
 | `resources/scripts/envy/doctor/checks/apps/checkers.py` | Generic app checks and custom checker registry. |
 | `resources/scripts/envy/doctor/checks/apps/auth.py` | App-specific auth/login checks such as Chrome, Codex, GitHub CLI, and Tailscale. |
 | `resources/scripts/envy/doctor/checks/apps/vscode.py` | VS Code Settings Sync, auth, Copilot, and extension checks. |
+| `resources/scripts/envy/doctor/checks/system.py` | Required commands, apply runner, manifest, Git state, sudo, and interrupted-workflow checks. |
+| `resources/scripts/envy/doctor/checks/network.py` | Explicit read-only probes of the evaluated mirror endpoints. |
 | `resources/scripts/envy/doctor/probes/` | Low-level filesystem, process, command, TCC, and VS Code probes. |
 
 ## Section Semantics
@@ -237,6 +247,13 @@ Check whether the command is provided by Homebrew, Home Manager, or a cask artif
 `auth check timed out`
 
 The app's local daemon or CLI is not responding. Open the app, restart the daemon if needed, and rerun a focused check.
+
+`workflow leftovers`
+
+An interrupted setup/key process left a private temporary file or rotation marker. Do not
+blindly delete it if a rotation may be incomplete. Run `envy key repair`, then rerun
+`envy doctor system`. If repair cannot prove a consistent recipient set, restore access with
+an offline recovery key before changing `.sops.yaml`.
 
 ## Maintenance Checklist
 

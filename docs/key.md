@@ -7,6 +7,7 @@ sops-nix 使用 age 加密管理 dotfiles 中的私密信息。`envy key` 提供
 ```bash
 envy key status    # 检查当前设备密钥状态：是否存在、是否在 .sops.yaml 中、能否解密
 envy key list      # 查看 .sops.yaml 中所有密钥及当前设备标记
+envy key repair    # 修复权限或中断轮换标记，并验证 secrets/recovery 密文
 ```
 
 ## 密钥架构
@@ -174,13 +175,40 @@ envy key ex -o /Volumes/USB/recovery/macbook_air.age
 
 Linux 使用 sops 默认的 `~/.config/sops/age/keys.txt`，Darwin 使用 `~/Library/Application Support/sops/age/keys.txt`。`envy.utils.run_cmd()` 会在所有 sops/age 命令中设置对应平台的 `SOPS_AGE_KEY_FILE`。
 
-### write_secrets_yaml 安全机制
+### Secret 写入与事务安全
 
-`envy.config.write_secrets_yaml()` 使用备份回滚策略：
-1. 先把现有 `secrets.yaml` 移动到 `.bak`
-2. 写入新的明文 YAML
-3. 立即执行 `sops --encrypt --in-place`
-4. 如果加密失败 → 恢复 `.bak` 或删除新明文文件 → 抛出异常 → **绝不留下未加密数据**
+`envy.config.write_secrets_data()` 不会把明文写到 Git 跟踪的
+`secrets/secrets.yaml`：
+
+1. 在 `secrets/` 中创建权限为 `0600` 的私有临时明文文件。
+2. 让 sops 把它加密到另一个 prepared 临时文件。
+3. 验证输出存在 sops metadata 且不是空文件。
+4. `fsync` 后原子替换正式密文；无论成功或失败都清理临时明文。
+
+更新已存在的 secrets 时默认合并原 YAML，schema 尚未认识的扩展路径也会保留。
+只有显式使用内部 `replace=True` 才会重建整份数据。
+
+Setup 与 key lifecycle 使用多文件事务，同时覆盖 machine、`.sops.yaml`、
+`secrets.yaml`、`recovery-key.age`、本机 age key 和 `.device-label`。任一步失败会把
+所有参与文件恢复到操作前状态。age 私钥、导出和恢复文件使用 `0600`，age 目录
+使用 `0700`；`recovery-key.age` 也是先生成 prepared 密文再原子替换。
+
+Key 命令只在文件事务成功结束后才进入 scoped Git stage/commit。Git 提交失败不会
+把已经验证过的密钥文件回滚成与 index 不一致的旧版本；命令会返回失败，保留一致
+的工作区供用户检查并重试提交。没有实际 repository 文件变化的 no-op 不会触发提交。
+
+### 中断恢复
+
+轮换过程使用临时 recipient 标记：设备轮换为 `<label>_old`，恢复密钥轮换为
+`recovery_new`。如果进程在两阶段之间终止，运行：
+
+```bash
+envy key repair
+```
+
+Repair 会修复 age 文件权限，核对 recovery private/public key，判定应完成还是回退
+`recovery_new`，删除已完成的 `_old` 兼容项，重新加密并验证
+`secrets.yaml` 与 `recovery-key.age`。无法证明安全状态时命令失败并由事务回滚。
 
 ### 密钥文件多行支持
 
@@ -192,6 +220,7 @@ age 的 `keys.txt` 可以包含多行 `AGE-SECRET-KEY-...`（多个私钥）。�
 |------|------|------|
 | `envy key list` | `ls` | 显示所有密钥 |
 | `envy key status` | `st` | 诊断当前设备状态 |
+| `envy key repair` | — | 修复中断轮换、权限并验证密文 |
 | `envy key add PUBKEY` | `a` | 添加设备公钥 |
 | `envy key remove LABEL` | `rm` | 移除设备密钥 |
 | `envy key export` | `ex` | 导出当前设备私钥 |

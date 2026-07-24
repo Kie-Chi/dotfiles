@@ -89,6 +89,13 @@ envy host select <machine-id>
 | `envy push "<message>"` | 分析 worktree 与 outgoing commits，确认影响范围后提交并 push |
 | `envy push --machine-only` | 只允许 `hosts/darwin/*.nix` 与 `hosts/linux/*.nix` |
 | `envy push --self` | 只允许当前平台、当前 `.device-label` 所选 host 文件 |
+| `envy check` | 求值当前 machine target |
+| `envy check --all` | 求值仓库中全部 Darwin/Linux machine targets |
+| `envy check --changed` | 根据 worktree 路径检查受影响的 machine targets |
+| `envy check --build` | 在本机平台构建所选 targets；外平台仍只求值 |
+| `envy update` | 更新全部 flake inputs、检查全部 machines，并在 Darwin 更新 Homebrew metadata |
+| `envy update inputs [name]` | 更新全部或指定 flake input；验证失败自动恢复 `flake.lock` |
+| `envy clean --older-than 30d` | 经确认后只清理指定期限以前的 generations |
 | `envy config check` | 只读检查 device metadata、host module 与 secrets |
 | `envy config refine` | 迁移并补全本平台 machine/schema |
 | `envy config show [--details]` | 展示求值后的 scalar 与软件 policy；details 展开 include/exclude/effective |
@@ -96,8 +103,12 @@ envy host select <machine-id>
 | `envy mirror status` | 展示当前 machine 求值后生效的镜像端点 |
 | `envy mirror probe` | 只读探测镜像 HTTP 状态与延迟 |
 | `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载 |
+| `envy doctor system` | 检查运行依赖、apply runner、Git 状态与中断残留 |
+| `envy doctor network` | 只读探测求值后的镜像端点 |
+| `envy key repair` | 修复中断的 key rotation 标记、权限并重新验证密文 |
 
-`envy push` 和 `envy sync` 默认要求当前分支为 `master`。`--branch` 只是显式操作临时分支
+`envy push` 和 `envy sync` 默认要求当前分支为 `master`。`--branch` 只是显式操作临时分支。
+共享变更 push 前建议运行 `envy check --all`；push 会同时检查 worktree、index 和 outgoing commits，拒绝任何明文 `secrets/secrets.yaml`。
 
 国内网络默认使用 `envy.mirrors.mode = "china"`。首次 setup 的临时环境、APT/Homebrew 行为、探针及不能透明镜像的下载见 [docs/mirrors.md](docs/mirrors.md)。
 
@@ -162,6 +173,7 @@ sops updatekeys secrets/secrets.yaml
 
 - 完整安装说明见 [docs/install.md](docs/install.md)
 - machine 设计见 [docs/machines.md](docs/machines.md)
+- age/sops 密钥生命周期见 [docs/key.md](docs/key.md)
 - doctor 维护说明见 [docs/doctor.md](docs/doctor.md)
 
 ## License
