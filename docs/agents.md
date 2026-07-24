@@ -98,10 +98,12 @@ agents = {
 };
 ```
 
-The Claude package selection, prompt path, and skill catalog remain Nix-only implementation settings. A machine that cannot install Claude excludes the stable package name with `envy.packages.home.exclude = [ "claude" ];`; no provider-specific enable option is needed. Authentication, history, caches, sessions, and other application-owned state are not managed by this module.
+The Claude package selection, prompt path, and skill catalog remain Nix-only implementation settings. A machine that cannot install Claude excludes the stable package name with `envy.software.nix.packages.exclude = [ "claude" ];`; no provider-specific enable option is needed. Authentication, history, caches, sessions, and other application-owned state are not managed by this module.
 
+CodeGraph and Headroom are shared agent tools on Darwin and Linux. The feature
+contributes them through `envy.software.npm.tools` and
+`envy.software.pypi.tools`; `modules/software/` owns their cross-platform
+installation lifecycle, while CodeGraph MCP registration remains agent-owned.
 Linux additionally installs Codex and RTK on both server and desktop machines,
-and Cursor only when `envy.linux.option = "desktop"`. Its activation installs
-the pinned CodeGraph npm plugin, Headroom uv tool, and CodeGraph MCP registration
-under user-owned runtime directories. Darwin continues to distribute Codex and
-ChatGPT through Homebrew casks.
+and Cursor only when `envy.linux.option = "desktop"`. Darwin continues to
+distribute Codex and ChatGPT through Homebrew casks.

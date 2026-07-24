@@ -82,6 +82,9 @@ envy config check
 envy config refine
 ```
 
+`envy host select` and `envy host check` complete machine IDs from the current
+platform directory; `envy host init --mode` completes `import` and `copy`.
+
 `envy config refine` 可以迁移旧单行 `.device-label`、`~/.config/envy/machine`、旧 `config.nix` 和 Darwin 的旧 `envy.proxy.*`。稳态配置不再读取这些旧来源。
 
 Envy 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文件也可以立即 check/build/apply。
@@ -101,7 +104,9 @@ Envy 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文�
 | `envy.git.*` | Git identity |
 | `envy.llm.*` | 非敏感 Base URL 和模型 |
 | `envy.vscode.mode` | VS Code local/remote policy |
-| `envy.packages.home.include/exclude/effective` | 公共 Home Manager package 选择机制 |
+| `envy.software.nix.packages.include/exclude/effective` | 公共 Home Manager package 选择机制 |
+| `envy.software.npm.tools.*` | 用户级 NPM tool 选择机制 |
+| `envy.software.pypi.tools.*` | 由 uv 安装的用户级 PyPI tool 选择机制 |
 
 同一公共 module 可以在 Darwin 与 Linux 上贡献不同的具体 package；只要选择机制相同，option 仍保持公共。
 
@@ -110,11 +115,11 @@ Envy 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文�
 | Option | Meaning |
 |---|---|
 | `envy.darwin.proxy.*` | Darwin proxy service/TUN policy |
-| `envy.darwin.packages.system.*` | nix-darwin system packages |
-| `envy.darwin.packages.fonts.*` | nix-darwin fonts |
-| `envy.darwin.homebrew.brews.*` | Homebrew formulae |
-| `envy.darwin.homebrew.casks.*` | Homebrew casks |
-| `envy.darwin.homebrew.taps.*` | Homebrew taps |
+| `envy.darwin.software.nix.systemPackages.*` | nix-darwin system packages |
+| `envy.darwin.software.nix.fonts.*` | nix-darwin fonts |
+| `envy.darwin.software.homebrew.formulae.*` | Homebrew formulae |
+| `envy.darwin.software.homebrew.casks.*` | Homebrew casks |
+| `envy.darwin.software.homebrew.repositories.*` | Homebrew taps |
 
 Linux 没有 proxy option 或 proxy secret declaration。
 
@@ -124,6 +129,8 @@ Linux 没有 proxy option 或 proxy secret declaration。
 |---|---|
 | `envy.linux.desktop` | `gnome`、`niri`、`all` 或 `none`。 |
 | `envy.linux.option` | 当前 Linux 机器的 `desktop` / `server` 类型。 |
+| `envy.linux.software.native.packages.*` | apt/dnf/pacman/zypper 原生系统 package |
+| `envy.linux.software.url.artifacts.*` | 由固定公开 URL 提供的系统 artifact |
 
 `option = "server"` 是外层能力边界：不会安装 desktop 公共包、VS Code、
 GNOME、Niri，也不会生成 Fcitx、Sunshine、Waydroid 或 SwayOSD 服务和
@@ -166,8 +173,8 @@ Linux managed block 会包含 `envy.linux.*`，不会出现 proxy。
 { pkgs, ... }:
 
 {
-  envy.packages.home.exclude = [ "okular" ];
-  envy.packages.home.include = with pkgs; [ postgresql ];
+  envy.software.nix.packages.exclude = [ "okular" ];
+  envy.software.nix.packages.include = with pkgs; [ postgresql ];
 }
 ```
 
@@ -175,14 +182,17 @@ Darwin Homebrew：
 
 ```nix
 {
-  envy.darwin.homebrew.casks.exclude = [
+  envy.darwin.software.homebrew.casks.exclude = [
     "uuremote"
     "microsoft-remote-desktop"
   ];
 }
 ```
 
-`envy config software` 和 setup 的 checkbox 只维护 `ENVY MANAGED EXCLUSIONS`。它们不移动 derivation、不修改 module include，也不替用户决定初始软件集合。
+单一的 `ENVY MANAGED SOFTWARE` block 直接维护各 ecosystem 的
+`include/exclude`。setup 和 `envy sw en/dis` 只修改其中的 exclude 并保留
+include；`envy sw add/rm` 先展示 `include +/-`、`exclude +/-` 计划后修改两者。
+`rm` 默认增加 exclude，`--clean` 只精简目标 ID 且不改变最终意图。
 
 软件列表状态含义：
 
@@ -195,7 +205,13 @@ Darwin Homebrew：
 
 setup 中按 Space 只修改内存里的 pending 状态；按 `s` 退出才进入变更确认与写入。按 `q` 或 Esc 退出不会修改 host 文件。`pending` 表示它与打开 setup 时的 machine exclusion 不同，不表示已经写盘。
 
-`envy config show` 默认只展示非空 exclusions；`--details` 展示 include/exclude/effective。Linux details 只显示公共 Home packages，不伪造 Homebrew 或 Darwin system/font 组。
+`envy config show` 只展示 machine scalar 与 secret 设置状态。软件 policy 使用
+`envy sw ls`；`envy sw ls --details` 展示结构化 include/exclude/effective、版本和
+canonical reference。Linux manifest 直接声明 active groups，不再伪造空的 Homebrew
+或 Darwin system/font 列表。
+
+evaluated manifest 使用 `schemaVersion = 2`，软件结构位于
+`software.groups.<ecosystem>.<scope>.<kind>`。完整字段见 [software.md](software.md)。
 
 ## Mirror Policy
 

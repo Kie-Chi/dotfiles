@@ -40,7 +40,8 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `resources/scripts/envy/{process,secure_io,transaction}.py` | Shared command boundary, atomic/private file I/O, and multi-file rollback primitives. |
 | `resources/scripts/envy/workflows/` | Check, update, system lifecycle, and shared-branch Git workflows kept out of the CLI registration layer. |
 | `resources/scripts/envy/keys/` | Age/sops storage, device identity, and recovery-key encryption primitives. |
-| `resources/scripts/envy/software.py` | Managed machine-exclusion block, checkbox model, CLI, atomic writes, and evaluation rollback. |
+| `resources/scripts/envy/software.py` | Direct managed include/exclude policy, desired-state planner, checkbox model, atomic writes, and evaluation rollback. |
+| `resources/scripts/envy/search/` | Concurrent registry providers, normalized search results, manifest matching, and TTL cache. |
 | `resources/scripts/envy/host.py` | Creates and inspects per-machine files; init only asks for Machine ID and import/copy mode. |
 | `resources/scripts/envy/schemas/{common,darwin,linux}/` | Common and platform-only config/app schemas; top-level schema modules dispatch to the current platform. |
 | `resources/scripts/envy/doctor/checks/apps/` | App doctor implementation: generic checks, registry, app-specific auth/login checks, and VS Code checks. |
@@ -49,6 +50,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `docs/machines.md` | Multi-machine option model, host initialization, package overrides, and shared-branch workflow. |
 | `docs/install.md` | Remote bootstrap, pinned release, custom target, and existing-checkout behavior. |
 | `docs/mirrors.md` | Two-stage bootstrap/declarative mirror policy, endpoint scope, probes, and ownership boundaries. |
+| `docs/software.md` | Manifest v2 schema, software commands, provider behavior, and ownership boundaries. |
 | `setup.sh` | Thin launcher: install Nix → enter devShell → exec setup.py. |
 | `requires.sh` | Installs Nix if missing. Nothing else — devShell provides all tools. |
 
@@ -57,6 +59,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 ```
 modules/
   envy/      — machine value/selection schema, final aggregators, and manifest
+  software/  — generic npm/PyPI and Linux native/artifact lifecycle backends
   llm/       — shared LLM credentials, environment template, and shell integration
   mirrors/   — shared endpoint catalog plus Darwin/Linux consumers
   agents/    — LLM agent installers, wrappers, and skill discovery
@@ -104,8 +107,12 @@ Hybrid approach (in `setup.py`):
 | `bash setup.sh` | Run setup TUI (auto-enters devShell) |
 | `envy config check` | Check `.device-label`, the selected machine file, and secrets.yaml without writing |
 | `envy config refine` | Migrate/refine device metadata, the machine managed block, and secret paths before apply |
-| `envy config show` | Show evaluated scalar values plus package/Homebrew include, exclude, and effective lists |
-| `envy config software` | List software checkbox state; use `enable/disable <group> <name>` for machine exclusions |
+| `envy config show` | Show evaluated machine scalar values and secret-set status |
+| `envy software` / `envy sw` | List the selected machine's manifest v2 software groups |
+| `envy sw ls --details` | Show structured selections, versions, and canonical references |
+| `envy sw add/rm <group> <id-or-ref>` | Preview and apply a current-machine desired-state plan; `--clean` normalizes only the target's Envy-owned state |
+| `envy sw en/dis <group> <id>` | Enable or exclude one stable software item ID |
+| `envy sw search <query>` / `envy sw se <query>` | Search registries with isolated timeouts and manifest matching |
 | `envy config edit` | Open the selected versioned machine file in `$EDITOR` |
 | `envy host init [id]` | Create a machine module by importing or copying `hosts/default.nix`; never selects software |
 | `envy host list` / `envy host status` | List repository machines or show the locally selected target |
@@ -177,9 +184,11 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 - Keep all machines on the shared `master` branch. Machine differences belong in `hosts/<platform>/<id>.nix`, not long-lived platform or machine branches.
 - Do not introduce a required profile layer. A machine module is the final unit of configuration; `hosts/default.nix` is only an optional imported default.
 - Keep package lists and custom derivations in their owning business modules. `modules/envy/` may declare the generic selection schema, aggregate `include`/`exclude`, and expose the manifest, but must not become a central software catalog.
-- Cross-platform values stay unprefixed (`envy.vscode.mode`, `envy.packages.home.*`). Only genuinely platform-exclusive values use `envy.darwin.*` or `envy.linux.*`; Linux must not gain proxy options.
-- Modules contribute cross-platform Home packages through `envy.packages.home.include`; Darwin system/font/Homebrew contributions use `envy.darwin.*`. Only the envy aggregators assign final package lists.
-- `envy setup` owns only the marked `ENVY MANAGED EXCLUSIONS` block. Never move package derivations into it or rewrite hand-maintained policy outside its markers.
+- Cross-platform values stay unprefixed (`envy.vscode.mode`, `envy.software.nix.packages.*`). Only genuinely platform-exclusive values use `envy.darwin.*` or `envy.linux.*`; Linux must not gain proxy options.
+- Modules contribute cross-platform Home packages through `envy.software.nix.packages.include`; Darwin system/font/Homebrew contributions use `envy.darwin.*`. Only the envy aggregators assign final package lists.
+- Manifest software group IDs use `<ecosystem>.<scope>.<kind>`; platform and installer are fields, not ID segments. Search providers may exist without a declarative manifest group.
+- The marked `ENVY MANAGED SOFTWARE` block directly assigns ecosystem `include`/`exclude`. Setup and `en/dis` mutate only its exclusions; `add/rm` may mutate both. Never rewrite hand-maintained policy outside its markers.
+- `--clean` may normalize only the target ID's Envy-owned entries and must never rewrite shared contributions or external exclusions.
 - Push scope checks must include both worktree paths and outgoing commits. `--machine-only` may cover several machine files; `--self` may cover only the selected machine file. Both must fail before staging when out-of-scope paths exist.
 - Do not add an `enable` option merely because a setting could theoretically differ by machine. Shared infrastructure is unconditional; software is selected by package/cask/brew names; new machine options require a demonstrated behavioral difference.
 - Every non-sensitive machine value belongs in `hosts/<platform>/<id>.nix`; do not recreate an ignored local Nix config layer.

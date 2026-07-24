@@ -41,7 +41,7 @@ flake 不再分别拼装散落的系统模块。Darwin 配置只导入 `darwin.n
 
 Option 遵循公共优先原则：
 
-- 多平台语义和处理方式一致时使用 `envy.user.*`、`envy.git.*`、`envy.llm.*`、`envy.vscode.mode`、`envy.packages.home.*`
+- 多平台语义和处理方式一致时使用 `envy.user.*`、`envy.git.*`、`envy.llm.*`、`envy.vscode.mode`、`envy.software.nix.packages.*`
 - 只有平台专有能力使用 `envy.darwin.*` 或 `envy.linux.*`
 
 ## Quick Start
@@ -98,8 +98,13 @@ envy host select <machine-id>
 | `envy clean --older-than 30d` | 经确认后只清理指定期限以前的 generations |
 | `envy config check` | 只读检查 device metadata、host module 与 secrets |
 | `envy config refine` | 迁移并补全本平台 machine/schema |
-| `envy config show [--details]` | 展示求值后的 scalar 与软件 policy；details 展开 include/exclude/effective |
-| `envy config software` | 管理当前机器的软件 exclusions |
+| `envy config show` | 展示求值后的 machine scalar 与 secret 设置状态 |
+| `envy software` / `envy sw` | 展示当前机器的 evaluated software policy |
+| `envy sw ls --details` | 展示软件版本、引用以及 include/exclude/effective 状态 |
+| `envy sw add/rm <group> <id-or-ref>` | 预览 include/exclude 计划后，确保软件在当前机器生效或不生效；`--clean` 清理目标的冗余受管状态 |
+| `envy sw en/dis <group> <id>` | 启用或排除一个稳定 software ID |
+| `envy sw search <query>` / `envy sw se <query>` | 并发搜索当前可用的软件 registry |
+| `envy sw status` / `envy sw st` | 汇总当前机器的软件 group 和 selection 状态 |
 | `envy mirror status` | 展示当前 machine 求值后生效的镜像端点 |
 | `envy mirror probe` | 只读探测镜像 HTTP 状态与延迟 |
 | `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载 |
@@ -124,11 +129,11 @@ envy host select <machine-id>
 
   envy.vscode.mode = "remote";
 
-  envy.packages.home.exclude = [
+  envy.software.nix.packages.exclude = [
     "okular"
   ];
 
-  envy.packages.home.include = with pkgs; [
+  envy.software.nix.packages.include = with pkgs; [
     postgresql
   ];
 }
@@ -140,7 +145,7 @@ Darwin 专有 policy 只出现在 Darwin host：
 {
   envy.darwin.proxy.mode = "none";
   envy.darwin.proxy.tun = false;
-  envy.darwin.homebrew.casks.exclude = [ "uuremote" ];
+  envy.darwin.software.homebrew.casks.exclude = [ "uuremote" ];
 }
 ```
 
@@ -156,6 +161,11 @@ Linux 专有 policy 只出现在 Linux host：
 `envy.linux.option = "server"` 会禁用整个 Linux desktop 层，忽略 desktop
 selector。`option = "desktop"` 时，`envy.linux.desktop` 分别使用 `gnome`、
 `niri`、`all`（两者）或 `none`
+
+软件 group 统一使用 `<ecosystem>.<scope>.<kind>`，例如
+`nix.user.package`、`homebrew.system.cask`、`native.system.package`、
+`npm.user.tool` 和 `pypi.user.tool`。完整 schema、搜索来源和生命周期语义见
+[docs/software.md](docs/software.md)。
 
 ## Secrets
 

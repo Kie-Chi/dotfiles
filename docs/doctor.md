@@ -93,7 +93,12 @@ Before running an app check, doctor evaluates:
 
 Darwin evaluates `darwinConfigurations.<id>.config.envy.machine.manifest`; Linux evaluates `homeConfigurations.<id>.config.envy.machine.manifest`. The dispatcher selects the proper attribute for the current platform.
 
-The manifest contains effective Home Manager, system, font, brew, cask, and tap lists together with the explicit machine exclusions. If all selectors for an app are explicitly excluded, doctor emits an `INFO` row explaining that the app is disabled for the selected machine and skips its install/runtime/auth checks.
+Manifest v2 exposes active selections through
+`software.groups.<ecosystem>.<scope>.<kind>.selection`. Each group carries its
+option path, installer, lifecycle semantics, structured include/effective items,
+and stable exclusion IDs. If all selectors for an app are explicitly excluded,
+doctor emits an `INFO` row explaining that the app is disabled for the selected
+machine and skips its install/runtime/auth checks.
 
 This distinction is important on restricted machines: excluding Zotero, Okular, WireGuard, or another app is intentional policy, not a failed installation. If manifest evaluation fails or times out, doctor falls back to the previous conservative behavior and runs the normal checks.
 
