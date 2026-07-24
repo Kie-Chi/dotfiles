@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from rich.table import Table
 
 from envy import log
-from envy.doctor.checks import apps, config
+from envy.doctor.checks import apps, config, network, system
 from envy.doctor.model import (
     SECTION_AUTH,
     SECTION_CONFIG,
@@ -26,8 +26,12 @@ CheckFn = Callable[[], list[CheckResult]]
 
 CHECKS: dict[str, CheckFn] = {
     "config": config.run_checks,
+    "system": system.run_checks,
     "apps": apps.run_checks,
+    "network": network.run_checks,
 }
+
+DEFAULT_CHECKS = ["config", "system", "apps"]
 
 
 CONFIG_RESULT_SECTIONS: set[DoctorSection] = {
@@ -76,6 +80,8 @@ def _scope_needed(section: str, selection: DoctorSelection) -> bool:
         return bool(selection.sections & CONFIG_RESULT_SECTIONS)
     if section == "apps":
         return bool(selection.sections & APP_RESULT_SECTIONS)
+    if section in {"system", "network"}:
+        return SECTION_SYSTEM in selection.sections
     return True
 
 

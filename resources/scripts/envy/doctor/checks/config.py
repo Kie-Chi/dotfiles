@@ -4,6 +4,15 @@ from pathlib import Path
 
 from envy import _source_info
 from envy.config import machine_config_file, read_machine_nix, read_secrets_data
+from envy.evaluation import machine_manifest, manifest_settings
+from envy.git_safety import (
+    SecretSafetyError,
+    assert_head_secret_encrypted,
+    assert_index_secret_encrypted,
+    assert_worktree_secret_encrypted,
+)
+from envy.schemas.config import MACHINE_FIELDS, SECRET_FIELDS
+from envy.software import SoftwarePolicyError, read_managed_exclusions
 from envy.doctor.model import (
     SECTION_CONFIG,
     SECTION_DOCTOR,
@@ -17,13 +26,13 @@ from envy.doctor.model import (
 from envy.schemas import __version__ as envy_version, CONFIG_SCHEMA_VERSION
 from envy.utils import (
     AGE_KEY_FILE,
+    AGE_KEY_DIR,
     DEVICE_LABEL_FILE,
     DOTFILES_DIR,
     SECRETS_FILE,
     device_metadata_is_toml,
     is_sops_encrypted,
     read_device_metadata,
-    platform_name,
 )
 
 
@@ -74,32 +83,54 @@ def run_checks() -> list[CheckResult]:
         ))
         return results
 
-    values = read_machine_nix()
-    vscode_mode = values.get("envy.vscode.mode", "remote")
-    if vscode_mode in {"remote", "local"}:
-        results.append(ok(SECTION_CONFIG, "envy.vscode.mode", f"mode={vscode_mode}"))
-    else:
+    manifest = machine_manifest()
+    values = manifest_settings(manifest) or read_machine_nix()
+    results.extend(_check_fields(MACHINE_FIELDS, values, SECTION_CONFIG))
+    if manifest is None:
         results.append(error(
             SECTION_CONFIG,
-            "envy.vscode.mode",
-            f"invalid mode={vscode_mode}",
-            hint="Run: envy config set envy.vscode.mode remote  # or local",
+            "machine manifest",
+            "selected machine manifest cannot be evaluated",
+            hint="Run: envy host check",
+        ))
+    else:
+        results.append(ok(SECTION_CONFIG, "machine manifest", "Nix evaluation succeeded"))
+
+    try:
+        read_managed_exclusions(config_path)
+        results.append(ok(SECTION_CONFIG, "software policy", "managed exclusions are valid"))
+    except SoftwarePolicyError as exc:
+        results.append(error(
+            SECTION_CONFIG,
+            "software policy",
+            str(exc),
+            hint="Fix the ENVY MANAGED EXCLUSIONS block or reopen envy setup.",
         ))
 
-    if platform_name() == "darwin":
-        proxy_path = "envy.darwin.proxy.mode"
-        proxy_status = values.get(proxy_path, "none")
-        if proxy_status in {"none", "manual", "keep"}:
-            results.append(info(SECTION_CONFIG, proxy_path, f"mode={proxy_status}"))
-        else:
-            results.append(error(
-                SECTION_CONFIG,
-                proxy_path,
-                f"invalid mode={proxy_status}",
-                hint=f"Run: envy config set {proxy_path} none  # or manual/keep",
-            ))
+    results.extend(_check_secrets(values))
+    return results
 
-    results.extend(_check_secrets())
+
+def _check_fields(fields, values: dict[str, str], section) -> list[CheckResult]:
+    results: list[CheckResult] = []
+    for field in fields:
+        if field.condition and not field.condition(values):
+            continue
+        key = field.yaml_path if field.dest == "secret" else field.path
+        value = str(values.get(field.path, ""))
+        problems: list[str] = []
+        if field.required and not value.strip():
+            problems.append("required value is empty")
+        if field.choices and value not in field.choices:
+            problems.append("allowed values: " + ", ".join(field.choices))
+        for validator in field.validators:
+            validation = validator(value)
+            if validation:
+                problems.append(validation)
+        if problems:
+            results.append(error(section, key, "; ".join(dict.fromkeys(problems))))
+        else:
+            results.append(ok(section, key, "valid"))
     return results
 
 
@@ -124,11 +155,12 @@ def _check_source() -> list[CheckResult]:
     return results
 
 
-def _check_secrets() -> list[CheckResult]:
+def _check_secrets(machine_values: dict[str, str]) -> list[CheckResult]:
     results: list[CheckResult] = []
 
     if AGE_KEY_FILE.exists():
         results.append(ok(SECTION_SECRETS, "age key", f"found {AGE_KEY_FILE}"))
+        results.extend(_check_private_permissions())
     else:
         results.append(error(
             SECTION_SECRETS,
@@ -159,6 +191,13 @@ def _check_secrets() -> list[CheckResult]:
     data, decrypt_ok = read_secrets_data()
     if data is not None and decrypt_ok:
         results.append(ok(SECTION_SECRETS, "decrypt", "sops decrypt succeeded"))
+        secret_values = dict(machine_values)
+        for field in SECRET_FIELDS:
+            current = data
+            for part in field.yaml_path.split("/"):
+                current = current.get(part, {}) if isinstance(current, dict) else {}
+            secret_values[field.path] = "" if isinstance(current, dict) else str(current or "")
+        results.extend(_check_fields(SECRET_FIELDS, secret_values, SECTION_SECRETS))
     else:
         results.append(error(
             SECTION_SECRETS,
@@ -167,4 +206,48 @@ def _check_secrets() -> list[CheckResult]:
             hint=f"Check age key at {AGE_KEY_FILE}",
         ))
 
+    try:
+        assert_worktree_secret_encrypted()
+        assert_index_secret_encrypted()
+        assert_head_secret_encrypted()
+        results.append(ok(
+            SECTION_SECRETS,
+            "Git safety",
+            "worktree, index, and HEAD contain encrypted secrets",
+        ))
+    except SecretSafetyError as exc:
+        results.append(error(
+            SECTION_SECRETS,
+            "Git safety",
+            str(exc),
+            hint="Encrypt secrets.yaml before any commit or push.",
+        ))
+
+    return results
+
+
+def _check_private_permissions() -> list[CheckResult]:
+    results: list[CheckResult] = []
+    paths = [AGE_KEY_FILE, *AGE_KEY_FILE.parent.glob(AGE_KEY_FILE.name + ".bak*")]
+    directory_mode = AGE_KEY_DIR.stat().st_mode & 0o777 if AGE_KEY_DIR.exists() else 0
+    if directory_mode == 0o700:
+        results.append(ok(SECTION_SECRETS, "age directory permissions", "0700"))
+    else:
+        results.append(error(
+            SECTION_SECRETS,
+            "age directory permissions",
+            f"expected 0700, found {directory_mode:04o}",
+            hint="Run: envy config refine",
+        ))
+    for path in paths:
+        mode = path.stat().st_mode & 0o777
+        if mode == 0o600:
+            results.append(ok(SECTION_SECRETS, path.name + " permissions", "0600"))
+        else:
+            results.append(error(
+                SECTION_SECRETS,
+                path.name + " permissions",
+                f"expected 0600, found {mode:04o}",
+                hint="Run: envy config refine",
+            ))
     return results
