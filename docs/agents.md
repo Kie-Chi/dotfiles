@@ -104,6 +104,10 @@ CodeGraph and Headroom are shared agent tools on Darwin and Linux. The feature
 contributes them through `envy.software.npm.tools` and
 `envy.software.pypi.tools`; `modules/software/` owns their cross-platform
 installation lifecycle, while CodeGraph MCP registration remains agent-owned.
+The activation ensures and normalizes CodeGraph's Codex TOML table before and
+after the upstream installer runs. This keeps registration idempotent when
+Codex renders nested MCP table headers with indentation, which CodeGraph 0.9.7
+otherwise misdetects and appends as a duplicate key.
 Linux additionally installs Codex and RTK on both server and desktop machines,
 and Cursor only when `envy.linux.option = "desktop"`. Darwin continues to
 distribute Codex and ChatGPT through Homebrew casks.
