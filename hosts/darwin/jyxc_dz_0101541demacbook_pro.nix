@@ -37,10 +37,6 @@
   # BEGIN ENVY MANAGED SOFTWARE
   # `envy setup` and `envy software` own only these machine-local selections.
 
-  envy.darwin.software.homebrew.casks.include = [
-    "maven"
-  ];
-
   envy.darwin.software.homebrew.casks.exclude = [
     "uuremote"
     "microsoft-remote-desktop"
@@ -51,7 +47,6 @@
     "neteasemusic"
     "skim"
     "iina"
-    "maven"
   ];
 
   envy.darwin.software.homebrew.formulae.include = [
