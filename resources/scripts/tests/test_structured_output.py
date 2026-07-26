@@ -3,14 +3,23 @@ import json
 import unittest
 
 from rich.console import Console
+from typer.main import get_command
+from typer.testing import CliRunner
 from unittest.mock import patch
 
 from envy.doctor import runner
 from envy.doctor.model import info, ok, warn, SECTION_DOCTOR, SECTION_SYSTEM
 from envy.jsonio import emit, emit_error
+from envy.main import cli
 
 
 class StructuredOutputTests(unittest.TestCase):
+    def test_tui_is_registered_for_help_and_completion(self):
+        self.assertIn("tui", get_command(cli).commands)
+        result = CliRunner().invoke(cli, ["tui", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Rust/Ratatui frontend", result.output)
+
     def test_frontend_envelope_has_stable_success_and_error_shapes(self):
         output = io.StringIO()
         console = Console(file=output, force_terminal=False, width=220)

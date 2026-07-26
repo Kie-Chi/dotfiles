@@ -8,6 +8,9 @@ envy tui
 
 From a repository checkout, the same command falls back to
 `cargo run --manifest-path tools/envy-tui/Cargo.toml` when `cargo` is available.
+`tui` is also registered in the Typer command tree, so it appears in
+`envy --help`, shell completion, and `envy tui --help`; the shell wrapper keeps
+an exact `envy tui` fast path only for launching the installed binary.
 
 Envy keeps policy, Nix evaluation, registry resolution, and mutation safety in
 the Python CLI. A future TUI should be a thin frontend that invokes these
@@ -92,6 +95,14 @@ the TUI keeps rendering it with a `refreshing` indicator instead of replacing
 the entire view with a loading screen. Dashboard loading also seeds the Doctor
 page cache because the dashboard response already contains the complete doctor
 payload.
+
+The Software page supports guarded availability changes. Move the selected row
+with `j`/`k` or the arrow keys and press `Enter`/`Space`. The TUI first calls
+`envy sw add/rm ... --dry-run --json`, renders the verified include/exclude plan,
+and applies it only after a second `Enter`/`y` confirmation through
+`--yes --json`. It never edits a machine file itself. Successful mutations
+invalidate Dashboard, Software, Doctor, and search caches before reloading the
+Software page; policy blocks are displayed without discarding the cached view.
 
 It intentionally remains a separate binary calling the existing `envy`
 executable. This keeps the policy engine in Python and makes the frontend a

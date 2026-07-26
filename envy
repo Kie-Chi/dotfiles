@@ -8,7 +8,7 @@ export PYTHONPATH="$ROOT/resources/scripts:${PYTHONPATH:-}"
 
 # The polished frontend is a separate Rust binary. Prefer an installed
 # package, while keeping the repository checkout runnable during development.
-if [ "${1:-}" = "tui" ]; then
+if [ "${1:-}" = "tui" ] && [ "$#" -eq 1 ] && [ -z "${_ENVY_COMPLETE:-}" ]; then
   shift
   if command -v envy-tui >/dev/null 2>&1; then
     exec envy-tui "$@"

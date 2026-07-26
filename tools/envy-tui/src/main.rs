@@ -16,7 +16,7 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs, Wrap},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap},
 };
 use serde_json::{json, Value};
 
@@ -79,6 +79,57 @@ struct PageState {
     request: Option<u64>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MutationStage {
+    Preview,
+    Apply,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SoftwareAction {
+    Add,
+    Remove,
+}
+
+impl SoftwareAction {
+    fn command(self) -> &'static str {
+        match self {
+            Self::Add => "add",
+            Self::Remove => "rm",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Add => "enable",
+            Self::Remove => "disable",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MutationIntent {
+    action: SoftwareAction,
+    group: String,
+    item: String,
+}
+
+#[derive(Clone, Debug)]
+struct MutationPreview {
+    intent: MutationIntent,
+    payload: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SoftwareEntry {
+    group: String,
+    item: String,
+    version: String,
+    state: String,
+    reference: String,
+    effective: bool,
+}
+
 impl PageState {
     fn has_content(&self) -> bool {
         self.payload.is_some()
@@ -97,6 +148,12 @@ enum Message {
         target: LoadTarget,
         error: String,
     },
+    MutationFinished {
+        request: u64,
+        stage: MutationStage,
+        intent: MutationIntent,
+        result: Result<Value, String>,
+    },
 }
 
 struct App {
@@ -109,11 +166,17 @@ struct App {
     submitted_query: String,
     input_mode: bool,
     scroll: usize,
+    visible_rows: usize,
+    software_selected: usize,
     request_id: u64,
     tx: Sender<Message>,
     rx: Receiver<Message>,
     should_quit: bool,
     show_help: bool,
+    mutation_request: Option<u64>,
+    mutation_loading: bool,
+    pending_mutation: Option<MutationPreview>,
+    mutation_error: Option<String>,
 }
 
 impl App {
@@ -128,11 +191,17 @@ impl App {
             submitted_query: String::new(),
             input_mode: false,
             scroll: 0,
+            visible_rows: 1,
+            software_selected: 0,
             request_id: 0,
             tx,
             rx,
             should_quit: false,
             show_help: false,
+            mutation_request: None,
+            mutation_loading: false,
+            pending_mutation: None,
+            mutation_error: None,
         }
     }
 
@@ -276,6 +345,83 @@ impl App {
         self.set_screen(Screen::ALL[next]);
     }
 
+    fn move_software_selection(&mut self, delta: isize) {
+        let count = software_entries(self.payload()).len();
+        if count == 0 {
+            self.software_selected = 0;
+            self.scroll = 0;
+            return;
+        }
+        self.software_selected = (self.software_selected as isize + delta)
+            .clamp(0, count.saturating_sub(1) as isize) as usize;
+        if self.software_selected < self.scroll {
+            self.scroll = self.software_selected;
+        } else if self.software_selected >= self.scroll + self.visible_rows {
+            self.scroll = self
+                .software_selected
+                .saturating_add(1)
+                .saturating_sub(self.visible_rows);
+        }
+    }
+
+    fn begin_selected_mutation(&mut self) {
+        if self.screen != Screen::Software || self.mutation_loading {
+            return;
+        }
+        let Some(entry) = software_entries(self.payload())
+            .get(self.software_selected)
+            .cloned()
+        else {
+            self.status = "No software item selected".to_string();
+            return;
+        };
+        let intent = MutationIntent {
+            action: if entry.effective {
+                SoftwareAction::Remove
+            } else {
+                SoftwareAction::Add
+            },
+            group: entry.group,
+            item: entry.item,
+        };
+        self.request_id += 1;
+        let request = self.request_id;
+        self.mutation_request = Some(request);
+        self.mutation_loading = true;
+        self.mutation_error = None;
+        self.status = format!(
+            "Preparing {} plan for {}",
+            intent.action.label(),
+            intent.item
+        );
+        spawn_mutation(self.tx.clone(), request, MutationStage::Preview, intent);
+    }
+
+    fn apply_pending_mutation(&mut self) {
+        if self.mutation_loading {
+            return;
+        }
+        let Some(preview) = self.pending_mutation.as_ref() else {
+            return;
+        };
+        let intent = preview.intent.clone();
+        self.request_id += 1;
+        let request = self.request_id;
+        self.mutation_request = Some(request);
+        self.mutation_loading = true;
+        self.status = format!("Applying {} for {}", intent.action.label(), intent.item);
+        spawn_mutation(self.tx.clone(), request, MutationStage::Apply, intent);
+    }
+
+    fn invalidate_after_mutation(&mut self) {
+        for screen in [Screen::Dashboard, Screen::Software, Screen::Doctor] {
+            self.pages.remove(&screen);
+        }
+        self.search_cache.clear();
+        self.search_order.clear();
+        self.scroll = 0;
+    }
+
     fn receive_messages(&mut self) {
         while let Ok(message) = self.rx.try_recv() {
             match message {
@@ -312,6 +458,15 @@ impl App {
                     if accepted && is_current {
                         self.status = format!("{} ready", target.title());
                     }
+                    if accepted && target == LoadTarget::Screen(Screen::Software) {
+                        let count = software_entries(
+                            self.state_for_target(&target)
+                                .and_then(|state| state.payload.as_ref()),
+                        )
+                        .len();
+                        self.software_selected =
+                            self.software_selected.min(count.saturating_sub(1));
+                    }
                 }
                 Message::Failed {
                     request,
@@ -332,6 +487,36 @@ impl App {
                         self.sync_status();
                     }
                 }
+                Message::MutationFinished {
+                    request,
+                    stage,
+                    intent,
+                    result,
+                } if self.mutation_request == Some(request) => {
+                    self.mutation_request = None;
+                    self.mutation_loading = false;
+                    match (stage, result) {
+                        (MutationStage::Preview, Ok(payload)) => {
+                            self.status =
+                                format!("{} plan ready for {}", intent.action.label(), intent.item);
+                            self.pending_mutation = Some(MutationPreview { intent, payload });
+                        }
+                        (MutationStage::Apply, Ok(_)) => {
+                            let description =
+                                format!("{} applied for {}", intent.action.label(), intent.item);
+                            self.pending_mutation = None;
+                            self.invalidate_after_mutation();
+                            self.load_current(true);
+                            self.status = format!("{description}; refreshing software");
+                        }
+                        (_, Err(error)) => {
+                            self.pending_mutation = None;
+                            self.mutation_error = Some(error);
+                            self.status = format!("{} failed", intent.action.label());
+                        }
+                    }
+                }
+                Message::MutationFinished { .. } => {}
             }
         }
     }
@@ -370,13 +555,48 @@ impl App {
     }
 
     fn clamp_scroll(&mut self, body_height: u16) {
-        let visible_rows = body_height.saturating_sub(3) as usize;
-        let maximum = self.row_count().saturating_sub(visible_rows);
+        self.visible_rows = (body_height.saturating_sub(3) as usize).max(1);
+        let row_count = self.row_count();
+        let maximum = row_count.saturating_sub(self.visible_rows);
+        if self.screen == Screen::Software {
+            self.software_selected = self.software_selected.min(row_count.saturating_sub(1));
+            if self.software_selected < self.scroll {
+                self.scroll = self.software_selected;
+            } else if self.software_selected >= self.scroll + self.visible_rows {
+                self.scroll = self
+                    .software_selected
+                    .saturating_add(1)
+                    .saturating_sub(self.visible_rows);
+            }
+        }
         self.scroll = self.scroll.min(maximum);
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
         if key.kind != KeyEventKind::Press {
+            return;
+        }
+        if self.mutation_error.is_some() {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
+                self.mutation_error = None;
+                self.sync_status();
+            }
+            return;
+        }
+        if self.pending_mutation.is_some() {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char('y') if !self.mutation_loading => {
+                    self.apply_pending_mutation();
+                }
+                KeyCode::Esc | KeyCode::Char('n') if !self.mutation_loading => {
+                    self.pending_mutation = None;
+                    self.status = "Software change cancelled".to_string();
+                }
+                _ => {}
+            }
+            return;
+        }
+        if self.mutation_loading {
             return;
         }
         if self.show_help {
@@ -428,8 +648,21 @@ impl App {
             KeyCode::Char(character) if ('1'..='5').contains(&character) => {
                 self.set_screen(Screen::ALL[character as usize - '1' as usize]);
             }
-            KeyCode::Down | KeyCode::Char('j') => self.scroll = self.scroll.saturating_add(1),
-            KeyCode::Up | KeyCode::Char('k') => self.scroll = self.scroll.saturating_sub(1),
+            KeyCode::Enter | KeyCode::Char(' ') if self.screen == Screen::Software => {
+                self.begin_selected_mutation();
+            }
+            KeyCode::Down | KeyCode::Char('j') if self.screen == Screen::Software => {
+                self.move_software_selection(1);
+            }
+            KeyCode::Up | KeyCode::Char('k') if self.screen == Screen::Software => {
+                self.move_software_selection(-1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.scroll = self.scroll.saturating_add(1);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.scroll = self.scroll.saturating_sub(1);
+            }
             _ => {}
         }
     }
@@ -519,14 +752,145 @@ fn spawn_request(tx: Sender<Message>, request: u64, target: LoadTarget) {
     });
 }
 
+fn mutation_result(payload: Value) -> Result<Value, String> {
+    if payload.get("ok").and_then(Value::as_bool) == Some(false) {
+        let message = payload
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("software mutation failed");
+        Err(message.to_string())
+    } else {
+        Ok(payload)
+    }
+}
+
+fn mutation_args(stage: MutationStage, intent: &MutationIntent) -> Vec<String> {
+    let mut args = vec![
+        "sw".to_string(),
+        intent.action.command().to_string(),
+        intent.group.clone(),
+        intent.item.clone(),
+    ];
+    match stage {
+        MutationStage::Preview => args.push("--dry-run".to_string()),
+        MutationStage::Apply => args.push("--yes".to_string()),
+    }
+    args.push("--json".to_string());
+    args
+}
+
+fn validate_mutation_response(
+    stage: MutationStage,
+    intent: &MutationIntent,
+    payload: Value,
+) -> Result<Value, String> {
+    let payload = mutation_result(payload)?;
+    if payload.get("schemaVersion").and_then(Value::as_u64) != Some(1) {
+        return Err("unsupported software mutation schema".to_string());
+    }
+    let expected_command = format!("software.{}", intent.action.command());
+    if payload.get("command").and_then(Value::as_str) != Some(expected_command.as_str()) {
+        return Err("software mutation command does not match the request".to_string());
+    }
+    let data = payload.get("data").unwrap_or(&Value::Null);
+    let plan = data.get("plan").unwrap_or(&Value::Null);
+    let group = plan
+        .get("group")
+        .and_then(|group| group.get("id"))
+        .and_then(Value::as_str);
+    let item = plan.get("item").and_then(Value::as_str);
+    let action = plan.get("action").and_then(Value::as_str);
+    let effective = plan
+        .get("expected")
+        .and_then(|expected| expected.get("effective"))
+        .and_then(Value::as_bool);
+    if group != Some(intent.group.as_str())
+        || item != Some(intent.item.as_str())
+        || action != Some(intent.action.command())
+        || effective != Some(intent.action == SoftwareAction::Add)
+    {
+        return Err("software mutation plan does not match the selected item".to_string());
+    }
+    let result = data.get("result").and_then(Value::as_str);
+    let valid_result = match stage {
+        MutationStage::Preview => result == Some("dry-run"),
+        MutationStage::Apply => matches!(result, Some("applied" | "already-satisfied")),
+    };
+    if !valid_result {
+        return Err("software mutation returned an unexpected result".to_string());
+    }
+    Ok(payload)
+}
+
+fn spawn_mutation(tx: Sender<Message>, request: u64, stage: MutationStage, intent: MutationIntent) {
+    thread::spawn(move || {
+        let args = mutation_args(stage, &intent);
+        let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let result = run_json(&arg_refs)
+            .and_then(|payload| validate_mutation_response(stage, &intent, payload));
+        let _ = tx.send(Message::MutationFinished {
+            request,
+            stage,
+            intent,
+            result,
+        });
+    });
+}
+
 fn text(value: Option<&Value>) -> String {
     match value {
         Some(Value::String(value)) => value.clone(),
         Some(Value::Bool(value)) => value.to_string(),
         Some(Value::Number(value)) => value.to_string(),
+        Some(Value::Null) => "—".to_string(),
         Some(value) => value.to_string(),
         None => "—".to_string(),
     }
+}
+
+fn software_entries(payload: Option<&Value>) -> Vec<SoftwareEntry> {
+    let mut entries = Vec::new();
+    let Some(groups) = payload
+        .and_then(|value| value.get("groups"))
+        .and_then(Value::as_array)
+    else {
+        return entries;
+    };
+    for group in groups {
+        let group_id = text(group.get("id"));
+        let Some(items) = group.get("items").and_then(Value::as_array) else {
+            continue;
+        };
+        for item in items {
+            let effective = item
+                .get("effective")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let state = if effective {
+                "effective"
+            } else if item
+                .get("externalExclude")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                "blocked"
+            } else if item.get("stale").and_then(Value::as_bool).unwrap_or(false) {
+                "stale"
+            } else {
+                "excluded"
+            };
+            entries.push(SoftwareEntry {
+                group: group_id.clone(),
+                item: text(item.get("id")),
+                version: text(item.get("version")),
+                state: state.to_string(),
+                reference: text(item.get("ref")),
+                effective,
+            });
+        }
+    }
+    entries
 }
 
 /// Compute the largest useful table offset for a viewport.
@@ -587,7 +951,9 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         String::new()
     };
-    let activity = if app.loading() {
+    let activity = if app.mutation_loading {
+        "  ◌ working"
+    } else if app.loading() {
         if app.current_has_content() {
             "  ◌ refreshing"
         } else {
@@ -608,7 +974,11 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(query, Style::default().fg(Color::Yellow)),
         Span::styled(activity, Style::default().fg(Color::Yellow)),
         Span::styled(
-            "  q quit  ? help  r refresh  Tab next  ↑↓ scroll",
+            if app.screen == Screen::Software {
+                "  Enter toggle  q quit  ? help  r refresh  Tab next"
+            } else {
+                "  q quit  ? help  r refresh  Tab next  ↑↓ scroll"
+            },
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -683,47 +1053,29 @@ fn card<'a>(widget: Paragraph<'a>) -> Paragraph<'a> {
 }
 
 fn render_software(frame: &mut Frame, app: &App, area: Rect) {
-    let mut rows = Vec::new();
-    if let Some(groups) = app
-        .payload()
-        .and_then(|payload| payload.get("groups"))
-        .and_then(Value::as_array)
-    {
-        for group in groups {
-            let group_id = text(group.get("id"));
-            if let Some(items) = group.get("items").and_then(Value::as_array) {
-                for item in items {
-                    let state = if item
-                        .get("effective")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false)
-                    {
-                        "effective"
-                    } else if item
-                        .get("externalExclude")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false)
-                    {
-                        "blocked"
-                    } else if item.get("stale").and_then(Value::as_bool).unwrap_or(false) {
-                        "stale"
-                    } else {
-                        "excluded"
-                    };
-                    rows.push(Row::new(vec![
-                        Cell::from(group_id.clone()),
-                        Cell::from(text(item.get("id"))),
-                        Cell::from(text(item.get("version"))),
-                        Cell::from(state),
-                        Cell::from(text(item.get("ref"))),
-                    ]));
-                }
-            }
-        }
-    }
-    let offset = row_offset(app.scroll, rows.len(), area);
+    let entries = software_entries(app.payload());
+    let offset = row_offset(app.scroll, entries.len(), area);
+    let rows = entries
+        .iter()
+        .skip(offset)
+        .map(|entry| {
+            let state_style = match entry.state.as_str() {
+                "effective" => Style::default().fg(Color::Green),
+                "blocked" => Style::default().fg(Color::Red),
+                "stale" => Style::default().fg(Color::Yellow),
+                _ => Style::default().fg(Color::DarkGray),
+            };
+            Row::new(vec![
+                Cell::from(entry.group.clone()),
+                Cell::from(entry.item.clone()),
+                Cell::from(entry.version.clone()),
+                Cell::from(entry.state.clone()).style(state_style),
+                Cell::from(entry.reference.clone()),
+            ])
+        })
+        .collect::<Vec<_>>();
     let table = Table::new(
-        rows.into_iter().skip(offset).collect::<Vec<_>>(),
+        rows,
         [
             Constraint::Length(28),
             Constraint::Length(22),
@@ -737,13 +1089,20 @@ fn render_software(frame: &mut Frame, app: &App, area: Rect) {
             .style(Style::default().fg(Color::Cyan).bold()),
     )
     .row_highlight_style(Style::default().bg(Color::Rgb(25, 45, 60)))
+    .highlight_symbol("▸ ")
     .block(
         Block::default()
-            .title(" Software policy ")
+            .title(" Software policy — Enter/Space toggles availability ")
             .borders(Borders::ALL)
             .border_style(Color::DarkGray),
     );
-    frame.render_widget(table, area);
+    let selected = if entries.is_empty() {
+        None
+    } else {
+        Some(app.software_selected.saturating_sub(offset))
+    };
+    let mut state = TableState::default().with_selected(selected);
+    frame.render_stateful_widget(table, area, &mut state);
 }
 
 fn render_search(frame: &mut Frame, app: &App, area: Rect) {
@@ -948,6 +1307,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Line::from("  Enter      submit search"),
         Line::from("  r          refresh current page"),
         Line::from("  ↑↓ / j k   scroll"),
+        Line::from("  Enter/Space toggle selected software"),
         Line::from("  q / Esc    quit"),
         Line::from(""),
         Line::from("Press ? or Esc to close"),
@@ -960,6 +1320,264 @@ fn render_help(frame: &mut Frame, area: Rect) {
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(help, popup);
+}
+
+fn joined_strings(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn inset_rect(area: Rect, horizontal: u16, vertical: u16) -> Rect {
+    let horizontal = horizontal.min(area.width / 2);
+    let vertical = vertical.min(area.height / 2);
+    Rect {
+        x: area.x.saturating_add(horizontal),
+        y: area.y.saturating_add(vertical),
+        width: area.width.saturating_sub(horizontal.saturating_mul(2)),
+        height: area.height.saturating_sub(vertical.saturating_mul(2)),
+    }
+}
+
+fn centered_size(width: u16, height: u16, area: Rect) -> Rect {
+    let width = width.min(area.width.saturating_sub(4)).max(1);
+    let height = height.min(area.height.saturating_sub(2)).max(1);
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
+
+fn render_popup_panel(frame: &mut Frame, area: Rect, title: &str, lines: Vec<Line<'static>>) {
+    let block = Block::default()
+        .title(format!(" {title} "))
+        .borders(Borders::ALL)
+        .border_style(Color::DarkGray)
+        .style(Style::default().bg(Color::Rgb(18, 22, 30)));
+    let inner = inset_rect(block.inner(area), 1, 0);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+fn render_mutation_overlay(frame: &mut Frame, app: &App, area: Rect) {
+    if let Some(error) = &app.mutation_error {
+        let popup = centered_size(76, 11, area);
+        frame.render_widget(Clear, popup);
+        render_popup_panel(
+            frame,
+            popup,
+            "SOFTWARE CHANGE FAILED",
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(error.clone(), Style::default().fg(Color::Red))),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(
+                        " ENTER ",
+                        Style::default().fg(Color::Black).bg(Color::Cyan).bold(),
+                    ),
+                    Span::raw("  close"),
+                ]),
+            ],
+        );
+        return;
+    }
+
+    if let Some(preview) = &app.pending_mutation {
+        let plan = preview
+            .payload
+            .get("data")
+            .and_then(|data| data.get("plan"))
+            .unwrap_or(&Value::Null);
+        let expected = plan.get("expected").unwrap_or(&Value::Null);
+        let effective = expected
+            .get("effective")
+            .and_then(Value::as_bool)
+            .map(|value| if value { "enabled" } else { "disabled" })
+            .unwrap_or("unknown");
+        let changed = plan
+            .get("changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let blocked = plan.get("blocked").and_then(Value::as_str);
+        let wide = area.width >= 100;
+        let popup = centered_size(if wide { 94 } else { 76 }, if wide { 18 } else { 24 }, area);
+        frame.render_widget(Clear, popup);
+
+        let outer = Block::default()
+            .title(" CONFIRM SOFTWARE CHANGE ")
+            .borders(Borders::ALL)
+            .border_style(Color::Cyan)
+            .style(Style::default().bg(Color::Rgb(18, 22, 30)));
+        let inner = inset_rect(outer.inner(popup), 2, 1);
+        frame.render_widget(outer, popup);
+        let sections = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(8),
+            Constraint::Length(3),
+        ])
+        .split(inner);
+
+        let action_color = match preview.intent.action {
+            SoftwareAction::Add => Color::Green,
+            SoftwareAction::Remove => Color::Yellow,
+        };
+        let action_badge = preview.intent.action.label().to_uppercase();
+        let change_badge = if changed { " CHANGES " } else { " NO CHANGES " };
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled(
+                        format!(" {action_badge} "),
+                        Style::default().fg(Color::Black).bg(action_color).bold(),
+                    ),
+                    Span::styled(
+                        format!("  {}", preview.intent.item),
+                        Style::default().fg(Color::White).bold(),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        change_badge,
+                        Style::default().fg(Color::Black).bg(Color::DarkGray).bold(),
+                    ),
+                ]),
+                Line::from(Span::styled(
+                    "Review the verified Envy policy plan before applying it.",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ]),
+            sections[0],
+        );
+
+        let summary_lines = vec![
+            Line::from(vec![
+                Span::styled("Group     ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    preview.intent.group.clone(),
+                    Style::default().fg(Color::White),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Item      ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    preview.intent.item.clone(),
+                    Style::default().fg(Color::White),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Result    ", Style::default().fg(Color::DarkGray)),
+                Span::styled(effective, Style::default().fg(action_color).bold()),
+            ]),
+            Line::from(vec![
+                Span::styled("Verified  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("dry-run", Style::default().fg(Color::Cyan)),
+            ]),
+        ];
+        let mut plan_lines = Vec::new();
+        for (label, color, value) in [
+            ("Add include       ", Color::Green, plan.get("includeAdded")),
+            ("Remove include    ", Color::Red, plan.get("includeRemoved")),
+            (
+                "Add exclusion     ",
+                Color::Yellow,
+                plan.get("excludeAdded"),
+            ),
+            (
+                "Remove exclusion  ",
+                Color::Cyan,
+                plan.get("excludeRemoved"),
+            ),
+        ] {
+            if let Some(items) = joined_strings(value) {
+                plan_lines.push(Line::from(vec![
+                    Span::styled(label, Style::default().fg(color)),
+                    Span::styled(items, Style::default().fg(Color::White).bold()),
+                ]));
+            }
+        }
+        if plan_lines.is_empty() {
+            plan_lines.push(Line::from(Span::styled(
+                "No policy edits are required.",
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+
+        if wide {
+            let columns = Layout::horizontal([
+                Constraint::Percentage(48),
+                Constraint::Length(2),
+                Constraint::Percentage(48),
+            ])
+            .split(sections[1]);
+            render_popup_panel(frame, columns[0], "SUMMARY", summary_lines);
+            render_popup_panel(frame, columns[2], "POLICY PLAN", plan_lines);
+        } else {
+            let body = Layout::vertical([
+                Constraint::Length(7),
+                Constraint::Length(1),
+                Constraint::Min(7),
+            ])
+            .split(sections[1]);
+            render_popup_panel(frame, body[0], "SUMMARY", summary_lines);
+            render_popup_panel(frame, body[2], "POLICY PLAN", plan_lines);
+        }
+
+        let footer = if app.mutation_loading {
+            Line::from(Span::styled(
+                "Applying verified change…",
+                Style::default().fg(Color::Yellow).bold(),
+            ))
+        } else if let Some(reason) = blocked {
+            Line::from(Span::styled(
+                format!("Blocked: {reason}"),
+                Style::default().fg(Color::Red).bold(),
+            ))
+        } else {
+            Line::from(vec![
+                Span::styled(
+                    " ENTER ",
+                    Style::default().fg(Color::Black).bg(Color::Green).bold(),
+                ),
+                Span::raw("  Apply     "),
+                Span::styled(
+                    " ESC ",
+                    Style::default().fg(Color::White).bg(Color::DarkGray).bold(),
+                ),
+                Span::raw("  Cancel"),
+            ])
+        };
+        frame.render_widget(
+            Paragraph::new(vec![Line::from(""), footer]).alignment(Alignment::Center),
+            sections[2],
+        );
+        return;
+    }
+
+    if app.mutation_loading {
+        let popup = centered_size(60, 7, area);
+        frame.render_widget(Clear, popup);
+        render_popup_panel(
+            frame,
+            popup,
+            "VERIFYING SOFTWARE CHANGE",
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Preparing dry-run policy plan…",
+                    Style::default().fg(Color::Yellow).bold(),
+                )),
+            ],
+        );
+    }
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
@@ -994,6 +1612,7 @@ fn draw(frame: &mut Frame, app: &App) {
     if app.show_help {
         render_help(frame, frame.area());
     }
+    render_mutation_overlay(frame, app, frame.area());
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
@@ -1131,6 +1750,230 @@ mod tests {
         assert!(app
             .search_cache
             .contains_key(&format!("query-{SEARCH_CACHE_LIMIT}")));
+    }
+
+    #[test]
+    fn software_entries_preserve_identity_and_availability() {
+        let payload = json!({
+            "groups": [{
+                "id": "nix.user.package",
+                "items": [{
+                    "id": "git",
+                    "version": "2.50",
+                    "ref": "nix:git",
+                    "effective": true,
+                    "externalExclude": false,
+                    "stale": false
+                }]
+            }]
+        });
+
+        let entries = software_entries(Some(&payload));
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].group, "nix.user.package");
+        assert_eq!(entries[0].item, "git");
+        assert!(entries[0].effective);
+        assert_eq!(entries[0].state, "effective");
+    }
+
+    #[test]
+    fn mutation_envelope_error_is_not_treated_as_success() {
+        let result = mutation_result(json!({
+            "ok": false,
+            "error": {"code": "blocked", "message": "shared policy blocks this item"}
+        }));
+
+        assert_eq!(result.unwrap_err(), "shared policy blocks this item");
+    }
+
+    #[test]
+    fn mutation_commands_keep_preview_and_apply_separate() {
+        let intent = MutationIntent {
+            action: SoftwareAction::Add,
+            group: "homebrew.system.cask".to_string(),
+            item: "firefox".to_string(),
+        };
+
+        assert_eq!(
+            mutation_args(MutationStage::Preview, &intent),
+            [
+                "sw",
+                "add",
+                "homebrew.system.cask",
+                "firefox",
+                "--dry-run",
+                "--json"
+            ]
+        );
+        assert_eq!(
+            mutation_args(MutationStage::Apply, &intent),
+            [
+                "sw",
+                "add",
+                "homebrew.system.cask",
+                "firefox",
+                "--yes",
+                "--json"
+            ]
+        );
+    }
+
+    #[test]
+    fn mutation_response_must_match_the_previewed_item() {
+        let intent = MutationIntent {
+            action: SoftwareAction::Remove,
+            group: "nix.user.package".to_string(),
+            item: "git".to_string(),
+        };
+        let response = |item: &str| {
+            json!({
+                "schemaVersion": 1,
+                "command": "software.rm",
+                "ok": true,
+                "data": {
+                    "result": "dry-run",
+                    "plan": {
+                        "action": "rm",
+                        "group": {"id": "nix.user.package"},
+                        "item": item,
+                        "expected": {"effective": false}
+                    }
+                }
+            })
+        };
+
+        assert!(
+            validate_mutation_response(MutationStage::Preview, &intent, response("git")).is_ok()
+        );
+        assert_eq!(
+            validate_mutation_response(MutationStage::Preview, &intent, response("different-item"))
+                .unwrap_err(),
+            "software mutation plan does not match the selected item"
+        );
+    }
+
+    #[test]
+    fn preview_message_opens_confirmation_without_writing() {
+        let mut app = app();
+        let intent = MutationIntent {
+            action: SoftwareAction::Remove,
+            group: "nix.user.package".to_string(),
+            item: "git".to_string(),
+        };
+        app.mutation_request = Some(9);
+        app.mutation_loading = true;
+        app.tx
+            .send(Message::MutationFinished {
+                request: 9,
+                stage: MutationStage::Preview,
+                intent: intent.clone(),
+                result: Ok(json!({
+                    "ok": true,
+                    "data": {"result": "dry-run", "plan": {"changed": true}}
+                })),
+            })
+            .unwrap();
+
+        app.receive_messages();
+
+        assert!(!app.mutation_loading);
+        assert_eq!(app.pending_mutation.as_ref().unwrap().intent, intent);
+    }
+
+    #[test]
+    fn successful_apply_invalidates_dependent_caches() {
+        let mut app = app();
+        app.screen = Screen::Search;
+        app.pages.insert(
+            Screen::Software,
+            PageState {
+                payload: Some(json!({"groups": []})),
+                ..PageState::default()
+            },
+        );
+        app.pages.insert(
+            Screen::Doctor,
+            PageState {
+                payload: Some(json!({"results": []})),
+                ..PageState::default()
+            },
+        );
+        app.search_cache
+            .insert("git".to_string(), PageState::default());
+        app.search_order.push_back("git".to_string());
+        app.mutation_request = Some(11);
+        app.mutation_loading = true;
+        app.pending_mutation = Some(MutationPreview {
+            intent: MutationIntent {
+                action: SoftwareAction::Remove,
+                group: "nix.user.package".to_string(),
+                item: "git".to_string(),
+            },
+            payload: json!({}),
+        });
+        app.tx
+            .send(Message::MutationFinished {
+                request: 11,
+                stage: MutationStage::Apply,
+                intent: app.pending_mutation.as_ref().unwrap().intent.clone(),
+                result: Ok(json!({"ok": true})),
+            })
+            .unwrap();
+
+        app.receive_messages();
+
+        assert!(!app.pages.contains_key(&Screen::Software));
+        assert!(!app.pages.contains_key(&Screen::Doctor));
+        assert!(app.search_cache.is_empty());
+        assert!(app.pending_mutation.is_none());
+        assert!(!app.mutation_loading);
+    }
+
+    #[test]
+    fn software_selection_stays_inside_the_viewport() {
+        let mut app = app();
+        app.screen = Screen::Software;
+        app.visible_rows = 2;
+        app.pages.insert(
+            Screen::Software,
+            PageState {
+                payload: Some(json!({
+                    "groups": [{
+                        "id": "nix.user.package",
+                        "items": (0..5).map(|index| json!({
+                            "id": format!("item-{index}"),
+                            "effective": true
+                        })).collect::<Vec<_>>()
+                    }]
+                })),
+                ..PageState::default()
+            },
+        );
+
+        app.move_software_selection(1);
+        app.move_software_selection(1);
+        app.move_software_selection(1);
+
+        assert_eq!(app.software_selected, 3);
+        assert_eq!(app.scroll, 2);
+    }
+
+    #[test]
+    fn empty_policy_operations_are_hidden() {
+        assert_eq!(joined_strings(Some(&json!([]))), None);
+        assert_eq!(
+            joined_strings(Some(&json!(["neteasemusic"]))),
+            Some("neteasemusic".to_string())
+        );
+    }
+
+    #[test]
+    fn fixed_popup_is_centered_without_filling_a_tall_terminal() {
+        let area = Rect::new(0, 0, 150, 60);
+        let popup = centered_size(94, 18, area);
+
+        assert_eq!(popup, Rect::new(28, 21, 94, 18));
     }
 
     #[test]

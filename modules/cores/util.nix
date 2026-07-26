@@ -56,7 +56,9 @@ let
         export PYTHONPATH="$bundled:''${PYTHONPATH:-}"
       fi
 
-      if [ "''${1:-}" = "tui" ] && command -v envy-tui >/dev/null 2>&1; then
+      if [ "''${1:-}" = "tui" ] && [ "$#" -eq 1 ] \
+        && [ -z "''${_ENVY_COMPLETE:-}" ] \
+        && command -v envy-tui >/dev/null 2>&1; then
         shift
         exec envy-tui "$@"
       fi

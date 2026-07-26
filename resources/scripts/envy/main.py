@@ -1,4 +1,5 @@
 import os
+import shutil
 
 import typer
 from typing import Optional
@@ -166,6 +167,36 @@ def cmd_plan(
 ):
     """Build the selected machine and compare it with the active closure."""
     plan_configuration(json_output=json_output)
+
+
+@cli.command(name="tui")
+def cmd_tui():
+    """Launch the interactive Rust/Ratatui frontend."""
+    binary = shutil.which("envy-tui")
+    if binary is not None:
+        os.execv(binary, [binary])
+
+    manifest = DOTFILES_DIR / "tools" / "envy-tui" / "Cargo.toml"
+    cargo = shutil.which("cargo")
+    if cargo is not None and manifest.is_file():
+        launcher = DOTFILES_DIR / "envy"
+        backend = os.environ.get("ENVY_BIN")
+        if not backend:
+            backend = str(launcher) if launcher.is_file() else "envy"
+        environment = os.environ.copy()
+        environment["ENVY_BIN"] = backend
+        os.execvpe(
+            cargo,
+            [cargo, "run", "--quiet", "--manifest-path", str(manifest), "--"],
+            environment,
+        )
+
+    log.error(
+        "tui",
+        "envy-tui is not installed",
+        hint="enter the Nix devShell or apply the Envy package",
+    )
+    raise typer.Exit(code=1)
 
 
 @cli.command(name="init")
