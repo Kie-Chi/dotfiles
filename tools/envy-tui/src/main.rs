@@ -26,7 +26,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> 
     while !app.should_quit {
         let body_height = terminal.size()?.height.saturating_sub(4);
         app.clamp_scroll(body_height);
-        terminal.draw(|frame| ui::draw(frame, &app))?;
+        terminal.draw(|frame| ui::draw(frame, &mut app))?;
         if event::poll(POLL_INTERVAL)? {
             if let Event::Key(key) = event::read()? {
                 app.handle_key(key);

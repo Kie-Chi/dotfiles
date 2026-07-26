@@ -55,6 +55,7 @@ pub struct App {
     detail_request: Option<u64>,
     pub detail: Option<DetailView>,
     pub detail_scroll: usize,
+    pub detail_scroll_max: usize,
     group_request: Option<u64>,
     pub group_chooser: Option<GroupChooser>,
 }
@@ -90,6 +91,7 @@ impl App {
             detail_request: None,
             detail: None,
             detail_scroll: 0,
+            detail_scroll_max: 0,
             group_request: None,
             group_chooser: None,
         }
@@ -367,6 +369,7 @@ impl App {
             title: format!("WHY {}", entry.item),
         });
         self.detail_scroll = 0;
+        self.detail_scroll_max = 0;
         spawn_software_why(self.tx.clone(), request, entry.group, entry.item);
     }
 
@@ -445,6 +448,7 @@ impl App {
         };
         self.detail = Some(DetailView::Doctor(result));
         self.detail_scroll = 0;
+        self.detail_scroll_max = 0;
     }
 
     fn begin_history_diff(&mut self) {
@@ -484,6 +488,7 @@ impl App {
             title: format!("DIFF {before} → {after}"),
         });
         self.detail_scroll = 0;
+        self.detail_scroll_max = 0;
         spawn_history_diff(self.tx.clone(), request, before, after);
     }
 
@@ -731,7 +736,10 @@ impl App {
         if self.detail.is_some() {
             match key.code {
                 KeyCode::Down | KeyCode::Char('j') => {
-                    self.detail_scroll = self.detail_scroll.saturating_add(1)
+                    self.detail_scroll = self
+                        .detail_scroll
+                        .saturating_add(1)
+                        .min(self.detail_scroll_max)
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.detail_scroll = self.detail_scroll.saturating_sub(1)
@@ -741,6 +749,7 @@ impl App {
                     self.detail_request = None;
                     self.group_request = None;
                     self.detail_scroll = 0;
+                    self.detail_scroll_max = 0;
                 }
                 _ => {}
             }

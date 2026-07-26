@@ -506,19 +506,25 @@ fn popup(frame: &mut Frame, area: Rect, title: &str, lines: Vec<Line<'static>>, 
     );
 }
 
-fn key_footer() -> Line<'static> {
-    Line::from(vec![
+fn key_footer(scrollable: bool) -> Line<'static> {
+    let mut spans = vec![
         Span::styled(
             " ENTER ",
             Style::default().fg(Color::Black).bg(Color::Cyan).bold(),
         ),
-        Span::raw(" close    "),
-        Span::styled(
-            " ↑↓ ",
-            Style::default().fg(Color::White).bg(Color::DarkGray).bold(),
-        ),
-        Span::raw(" scroll"),
-    ])
+        Span::raw(" close"),
+    ];
+    if scrollable {
+        spans.extend([
+            Span::raw("    "),
+            Span::styled(
+                " ↑↓ ",
+                Style::default().fg(Color::White).bg(Color::DarkGray).bold(),
+            ),
+            Span::raw(" scroll"),
+        ]);
+    }
+    Line::from(spans)
 }
 
 fn bool_line(label: &'static str, value: Option<&Value>) -> Line<'static> {
@@ -583,8 +589,6 @@ fn software_detail_lines(payload: &Value) -> Vec<Line<'static>> {
         Line::from(""),
         Line::from(Span::styled("Why", Style::default().fg(Color::Cyan).bold())),
         Line::from(reason),
-        Line::from(""),
-        key_footer(),
     ]
 }
 
@@ -646,8 +650,6 @@ fn doctor_detail_lines(result: &Value) -> Vec<Line<'static>> {
         Style::default().fg(Color::Cyan).bold(),
     )));
     lines.extend(json_lines(result.get("action")));
-    lines.push(Line::from(""));
-    lines.push(key_footer());
     lines
 }
 
@@ -712,12 +714,43 @@ fn history_diff_lines(payload: &Value) -> Vec<Line<'static>> {
         )),
     ];
     lines.extend(diff.lines().map(|line| Line::from(line.to_string())));
-    lines.push(Line::from(""));
-    lines.push(key_footer());
     lines
 }
 
-fn render_detail(frame: &mut Frame, app: &App, area: Rect, detail: &DetailView) {
+fn detail_popup(
+    frame: &mut Frame,
+    app: &mut App,
+    area: Rect,
+    title: &str,
+    lines: Vec<Line<'static>>,
+) {
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .title(format!(" {title} "))
+        .borders(Borders::ALL)
+        .border_style(Color::Cyan)
+        .style(Style::default().bg(PANEL));
+    let inner = inset_rect(block.inner(area), 2, 1);
+    frame.render_widget(block, area);
+
+    let sections = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let rendered_lines = paragraph.line_count(sections[0].width);
+    let maximum = rendered_lines.saturating_sub(sections[0].height as usize);
+    app.detail_scroll_max = maximum;
+    app.detail_scroll = app.detail_scroll.min(maximum);
+
+    frame.render_widget(
+        paragraph.scroll((app.detail_scroll.min(u16::MAX as usize) as u16, 0)),
+        sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(key_footer(maximum > 0)).alignment(Alignment::Left),
+        sections[1],
+    );
+}
+
+fn render_detail(frame: &mut Frame, app: &mut App, area: Rect, detail: &DetailView) {
     match detail {
         DetailView::Loading { title } => popup(
             frame,
@@ -732,26 +765,26 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect, detail: &DetailView) 
             ],
             0,
         ),
-        DetailView::Software(payload) => popup(
+        DetailView::Software(payload) => detail_popup(
             frame,
+            app,
             centered_size(82, 25, area),
             "SOFTWARE WHY",
             software_detail_lines(payload),
-            app.detail_scroll,
         ),
-        DetailView::Doctor(result) => popup(
+        DetailView::Doctor(result) => detail_popup(
             frame,
+            app,
             centered_size(90, 28, area),
             "DOCTOR DETAILS",
             doctor_detail_lines(result),
-            app.detail_scroll,
         ),
-        DetailView::HistoryDiff(payload) => popup(
+        DetailView::HistoryDiff(payload) => detail_popup(
             frame,
+            app,
             centered_size(100, 28, area),
             "GENERATION DIFF",
             history_diff_lines(payload),
-            app.detail_scroll,
         ),
     }
 }
@@ -981,7 +1014,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
     );
 }
 
-fn render_overlays(frame: &mut Frame, app: &App) {
+fn render_overlays(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
     if let Some(error) = &app.overlay_error {
         popup(
@@ -1000,14 +1033,14 @@ fn render_overlays(frame: &mut Frame, app: &App) {
         render_mutation(frame, app, area);
     } else if app.group_chooser.is_some() {
         render_group_chooser(frame, app, area);
-    } else if let Some(detail) = &app.detail {
-        render_detail(frame, app, area, detail);
+    } else if let Some(detail) = app.detail.clone() {
+        render_detail(frame, app, area, &detail);
     } else if app.show_help {
         render_help(frame, area);
     }
 }
 
-pub fn draw(frame: &mut Frame, app: &App) {
+pub fn draw(frame: &mut Frame, app: &mut App) {
     let layout = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(4),
@@ -1026,7 +1059,26 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+    use serde_json::json;
+
     use super::*;
+
+    fn test_app() -> App {
+        let (tx, rx) = mpsc::channel();
+        App::new(tx, rx)
+    }
+
+    fn row_containing(buffer: &Buffer, needle: &str) -> Option<u16> {
+        (0..buffer.area.height).find(|y| {
+            let row = (0..buffer.area.width)
+                .map(|x| buffer[(x, *y)].symbol())
+                .collect::<String>();
+            row.contains(needle)
+        })
+    }
 
     #[test]
     fn scroll_is_clamped_to_last_full_viewport() {
@@ -1046,6 +1098,57 @@ mod tests {
         assert_eq!(
             strip_ansi("envy: \u{1b}[31;1m16 KiB\u{1b}[0m"),
             "envy: 16 KiB"
+        );
+    }
+
+    #[test]
+    fn software_detail_that_fits_cannot_scroll_into_blank_space() {
+        let mut app = test_app();
+        app.detail = Some(DetailView::Software(json!({
+            "matches": [{
+                "group": "nix.system.font",
+                "label": "Darwin fonts",
+                "item": "MapleMono-NF-CN",
+                "name": "MapleMono-NF-CN",
+                "included": true,
+                "excluded": false,
+                "effective": true,
+                "externalInclude": true
+            }]
+        })));
+        app.detail_scroll = usize::MAX;
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+        assert_eq!(app.detail_scroll_max, 0);
+        assert_eq!(app.detail_scroll, 0);
+    }
+
+    #[test]
+    fn detail_footer_stays_fixed_at_the_last_valid_scroll_offset() {
+        let mut app = test_app();
+        app.detail = Some(DetailView::Doctor(json!({
+            "section": "test",
+            "name": "long details",
+            "status": "warn",
+            "message": "inspect the complete result",
+            "hint": "scroll to the end",
+            "details": {"items": (0..40).collect::<Vec<_>>()},
+            "action": null
+        })));
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        let footer_row = row_containing(terminal.backend().buffer(), "ENTER").unwrap();
+        assert!(app.detail_scroll_max > 0);
+
+        app.detail_scroll = usize::MAX;
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+        assert_eq!(app.detail_scroll, app.detail_scroll_max);
+        assert_eq!(
+            row_containing(terminal.backend().buffer(), "ENTER"),
+            Some(footer_row)
         );
     }
 }
