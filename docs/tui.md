@@ -107,20 +107,40 @@ Software page; policy blocks are displayed without discarding the cached view.
 The interactive inspection workflows are:
 
 - Software `/` filters the already loaded policy locally across group, item,
-  reference, version, and state. `w`/`i` calls `envy sw why <item> --group
-  <group> --json` and shows both effective state and machine/external ownership.
+  reference, version, and state. The filter stays visible as an in-page input
+  instead of obscuring the table. `Ctrl-U` resets it and `Esc` clears it.
+  `w`/`i` calls `envy sw why <item> --group <group> --json` and shows both
+  effective state and machine/external ownership.
 - Search rows are selectable. `Enter`/`a` matches the result's ecosystem and
   kind against evaluated manifest group metadata, asks the user to choose a
   compatible group, and sends the canonical registry reference to the same
   guarded dry-run/confirmation workflow. If no manifest group accepts the
-  result, search stays read-only and no reference is synthesized.
+  result, search stays read-only and no reference is synthesized. The query is
+  always shown in an in-page input, remains available while providers are
+  loading, accepts bracketed paste, and can be reset with `Ctrl-U`.
 - Doctor `Enter`/`i` shows the complete section, status, result, hint, structured
   details, and proposed action. The action is displayed only and is never run
   by the TUI.
 - History `Space` marks a generation and `d`/`Enter` compares it with the
   selected generation. Without a mark, the selected generation is compared
   with the current one. The dialog includes both generation identities and the
-  complete closure diff; long detail dialogs scroll with `j`/`k` or the arrows.
+  complete closure diff; long detail dialogs scroll with `j`/`k`, the arrows,
+  or the mouse wheel and show the current scroll position. Dialog controls stay
+  fixed below the scrolling content.
+
+Navigation is consistent across lists: arrows or `j`/`k` move one row,
+`PageUp`/`PageDown` move one viewport, and `Home`/`End` or `g`/`G` jump to the
+first or last row. The title shows the selected position and total row count,
+and scrolling is clamped so a selection cannot disappear beyond an empty
+viewport. The mouse wheel moves lists and chooser selections as well as detail
+content.
+
+`Esc` is reserved for cancelling the current interaction, clearing a filter or
+mark, or closing a dialog; it does not unexpectedly exit from a normal page.
+Press `q` to quit. The footer adapts to terminal width, keeping `? help` and
+`q quit` visible in narrow terminals while exposing richer page-specific hints
+when space permits. Search, Software, Doctor, and History also render explicit
+loading and empty states instead of an ambiguous blank table.
 
 The Rust source is separated by responsibility: `main.rs` owns only terminal
 lifecycle, `app.rs` owns interaction state, `backend.rs` owns JSON subprocess

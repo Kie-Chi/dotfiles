@@ -3,7 +3,7 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 use serde_json::Value;
 
 use crate::{
@@ -283,6 +283,45 @@ impl App {
             self.scroll = selected;
         } else if selected >= self.scroll + self.visible_rows {
             self.scroll = selected.saturating_add(1).saturating_sub(self.visible_rows);
+        }
+    }
+
+    fn move_selection_to(&mut self, target: usize) {
+        let count = self.row_count();
+        if count == 0 {
+            self.set_selected(0);
+            self.scroll = 0;
+            return;
+        }
+        let selected = target.min(count - 1);
+        self.set_selected(selected);
+        if selected < self.scroll {
+            self.scroll = selected;
+        } else if selected >= self.scroll + self.visible_rows {
+            self.scroll = selected.saturating_add(1).saturating_sub(self.visible_rows);
+        }
+    }
+
+    fn move_selection_page(&mut self, direction: isize) {
+        let distance = self.visible_rows.max(1) as isize;
+        self.move_selection(direction.saturating_mul(distance));
+    }
+
+    pub fn selection_position(&self) -> Option<(usize, usize)> {
+        let count = self.row_count();
+        (count > 0).then(|| (self.selected() + 1, count))
+    }
+
+    pub fn input_bar_height(&self) -> u16 {
+        match self.screen {
+            Screen::Search => 3,
+            Screen::Software
+                if self.input_mode == InputMode::SoftwareFilter
+                    || !self.software_filter.is_empty() =>
+            {
+                3
+            }
+            _ => 0,
         }
     }
 
@@ -654,6 +693,9 @@ impl App {
                     KeyCode::Backspace => {
                         self.query.pop();
                     }
+                    KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.query.clear();
+                    }
                     KeyCode::Char(character) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                         self.query.push(character);
                     }
@@ -683,6 +725,11 @@ impl App {
                         self.software_selected = 0;
                         self.scroll = 0;
                     }
+                    KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.software_filter.clear();
+                        self.software_selected = 0;
+                        self.scroll = 0;
+                    }
                     KeyCode::Char(character) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                         self.software_filter.push(character);
                         self.software_selected = 0;
@@ -693,6 +740,54 @@ impl App {
                 true
             }
         }
+    }
+
+    pub fn handle_paste(&mut self, value: &str) {
+        let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+        if normalized.is_empty() {
+            return;
+        }
+        match self.input_mode {
+            InputMode::Search => self.query.push_str(&normalized),
+            InputMode::SoftwareFilter => {
+                self.software_filter.push_str(&normalized);
+                self.software_selected = 0;
+                self.scroll = 0;
+            }
+            InputMode::Normal => {}
+        }
+    }
+
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        let direction = match mouse.kind {
+            MouseEventKind::ScrollDown => 1,
+            MouseEventKind::ScrollUp => -1,
+            _ => return,
+        };
+        if self.pending_mutation.is_some() || self.mutation_loading || self.overlay_error.is_some()
+        {
+            return;
+        }
+        if let Some(chooser) = self.group_chooser.as_mut() {
+            if direction > 0 {
+                chooser.selected = (chooser.selected + 1).min(chooser.groups.len() - 1);
+            } else {
+                chooser.selected = chooser.selected.saturating_sub(1);
+            }
+            return;
+        }
+        if self.detail.is_some() {
+            if direction > 0 {
+                self.detail_scroll = self
+                    .detail_scroll
+                    .saturating_add(3)
+                    .min(self.detail_scroll_max);
+            } else {
+                self.detail_scroll = self.detail_scroll.saturating_sub(3);
+            }
+            return;
+        }
+        self.move_selection(direction * 3);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -780,7 +875,9 @@ impl App {
                 self.history_marked = None;
                 self.status = "Generation mark cleared".to_string();
             }
-            KeyCode::Esc => self.should_quit = true,
+            KeyCode::Esc => {
+                self.status = "Nothing to dismiss; press q to quit".to_string();
+            }
             KeyCode::Char('?') => self.show_help = true,
             KeyCode::Char('r') => self.load_current(true),
             KeyCode::Tab | KeyCode::Right => self.next_screen(1),
@@ -823,6 +920,12 @@ impl App {
             KeyCode::Enter | KeyCode::Char('d') if self.screen == Screen::History => {
                 self.begin_history_diff();
             }
+            KeyCode::Home | KeyCode::Char('g') => self.move_selection_to(0),
+            KeyCode::End | KeyCode::Char('G') => {
+                self.move_selection_to(self.row_count().saturating_sub(1));
+            }
+            KeyCode::PageDown => self.move_selection_page(1),
+            KeyCode::PageUp => self.move_selection_page(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             _ => {}
@@ -949,5 +1052,53 @@ mod tests {
         assert_eq!(app.input_mode, InputMode::Normal);
         assert!(app.software_filter.is_empty());
         assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn escape_does_not_accidentally_quit_normal_mode() {
+        let mut app = app();
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(!app.should_quit);
+        assert_eq!(app.status, "Nothing to dismiss; press q to quit");
+    }
+
+    #[test]
+    fn viewport_and_boundary_navigation_keep_selection_visible() {
+        let mut app = app();
+        app.screen = Screen::Doctor;
+        app.visible_rows = 3;
+        app.pages.insert(
+            Screen::Doctor,
+            PageState {
+                payload: Some(json!({
+                    "results": (0..10).map(|index| json!({"name": index})).collect::<Vec<_>>()
+                })),
+                ..PageState::default()
+            },
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(app.doctor_selected, 3);
+        assert_eq!(app.scroll, 1);
+
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(app.doctor_selected, 9);
+        assert_eq!(app.scroll, 7);
+
+        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(app.doctor_selected, 0);
+        assert_eq!(app.scroll, 0);
+    }
+
+    #[test]
+    fn bracketed_paste_is_normalized_into_the_active_input() {
+        let mut app = app();
+        app.input_mode = InputMode::Search;
+
+        app.handle_paste("  visual\n studio\tcode  ");
+
+        assert_eq!(app.query, "visual studio code");
     }
 }

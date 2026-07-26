@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap},
@@ -28,6 +30,76 @@ fn card<'a>(widget: Paragraph<'a>) -> Paragraph<'a> {
             .borders(Borders::ALL)
             .border_style(Color::DarkGray),
     )
+}
+
+fn render_input_field(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    value: &str,
+    active: bool,
+    placeholder: &str,
+) {
+    let block = Block::default()
+        .title(format!(" {title} "))
+        .borders(Borders::ALL)
+        .border_style(if active { Color::Cyan } else { Color::DarkGray });
+    let content = if value.is_empty() {
+        Line::from(vec![
+            Span::styled(" › ", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(
+                placeholder.to_string(),
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                if active { "█" } else { "" },
+                Style::default().fg(Color::Cyan),
+            ),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" › ", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(value.to_string(), Style::default().fg(Color::White)),
+            Span::styled(
+                if active { "█" } else { "" },
+                Style::default().fg(Color::Cyan),
+            ),
+        ])
+    };
+    frame.render_widget(Paragraph::new(content).block(block), area);
+}
+
+fn render_empty_state(frame: &mut Frame, area: Rect, title: &str, message: &str, action: &str) {
+    let panel_height = 7.min(area.height.max(1));
+    let rows = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(panel_height),
+        Constraint::Fill(1),
+    ])
+    .split(area);
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                title.to_string(),
+                Style::default().fg(Color::Cyan).bold(),
+            )),
+            Line::from(""),
+            Line::from(message.to_string()),
+            Line::from(Span::styled(
+                action.to_string(),
+                Style::default().fg(Color::DarkGray),
+            )),
+        ])
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: false })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Color::DarkGray),
+        ),
+        rows[1],
+    );
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
@@ -75,37 +147,59 @@ fn page_keys(screen: Screen) -> &'static str {
     }
 }
 
+fn compact_page_keys(screen: Screen) -> &'static str {
+    match screen {
+        Screen::Software => "↵ toggle  w why  / filter",
+        Screen::Search => "↵ add  / query",
+        Screen::Doctor => "↵ details",
+        Screen::History => "Space mark  d diff",
+        Screen::Dashboard => "s search",
+    }
+}
+
+fn spinner() -> &'static str {
+    const FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+    let tick = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        / 120;
+    FRAMES[tick as usize % FRAMES.len()]
+}
+
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let mode = match app.input_mode {
         InputMode::Normal => "NORMAL",
         InputMode::Search => "SEARCH",
         InputMode::SoftwareFilter => "FILTER",
     };
-    let context = match app.screen {
-        Screen::Search => format!(
-            "  query: {}",
-            if app.query.is_empty() {
-                "<empty>"
-            } else {
-                &app.query
-            }
-        ),
-        Screen::Software if !app.software_filter.is_empty() => {
-            format!("  filter: {}", app.software_filter)
-        }
-        _ => String::new(),
-    };
     let activity = if app.mutation_loading {
-        "  ◌ verifying"
+        format!("  {} verifying", spinner())
     } else if app.loading() {
         if app.current_has_content() {
-            "  ◌ refreshing"
+            format!("  {} refreshing", spinner())
         } else {
-            "  ◌ loading"
+            format!("  {} loading", spinner())
         }
     } else {
-        ""
+        String::new()
     };
+    let hints = if area.width >= 118 {
+        format!(
+            "{}  │  ↑↓ select  Tab page  r refresh  ? help  q quit",
+            page_keys(app.screen)
+        )
+    } else if area.width >= 78 {
+        format!(
+            "{}  │  Tab page  ? help  q quit",
+            compact_page_keys(app.screen)
+        )
+    } else {
+        "? help  q quit".to_string()
+    };
+    let hint_width = (hints.chars().count() as u16 + 1).min(area.width.saturating_sub(12));
+    let columns =
+        Layout::horizontal([Constraint::Min(12), Constraint::Length(hint_width)]).split(area);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
@@ -116,17 +210,14 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
                 format!("  {}  ", app.status),
                 Style::default().fg(Color::Gray),
             ),
-            Span::styled(context, Style::default().fg(Color::Yellow)),
             Span::styled(activity, Style::default().fg(Color::Yellow)),
-            Span::styled(
-                format!(
-                    "  {}  │  q quit  ? help  r refresh  Tab next",
-                    page_keys(app.screen)
-                ),
-                Style::default().fg(Color::DarkGray),
-            ),
         ])),
-        area,
+        columns[0],
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(hints, Style::default().fg(Color::DarkGray)))
+            .alignment(Alignment::Right),
+        columns[1],
     );
 }
 
@@ -196,9 +287,45 @@ fn render_dashboard(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_software(frame: &mut Frame, app: &App, area: Rect) {
+    let table_area = if app.input_bar_height() > 0 {
+        let sections = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(area);
+        let filter_active = app.input_mode == InputMode::SoftwareFilter;
+        render_input_field(
+            frame,
+            sections[0],
+            if filter_active {
+                "LOCAL FILTER · Enter keep · Esc clear · Ctrl-U reset"
+            } else {
+                "LOCAL FILTER · / edit · Esc clear"
+            },
+            &app.software_filter,
+            filter_active,
+            "type item, group, reference, version, or state",
+        );
+        sections[1]
+    } else {
+        area
+    };
     let entries = app.software_entries();
     let total = crate::model::software_entries(app.payload()).len();
-    let offset = row_offset(app.scroll, entries.len(), area);
+    if entries.is_empty() && !app.loading() {
+        let (title, message, action) = if app.software_filter.is_empty() {
+            (
+                "No software policy entries",
+                "The evaluated manifest contains no software items.",
+                "Press r to refresh.",
+            )
+        } else {
+            (
+                "No matching software",
+                "The local filter did not match any loaded policy entry.",
+                "Press / to edit it or Esc to clear it.",
+            )
+        };
+        render_empty_state(frame, table_area, title, message, action);
+        return;
+    }
+    let offset = row_offset(app.scroll, entries.len(), table_area);
     let rows = entries
         .iter()
         .skip(offset)
@@ -218,10 +345,17 @@ fn render_software(frame: &mut Frame, app: &App, area: Rect) {
             ])
         })
         .collect::<Vec<_>>();
+    let position = app
+        .selection_position()
+        .map(|(selected, count)| format!("{selected} / {count} selected"))
+        .unwrap_or_default();
     let title = if app.software_filter.is_empty() {
-        format!(" Software policy — {total} items ")
+        format!(" Software policy — {total} items · {position} ")
     } else {
-        format!(" Software policy — {} / {total} visible ", entries.len())
+        format!(
+            " Software policy — {} / {total} visible · {position} ",
+            entries.len()
+        )
     };
     let table = Table::new(
         rows,
@@ -246,12 +380,60 @@ fn render_software(frame: &mut Frame, app: &App, area: Rect) {
             .border_style(Color::DarkGray),
     );
     let mut state = selected_state(app.software_selected, offset, entries.is_empty());
-    frame.render_stateful_widget(table, area, &mut state);
+    frame.render_stateful_widget(table, table_area, &mut state);
 }
 
 fn render_search(frame: &mut Frame, app: &App, area: Rect) {
+    let sections = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(area);
+    let search_active = app.input_mode == InputMode::Search;
+    render_input_field(
+        frame,
+        sections[0],
+        if search_active {
+            "REGISTRY SEARCH · Enter submit · Esc cancel · Ctrl-U reset"
+        } else {
+            "REGISTRY SEARCH · / edit query"
+        },
+        &app.query,
+        search_active,
+        "search all configured providers",
+    );
+    let table_area = sections[1];
     let entries = search_entries(app.payload());
-    let offset = row_offset(app.scroll, entries.len(), area);
+    if app.loading() && !app.current_has_content() {
+        render_empty_state(
+            frame,
+            table_area,
+            &format!("{} Searching registries", spinner()),
+            "All configured providers remain enabled.",
+            "Results will appear here without blocking navigation.",
+        );
+        return;
+    }
+    if app.submitted_query.is_empty() {
+        render_empty_state(
+            frame,
+            table_area,
+            "Find software across registries",
+            "Search Homebrew, npm, PyPI, Cargo, Nix, and other configured providers.",
+            "Press /, type a name, then press Enter.",
+        );
+        return;
+    }
+    if entries.is_empty() {
+        render_empty_state(
+            frame,
+            table_area,
+            "No registry matches",
+            &format!(
+                "No provider returned a result for ‘{}’.",
+                app.submitted_query
+            ),
+            "Press / to refine the query or r to retry all providers.",
+        );
+        return;
+    }
+    let offset = row_offset(app.scroll, entries.len(), table_area);
     let rows = entries
         .iter()
         .skip(offset)
@@ -266,15 +448,11 @@ fn render_search(frame: &mut Frame, app: &App, area: Rect) {
             ])
         })
         .collect::<Vec<_>>();
-    let title = if app.submitted_query.is_empty() {
-        " Search registries — press / to query ".to_string()
-    } else {
-        format!(
-            " Search: {} — {} results ",
-            app.submitted_query,
-            entries.len()
-        )
-    };
+    let (selected, count) = app.selection_position().unwrap_or((0, entries.len()));
+    let title = format!(
+        " Results for ‘{}’ — {selected} / {count} selected ",
+        app.submitted_query
+    );
     let table = Table::new(
         rows,
         [
@@ -306,7 +484,7 @@ fn render_search(frame: &mut Frame, app: &App, area: Rect) {
             .border_style(Color::DarkGray),
     );
     let mut state = selected_state(app.search_selected, offset, entries.is_empty());
-    frame.render_stateful_widget(table, area, &mut state);
+    frame.render_stateful_widget(table, table_area, &mut state);
 }
 
 fn status_style(status: &str) -> Style {
@@ -324,6 +502,16 @@ fn render_doctor(frame: &mut Frame, app: &App, area: Rect) {
         .and_then(|payload| payload.get("results"))
         .and_then(Value::as_array);
     let count = results.map(Vec::len).unwrap_or(0);
+    if count == 0 && !app.loading() {
+        render_empty_state(
+            frame,
+            area,
+            "No doctor results",
+            "Envy did not return any checks for this machine.",
+            "Press r to run Doctor again.",
+        );
+        return;
+    }
     let offset = row_offset(app.scroll, count, area);
     let rows = results
         .map(|results| {
@@ -359,7 +547,10 @@ fn render_doctor(frame: &mut Frame, app: &App, area: Rect) {
     .highlight_symbol("▸ ")
     .block(
         Block::default()
-            .title(" Doctor — Enter shows complete details ")
+            .title({
+                let (selected, count) = app.selection_position().unwrap_or((0, count));
+                format!(" Doctor — {selected} / {count} selected · Enter details ")
+            })
             .borders(Borders::ALL)
             .border_style(Color::DarkGray),
     );
@@ -373,6 +564,16 @@ fn render_history(frame: &mut Frame, app: &App, area: Rect) {
         .and_then(|payload| payload.get("generations"))
         .and_then(Value::as_array);
     let count = generations.map(Vec::len).unwrap_or(0);
+    if count == 0 && !app.loading() {
+        render_empty_state(
+            frame,
+            area,
+            "No generations found",
+            "The active platform profile has no generations to compare.",
+            "Press r to refresh generation history.",
+        );
+        return;
+    }
     let offset = row_offset(app.scroll, count, area);
     let rows = generations
         .map(|generations| {
@@ -417,7 +618,10 @@ fn render_history(frame: &mut Frame, app: &App, area: Rect) {
     .highlight_symbol("▸ ")
     .block(
         Block::default()
-            .title(" Generations — Space marks first, d compares ")
+            .title({
+                let (selected, count) = app.selection_position().unwrap_or((0, count));
+                format!(" Generations — {selected} / {count} selected · Space mark · d diff ")
+            })
             .borders(Borders::ALL)
             .border_style(Color::DarkGray),
     );
@@ -456,10 +660,10 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         Screen::Doctor => render_doctor(frame, app, area),
         Screen::History => render_history(frame, app, area),
     }
-    if app.loading() && !app.current_has_content() {
+    if app.loading() && !app.current_has_content() && app.screen != Screen::Search {
         frame.render_widget(Clear, area);
         frame.render_widget(
-            Paragraph::new("  Loading complete Envy data…")
+            Paragraph::new(format!("  {} Loading complete Envy data…", spinner()))
                 .style(Style::default().fg(Color::Yellow))
                 .block(Block::default().borders(Borders::ALL)),
             area,
@@ -506,7 +710,7 @@ fn popup(frame: &mut Frame, area: Rect, title: &str, lines: Vec<Line<'static>>, 
     );
 }
 
-fn key_footer(scrollable: bool) -> Line<'static> {
+fn key_footer(scroll: Option<(usize, usize)>) -> Line<'static> {
     let mut spans = vec![
         Span::styled(
             " ENTER ",
@@ -514,14 +718,14 @@ fn key_footer(scrollable: bool) -> Line<'static> {
         ),
         Span::raw(" close"),
     ];
-    if scrollable {
+    if let Some((current, maximum)) = scroll {
         spans.extend([
             Span::raw("    "),
             Span::styled(
                 " ↑↓ ",
                 Style::default().fg(Color::White).bg(Color::DarkGray).bold(),
             ),
-            Span::raw(" scroll"),
+            Span::raw(format!(" scroll  {} / {}", current + 1, maximum + 1)),
         ]);
     }
     Line::from(spans)
@@ -745,7 +949,10 @@ fn detail_popup(
         sections[0],
     );
     frame.render_widget(
-        Paragraph::new(key_footer(maximum > 0)).alignment(Alignment::Left),
+        Paragraph::new(key_footer(
+            (maximum > 0).then_some((app.detail_scroll, maximum)),
+        ))
+        .alignment(Alignment::Left),
         sections[1],
     );
 }
@@ -759,7 +966,7 @@ fn render_detail(frame: &mut Frame, app: &mut App, area: Rect, detail: &DetailVi
             vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Loading complete details…",
+                    format!("{} Loading complete details…", spinner()),
                     Style::default().fg(Color::Yellow).bold(),
                 )),
             ],
@@ -904,7 +1111,7 @@ fn render_mutation(frame: &mut Frame, app: &App, area: Rect) {
             vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Preparing dry-run policy plan…",
+                    format!("{} Preparing dry-run policy plan…", spinner()),
                     Style::default().fg(Color::Yellow).bold(),
                 )),
             ],
@@ -975,14 +1182,16 @@ fn render_group_chooser(frame: &mut Frame, app: &App, area: Rect) {
 fn render_help(frame: &mut Frame, area: Rect) {
     popup(
         frame,
-        centered_size(78, 27, area),
+        centered_size(80, 29, area),
         "KEYBOARD",
         vec![
             Line::from("1..5        jump to a page"),
             Line::from("Tab / ←→    switch pages"),
             Line::from("↑↓ / j k    select rows; detail dialogs scroll"),
+            Line::from("PgUp/PgDn   move by one viewport; g/G first/last"),
             Line::from("s           search from any page"),
             Line::from("r           refresh current page"),
+            Line::from("Esc         cancel or clear context; q quits"),
             Line::from(""),
             Line::from(Span::styled(
                 "Software",
@@ -991,7 +1200,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
             Line::from("Enter/Space  preview availability toggle"),
             Line::from("w / i        explain selected software policy"),
             Line::from("/            local text filter (no backend request)"),
-            Line::from("Esc          clear active filter"),
+            Line::from("Ctrl-U       clear the current filter or query"),
             Line::from(""),
             Line::from(Span::styled(
                 "Search",
@@ -1080,6 +1289,17 @@ mod tests {
         })
     }
 
+    fn buffer_text(buffer: &Buffer) -> String {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     #[test]
     fn scroll_is_clamped_to_last_full_viewport() {
         assert_eq!(row_offset(200, 30, Rect::new(0, 0, 100, 13)), 20);
@@ -1140,6 +1360,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
         terminal.draw(|frame| draw(frame, &mut app)).unwrap();
         let footer_row = row_containing(terminal.backend().buffer(), "ENTER").unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("scroll  1 /"));
         assert!(app.detail_scroll_max > 0);
 
         app.detail_scroll = usize::MAX;
@@ -1150,5 +1371,32 @@ mod tests {
             row_containing(terminal.backend().buffer(), "ENTER"),
             Some(footer_row)
         );
+        assert!(buffer_text(terminal.backend().buffer()).contains(&format!(
+            "scroll  {} / {}",
+            app.detail_scroll_max + 1,
+            app.detail_scroll_max + 1
+        )));
+    }
+
+    #[test]
+    fn narrow_search_keeps_input_and_essential_shortcuts_visible() {
+        let mut app = test_app();
+        app.screen = Screen::Search;
+        app.input_mode = InputMode::Search;
+        app.query = "git".to_string();
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("git█"));
+        assert!(rendered.contains("Enter submit"));
+        assert!(rendered.contains("? help  q quit"));
+
+        app.input_mode = InputMode::Normal;
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("REGISTRY SEARCH · / edit query"));
+        assert!(!rendered.contains("Enter submit"));
     }
 }
