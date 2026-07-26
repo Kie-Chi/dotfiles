@@ -82,7 +82,16 @@ meaningful for scripts and the TUI.
 The first frontend now lives in `tools/envy-tui/` and is implemented with
 Rust/Ratatui and Crossterm. It currently provides Dashboard, Software, Search,
 Doctor, and History screens with background command execution, keyboard
-navigation, loading/error states, scrolling, and a help overlay.
+navigation, loading/error states, scrolling, and a help overlay. Each page is
+loaded only on first visit and then kept in memory for the lifetime of the TUI;
+switching tabs does not launch another backend process. Search results are
+cached independently for the 12 most recent submitted queries.
+
+Pressing `r` explicitly refreshes the active page. When cached content exists,
+the TUI keeps rendering it with a `refreshing` indicator instead of replacing
+the entire view with a loading screen. Dashboard loading also seeds the Doctor
+page cache because the dashboard response already contains the complete doctor
+payload.
 
 It intentionally remains a separate binary calling the existing `envy`
 executable. This keeps the policy engine in Python and makes the frontend a
