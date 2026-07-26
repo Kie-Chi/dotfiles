@@ -13,9 +13,9 @@ From a repository checkout, the same command falls back to
 an exact `envy tui` fast path only for launching the installed binary.
 
 Envy keeps policy, Nix evaluation, registry resolution, and mutation safety in
-the Python CLI. A future TUI should be a thin frontend that invokes these
-commands and renders their structured output; it should not parse Rich tables
-or reimplement software policy.
+the Python CLI. The TUI is a thin frontend that invokes these commands and
+renders their structured output; it does not parse Rich tables or reimplement
+software policy.
 
 ## Current protocol
 
@@ -103,6 +103,30 @@ and applies it only after a second `Enter`/`y` confirmation through
 `--yes --json`. It never edits a machine file itself. Successful mutations
 invalidate Dashboard, Software, Doctor, and search caches before reloading the
 Software page; policy blocks are displayed without discarding the cached view.
+
+The interactive inspection workflows are:
+
+- Software `/` filters the already loaded policy locally across group, item,
+  reference, version, and state. `w`/`i` calls `envy sw why <item> --group
+  <group> --json` and shows both effective state and machine/external ownership.
+- Search rows are selectable. `Enter`/`a` matches the result's ecosystem and
+  kind against evaluated manifest group metadata, asks the user to choose a
+  compatible group, and sends the canonical registry reference to the same
+  guarded dry-run/confirmation workflow. If no manifest group accepts the
+  result, search stays read-only and no reference is synthesized.
+- Doctor `Enter`/`i` shows the complete section, status, result, hint, structured
+  details, and proposed action. The action is displayed only and is never run
+  by the TUI.
+- History `Space` marks a generation and `d`/`Enter` compares it with the
+  selected generation. Without a mark, the selected generation is compared
+  with the current one. The dialog includes both generation identities and the
+  complete closure diff; long detail dialogs scroll with `j`/`k` or the arrows.
+
+The Rust source is separated by responsibility: `main.rs` owns only terminal
+lifecycle, `app.rs` owns interaction state, `backend.rs` owns JSON subprocess
+boundaries and response validation, `model.rs` owns typed view models, and
+`ui.rs` owns Ratatui rendering. This keeps future screens from growing another
+single-file frontend while preserving Envy as the only policy authority.
 
 It intentionally remains a separate binary calling the existing `envy`
 executable. This keeps the policy engine in Python and makes the frontend a
