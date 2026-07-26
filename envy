@@ -6,6 +6,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 export PYTHONPATH="$ROOT/resources/scripts:${PYTHONPATH:-}"
 
+# The polished frontend is a separate Rust binary. Prefer an installed
+# package, while keeping the repository checkout runnable during development.
+if [ "${1:-}" = "tui" ]; then
+  shift
+  if command -v envy-tui >/dev/null 2>&1; then
+    exec envy-tui "$@"
+  elif command -v cargo >/dev/null 2>&1 && [ -f "$ROOT/tools/envy-tui/Cargo.toml" ]; then
+    exec env ENVY_BIN="$ROOT/envy" cargo run --quiet --manifest-path "$ROOT/tools/envy-tui/Cargo.toml" -- "$@"
+  else
+    echo "error: envy-tui is not installed; enter the Nix devShell or install the Envy package." >&2
+    exit 1
+  fi
+fi
+
 # Check Python + required modules
 if ! python3 -c "import typer, rich, yaml" 2>/dev/null; then
   if command -v nix >/dev/null 2>&1; then

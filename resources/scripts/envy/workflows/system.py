@@ -57,11 +57,49 @@ def bootstrap_configuration() -> None:
     log.ok("bootstrap", "bootstrap completed successfully")
 
 
-def rollback_configuration(target: str | None = None) -> None:
+def rollback_configuration(target: str | None = None, *, dry_run: bool = False) -> None:
+    if dry_run and target != "list":
+        preview_rollback(target)
+        return
     if PLATFORM == "darwin":
         rollback_darwin(target)
     else:
         rollback_linux(target)
+
+
+def preview_rollback(target: str | None) -> None:
+    from envy.workflows.generations import (
+        closure_diff,
+        current_generation,
+        previous_generation,
+        require_generation,
+    )
+
+    current = current_generation()
+    if target is None:
+        selected = previous_generation()
+    else:
+        try:
+            selected = require_generation(int(target))
+        except ValueError as exc:
+            raise typer.BadParameter("generation must be a number") from exc
+    if current is None:
+        log.error("rollback", "current generation could not be identified")
+        raise typer.Exit(code=1)
+    if selected is None:
+        log.error("rollback", "previous generation does not exist")
+        raise typer.Exit(code=1)
+    try:
+        diff = closure_diff(current.target, selected.target)
+    except RuntimeError as exc:
+        log.error("rollback", str(exc))
+        raise typer.Exit(code=1) from exc
+    log.info(
+        "rollback", "dry run",
+        current=current.number, target=selected.number,
+    )
+    log.console.print(diff or "[green]No closure differences.[/green]")
+    log.hint(f"Run: envy rollback {selected.number}")
 
 
 def rollback_darwin(target: str | None = None) -> None:

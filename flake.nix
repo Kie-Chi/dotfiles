@@ -159,12 +159,16 @@
           git
           curl
           gnupg
+          cargo
+          rustc
         ] ++ [ inputs.home-manager.packages.${system}.default ];
         shellHook = ''
           export ENVY_DEV_SHELL=1
           export PYTHONPATH="${./resources/scripts}:$PYTHONPATH"
-          echo "[DEBUG] devShell: setup environment ready"
-          echo "[DEBUG] Available tools: jq, sops, age, ssh-to-age, python3, typer, rich, prompt_toolkit, home-manager"
+          if [ "''${ENVY_DEBUG:-0}" = "1" ]; then
+            echo "[DEBUG] devShell: setup environment ready" >&2
+            echo "[DEBUG] Available tools: jq, sops, age, ssh-to-age, python3, typer, rich, prompt_toolkit, cargo, rustc, home-manager" >&2
+          fi
         '';
       };
 
@@ -185,6 +189,7 @@
           export PYTHONPATH="${./resources/scripts}"
           export ENVY_TEST_ROOT="${./.}"
           cd ${./.}
+          python -m compileall -q ${./resources/scripts/envy}
           python -m unittest discover -s ${./resources/scripts/tests} -p 'test_*.py'
           touch "$out"
         '';

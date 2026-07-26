@@ -11,11 +11,32 @@ import urllib.request
 from collections.abc import Callable
 
 from envy.process import run_process
-from envy.search.model import ProviderReport, SearchResult
+from envy.search.model import ProviderReport, ResolveResult, SearchResult
 from envy.utils import platform_name
 
 
 Provider = Callable[[str, int, float], ProviderReport]
+
+
+def resolve_exact(
+    ecosystem: str,
+    kind: str,
+    value: str,
+    timeout: float = 10,
+) -> ResolveResult:
+    """Resolve one exact registry object without accepting fuzzy search matches."""
+    name = _name_from_ref(ecosystem, kind, value)
+    if not name:
+        return ResolveResult.not_found("empty registry name")
+    if ecosystem == "homebrew":
+        return resolve_homebrew(kind, name, timeout)
+    if ecosystem == "npm":
+        return resolve_npm(name, timeout)
+    if ecosystem == "pypi":
+        return resolve_pypi(name, timeout)
+    if ecosystem == "native":
+        return resolve_native(name, timeout)
+    return ResolveResult.unavailable(f"no exact resolver for ecosystem: {ecosystem}")
 
 
 def available_providers() -> dict[str, Provider]:
@@ -92,6 +113,64 @@ def search_homebrew(query: str, limit: int, timeout: float) -> ProviderReport:
     return ProviderReport("homebrew", rows[:limit])
 
 
+def resolve_homebrew(kind: str, name: str, timeout: float) -> ResolveResult:
+    if kind == "repository":
+        result = run_process(
+            ["brew", "tap-info", "--json", name],
+            capture=True, check=False, timeout=timeout,
+        )
+        if result.returncode != 0:
+            return _command_resolve_failure(result.stderr)
+        try:
+            values = json.loads(result.stdout or "[]")
+        except json.JSONDecodeError as exc:
+            return ResolveResult.unavailable(str(exc))
+        entries = values if isinstance(values, list) else [values]
+        match = next((
+            item for item in entries
+            if isinstance(item, dict) and item.get("name") == name
+        ), None)
+        if match is None:
+            return ResolveResult.not_found()
+        return ResolveResult.found(SearchResult(
+            source="homebrew", ecosystem="homebrew", name=name,
+            kind="repository", ref=f"homebrew:tap/{name}",
+        ))
+
+    if kind not in {"formula", "cask"}:
+        return ResolveResult.unavailable(f"unsupported Homebrew kind: {kind}")
+    flag = "--formula" if kind == "formula" else "--cask"
+    result = run_process(
+        ["brew", "info", "--json=v2", flag, name],
+        capture=True, check=False, timeout=timeout,
+    )
+    if result.returncode != 0:
+        return _command_resolve_failure(result.stderr)
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return ResolveResult.unavailable(str(exc))
+    key = "formulae" if kind == "formula" else "casks"
+    entries = payload.get(key) if isinstance(payload, dict) else None
+    if not isinstance(entries, list) or not entries or not isinstance(entries[0], dict):
+        return ResolveResult.not_found()
+    item = entries[0]
+    resolved_name = _text(
+        item.get("token") if kind == "cask" else item.get("name")
+    )
+    if resolved_name != name:
+        return ResolveResult.not_found()
+    versions = item.get("versions") if isinstance(item.get("versions"), dict) else {}
+    version = _text(item.get("version") or versions.get("stable"))
+    description = _text(item.get("desc")) or ""
+    homepage = _text(item.get("homepage"))
+    return ResolveResult.found(SearchResult(
+        source="homebrew", ecosystem="homebrew", name=resolved_name,
+        kind=kind, version=version, description=description,
+        ref=f"homebrew:{kind}/{resolved_name}", homepage=homepage,
+    ))
+
+
 def search_native(query: str, limit: int, timeout: float) -> ProviderReport:
     manager = _native_manager()
     if manager == "apt":
@@ -149,6 +228,33 @@ def search_native(query: str, limit: int, timeout: float) -> ProviderReport:
     return _failure("native", "no supported native package manager found")
 
 
+def resolve_native(name: str, timeout: float) -> ResolveResult:
+    manager = _native_manager()
+    commands = {
+        "apt": ["apt-cache", "show", name],
+        "pacman": ["pacman", "-Si", name],
+        "dnf": ["dnf", "info", name],
+        "zypper": ["zypper", "--non-interactive", "info", name],
+    }
+    if manager is None:
+        return ResolveResult.unavailable("no supported native package manager found")
+    result = run_process(
+        commands[manager], capture=True, check=False, timeout=timeout,
+    )
+    if result.returncode != 0 or not (result.stdout or "").strip():
+        return _command_resolve_failure(result.stderr or result.stdout)
+    version = None
+    for pattern in (r"(?mi)^Version\s*:\s*(\S+)", r"(?mi)^version\s*:\s*(\S+)"):
+        match = re.search(pattern, result.stdout or "")
+        if match:
+            version = match.group(1)
+            break
+    return ResolveResult.found(SearchResult(
+        source=manager, ecosystem="native", name=name, kind="package",
+        version=version, ref=f"native:{name}",
+    ))
+
+
 def search_npm(query: str, limit: int, timeout: float) -> ProviderReport:
     result = run_process(
         ["npm", "search", query, "--json", f"--searchlimit={limit}"],
@@ -177,6 +283,34 @@ def search_npm(query: str, limit: int, timeout: float) -> ProviderReport:
     return ProviderReport("npm", rows[:limit])
 
 
+def resolve_npm(name: str, timeout: float) -> ResolveResult:
+    result = run_process(
+        ["npm", "view", name, "--json"],
+        capture=True, check=False, timeout=timeout,
+    )
+    if result.returncode != 0:
+        return _command_resolve_failure(result.stderr)
+    try:
+        item = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return ResolveResult.unavailable(str(exc))
+    if not isinstance(item, dict):
+        return ResolveResult.not_found()
+    resolved_name = _text(item.get("name"))
+    if resolved_name != name:
+        return ResolveResult.not_found()
+    repository = item.get("repository")
+    if isinstance(repository, dict):
+        repository = repository.get("url")
+    return ResolveResult.found(SearchResult(
+        source="npm", ecosystem="npm", name=resolved_name, kind="tool",
+        version=_text(item.get("version")),
+        description=_text(item.get("description")) or "",
+        ref=f"npm:{resolved_name}",
+        homepage=_text(item.get("homepage") or repository),
+    ))
+
+
 def search_pypi(query: str, limit: int, timeout: float) -> ProviderReport:
     del limit
     url = f"https://pypi.org/pypi/{urllib.parse.quote(query, safe='')}/json"
@@ -199,6 +333,18 @@ def search_pypi(query: str, limit: int, timeout: float) -> ProviderReport:
         publisher=_text(info.get("author")),
     )
     return ProviderReport("pypi", [row])
+
+
+def resolve_pypi(name: str, timeout: float) -> ResolveResult:
+    report = search_pypi(name, 1, timeout)
+    if report.error:
+        return ResolveResult.unavailable(report.error)
+    match = next((
+        item for item in report.results
+        if re.sub(r"[-_.]+", "-", item.name).casefold()
+        == re.sub(r"[-_.]+", "-", name).casefold()
+    ), None)
+    return ResolveResult.found(match) if match else ResolveResult.not_found()
 
 
 def search_cargo(query: str, limit: int, timeout: float) -> ProviderReport:
@@ -261,6 +407,35 @@ def _get_json(url: str, timeout: float) -> object:
 def _failure(source: str, error: object) -> ProviderReport:
     message = str(error or "search failed").strip().splitlines()[-1]
     return ProviderReport(source, [], message[:500])
+
+
+def _command_resolve_failure(error: object) -> ResolveResult:
+    raw = str(error or "registry lookup failed").strip()
+    message = raw.splitlines()[-1][:500]
+    lowered = raw.casefold()
+    not_found_markers = (
+        "not found", "no available formula", "no cask with this name",
+        "e404", "is not in this registry", "unable to locate package",
+        "no matching packages", "target not found",
+    )
+    if any(marker in lowered for marker in not_found_markers):
+        return ResolveResult.not_found(message)
+    return ResolveResult.unavailable(message)
+
+
+def _name_from_ref(ecosystem: str, kind: str, value: str) -> str:
+    prefixes = {
+        ("homebrew", "formula"): "homebrew:formula/",
+        ("homebrew", "cask"): "homebrew:cask/",
+        ("homebrew", "repository"): "homebrew:tap/",
+        ("npm", "tool"): "npm:",
+        ("pypi", "tool"): "pypi:",
+        ("native", "package"): "native:",
+    }
+    prefix = prefixes.get((ecosystem, kind))
+    if prefix and value.startswith(prefix):
+        return value.removeprefix(prefix)
+    return value if ":" not in value else ""
 
 
 def _text(value: object) -> str | None:

@@ -93,24 +93,44 @@ envy host select <machine-id>
 | `envy check --all` | 求值仓库中全部 Darwin/Linux machine targets |
 | `envy check --changed` | 根据 worktree 路径检查受影响的 machine targets |
 | `envy check --build` | 在本机平台构建所选 targets；外平台仍只求值 |
+| `envy plan` | 构建但不激活当前 target，并与 active generation 比较 closure |
+| `envy history` / `envy history diff <a> <b>` | 查看 generations 或比较两个 generation 的 closure |
+| `envy tui` | 启动 Rust/Ratatui 全屏 frontend；通过 JSON 调用现有 Envy backend |
+| `envy rollback <n> --dry-run` | 在激活旧 generation 前预览 closure 差异 |
 | `envy update` | 更新全部 flake inputs、检查全部 machines，并在 Darwin 更新 Homebrew metadata |
 | `envy update inputs [name]` | 更新全部或指定 flake input；验证失败自动恢复 `flake.lock` |
 | `envy clean --older-than 30d` | 经确认后只清理指定期限以前的 generations |
 | `envy config check` | 只读检查 device metadata、host module 与 secrets |
 | `envy config refine` | 迁移并补全本平台 machine/schema |
 | `envy config show` | 展示求值后的 machine scalar 与 secret 设置状态 |
+| `envy host diff <a> <b>` / `envy host matrix` | 比较两台 machine，或展示所有 machine 的 effective software 覆盖 |
 | `envy software` / `envy sw` | 展示当前机器的 evaluated software policy |
 | `envy sw ls --details` | 展示软件版本、引用以及 include/exclude/effective 状态 |
 | `envy sw add/rm <group> <id-or-ref>` | 预览 include/exclude 计划后，确保软件在当前机器生效或不生效；`--clean` 清理目标的冗余受管状态 |
 | `envy sw en/dis <group> <id>` | 启用或排除一个稳定 software ID |
-| `envy sw search <query>` / `envy sw se <query>` | 并发搜索当前可用的软件 registry |
+| `envy sw search <query>` / `envy sw se <query>` | 并发搜索全部当前可用的软件 registry；重复查询优先复用缓存 |
 | `envy sw status` / `envy sw st` | 汇总当前机器的软件 group 和 selection 状态 |
+| `envy sw audit` / `envy sw why <item>` | 检查冗余/歧义 policy，或解释软件为何生效/被排除 |
+| `envy sw cache status` | 查看供 search/add 共用的精确 registry identity index |
 | `envy mirror status` | 展示当前 machine 求值后生效的镜像端点 |
 | `envy mirror probe` | 只读探测镜像 HTTP 状态与延迟 |
 | `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载 |
 | `envy doctor system` | 检查运行依赖、apply runner、Git 状态与中断残留 |
 | `envy doctor network` | 只读探测求值后的镜像端点 |
 | `envy key repair` | 修复中断的 key rotation 标记、权限并重新验证密文 |
+
+新增 registry 软件时，`sw add` 不会仅凭输入合成 reference：它必须命中
+evaluated manifest、精确 identity index，或完成一次对应 provider 的精确查询。
+`--offline` 只允许使用已有 positive cache；`--refresh` 强制重新解析。
+补全同样理解这些结构：`sw add` 会读取所选 group 对应的 fresh identity index，
+`sw why` 会补全跨 group 的 evaluated/受管条目，`history diff` 与 `rollback`
+会补全真实 generation，`host diff` 与 `host matrix --group` 则补全跨平台 machine
+和 canonical group。按 Tab 只做本地只读查询，不会访问 registry 或求值所有 machines。
+`config show`、`host list/status`、`software list/status/audit/why`、
+`mirror status/probe` 与 `doctor` 的只读视图支持 `--json`。
+`sw add/rm --json` 则输出稳定的 `software.<action>` envelope，包含完整计划和
+应用结果；JSON mutation 必须显式传入 `--yes`，方便未来 TUI 分两步渲染预览与确认。
+TUI 边界和两阶段 mutation 协议见 [docs/tui.md](docs/tui.md)。
 
 `envy push` 和 `envy sync` 默认要求当前分支为 `master`。`--branch` 只是显式操作临时分支。
 共享变更 push 前建议运行 `envy check --all`；push 会同时检查 worktree、index 和 outgoing commits，拒绝任何明文 `secrets/secrets.yaml`。

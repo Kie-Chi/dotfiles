@@ -14,6 +14,8 @@ envy doctor apps --only chrome,codex,gh,tailscale
 envy doctor apps --only codex,vscode --only auth,sync
 envy doctor apps --only perm
 envy doctor apps --strict
+envy doctor --json
+envy doctor apps --only auth --json
 envy doctor system
 envy doctor network
 envy doctor all
@@ -25,6 +27,13 @@ The default `envy doctor` runs config, system, and app checks but deliberately s
 network probes. `envy doctor network` performs the read-only mirror probes explicitly;
 `envy doctor all` includes every section and may therefore be slower or depend on current
 network conditions.
+
+Every doctor entry point accepts `--json`. JSON output suppresses progress rows,
+uses `schemaVersion = 1`, retains the normal strict/non-strict exit status, and
+contains only the same secret-safe result summaries exposed by the table view.
+Results may also include a declarative `action` such as `run`, `open-app`, or
+`open-settings`. These are suggestions for a frontend or user; doctor never
+executes them automatically.
 
 ## File Map
 

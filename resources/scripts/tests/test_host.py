@@ -3,7 +3,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from typer.main import get_command
+
 from envy import host
+from envy.main import cli
 from envy import utils
 
 
@@ -53,6 +56,52 @@ class HostInitTests(unittest.TestCase):
 
         self.assertEqual(items, [("work-macbook", "currently selected")])
 
+    def test_all_machine_completion_includes_both_platforms(self):
+        hosts = self.root / "hosts"
+        (hosts / "darwin").mkdir(parents=True)
+        (hosts / "linux").mkdir(parents=True)
+        (hosts / "darwin" / "work.nix").write_text("{ ... }: { }\n")
+        (hosts / "linux" / "workstation.nix").write_text("{ ... }: { }\n")
+        with patch.object(host, "HOSTS_DIR", hosts), patch.object(
+            host, "current_machine_id", return_value="work"
+        ), patch.object(host, "platform_name", return_value="darwin"):
+            items = host.complete_all_machine_ids(None, "work")
+
+        self.assertEqual(items, [
+            ("work", "currently selected"),
+            ("workstation", "linux machine"),
+        ])
+
+    def test_platform_and_matrix_group_completion_are_static_and_filtered(self):
+        self.assertEqual(
+            host.complete_platforms(None, "l"),
+            [("linux", "linux machine")],
+        )
+        with patch.object(host, "evaluate_machine_manifest") as evaluate:
+            groups = host.complete_matrix_groups(None, "homebrew.system.c")
+
+        evaluate.assert_not_called()
+        self.assertEqual(groups, [
+            ("homebrew.system.cask", "Homebrew casks (darwin)"),
+        ])
+
+    def test_diff_and_matrix_register_custom_completion(self):
+        root_commands = get_command(cli).commands
+        commands = root_commands["host"].commands
+        diff = commands["diff"]
+        for name in ("left", "right", "left_platform", "right_platform"):
+            parameter = next(param for param in diff.params if param.name == name)
+            self.assertIsNotNone(parameter._custom_shell_complete)
+        matrix_group = next(
+            param for param in commands["matrix"].params if param.name == "group"
+        )
+        self.assertIsNotNone(matrix_group._custom_shell_complete)
+        check_platform = next(
+            param for param in root_commands["check"].params
+            if param.name == "selected_platform"
+        )
+        self.assertIsNotNone(check_platform._custom_shell_complete)
+
     def test_init_mode_completion_is_prefix_filtered(self):
         self.assertEqual(
             host.complete_init_modes(None, "i"),
@@ -81,6 +130,32 @@ class HostInitTests(unittest.TestCase):
                 utils.machine_build_attr(),
                 "path:.#homeConfigurations.workstation.activationPackage",
             )
+
+    def test_manifest_diff_compares_settings_and_effective_software(self):
+        def manifest(user, items):
+            return {
+                "settings": {"envy.user.name": user},
+                "software": {"groups": {"nix.user.package": {
+                    "selection": {"effective": [
+                        {"id": item, "name": item} for item in items
+                    ]},
+                }}},
+            }
+
+        diff = host.manifest_diff(
+            manifest("chi", ["git", "ripgrep"]),
+            manifest("work", ["git", "bat"]),
+        )
+
+        self.assertEqual(diff["settings"][0]["path"], "envy.user.name")
+        self.assertEqual(
+            diff["software"]["leftOnly"],
+            [{"group": "nix.user.package", "item": "ripgrep"}],
+        )
+        self.assertEqual(
+            diff["software"]["rightOnly"],
+            [{"group": "nix.user.package", "item": "bat"}],
+        )
 
 
 if __name__ == "__main__":

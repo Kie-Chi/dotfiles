@@ -16,6 +16,9 @@ alias. Software is not a `config` subcommand, and there is no top-level
 | `envy software enable` | `envy sw en` | Remove a managed machine exclusion |
 | `envy software disable` | `envy sw dis` | Add a managed machine exclusion |
 | `envy software search` | `envy sw se` | Search available registries concurrently |
+| `envy software audit` |  | Find stale, redundant, or ambiguous machine policy |
+| `envy software why <item>` |  | Explain evaluated state and machine/shared ownership |
+| `envy software cache status` |  | Inspect the exact registry identity index |
 
 `envy sw ls --details` includes versions and canonical references. `enable` and
 `disable` take a canonical group ID and stable item ID:
@@ -26,6 +29,8 @@ envy sw rm homebrew.system.cask zotero --clean
 envy sw dis homebrew.system.cask zotero
 envy sw en homebrew.system.cask zotero
 envy sw se codex --source nix,npm
+envy sw why zotero
+envy sw audit --strict
 ```
 
 `add` and `rm` are desired-state commands. Before writing, they display the
@@ -51,9 +56,26 @@ envy sw add nix.user.package hello
 envy sw add npm.user.tool codex --ref npm:@openai/codex
 ```
 
-Shell completion is manifest-aware: `add` offers restorable managed exclusions,
-`rm` offers known included items, `dis` offers currently enabled items, `en`
-offers Envy-managed exclusions, and `search --source` completes providers.
+A genuinely new managed include must be resolved before the machine file is
+written. Existing manifest items can be enabled offline because their evaluated
+identity is already known. New Homebrew, npm, PyPI, and native entries use the
+fresh exact index first and otherwise perform a provider-specific exact lookup;
+a fuzzy search match or a synthesized reference is not sufficient. Nix entries
+continue to validate the requested nixpkgs attribute by evaluating its `pname`.
+
+`add --refresh` bypasses the exact identity index. `add --offline` never contacts
+a registry and may use a stale positive identity, but it refuses a complete
+cache miss. A definite not-found result and a temporarily unavailable provider
+are reported separately, and neither state writes machine policy.
+
+Shell completion is manifest-aware: `add` offers restorable managed exclusions
+plus fresh exact-index identities for the selected ecosystem and kind; it never
+contacts a registry just because Tab was pressed. `rm` offers known included
+items, `dis` offers currently enabled items, and `en` offers Envy-managed
+exclusions. `why` completes explainable evaluated or machine-owned IDs across
+groups (including stale exclusions), while `why --group` and `search --source`
+complete canonical groups and providers. Completion reads an existing registry
+index in SQLite read-only mode and does not create an empty cache.
 
 `include` records that an active business module contributes an item;
 `exclude` is a machine-level mask and always wins when both contain the same
@@ -132,6 +154,43 @@ Search is read-only and provider failures are isolated. Results are ranked by
 exact/prefix match and whether the selected machine already manages the item.
 Successful multi-provider results are cached for 15 minutes; `--refresh` bypasses
 the cache.
+
+The TUI keeps all available providers enabled so a slow registry never causes
+information to disappear. It remains responsive because the request runs in a
+background worker; repeated queries use Envy's 15-minute query cache and exact
+identity index. Provider failures are reported in the JSON `providers` list
+instead of silently dropping that provider.
+
+Search also writes every successful normalized result to the exact registry
+index, even when another provider fails. This index is stored at
+`$XDG_CACHE_HOME/envy/registry/index-v1.sqlite3` (or
+`~/.cache/envy/registry/index-v1.sqlite3`), uses mode `0600` inside a `0700`
+directory, and has a 24-hour positive TTL. Definite misses are cached for five
+minutes to avoid repeated typo lookups. Query-result cache and exact identity
+index are intentionally separate.
+
+```bash
+envy sw cache status
+envy sw cache status --json
+envy sw cache clean --yes
+```
+
+`list`, `status`, `audit`, and `why` support `--json` with a versioned top-level
+schema for scripts and future frontends.
+
+Desired-state mutations also expose a frontend-safe protocol:
+
+```bash
+envy sw add homebrew.system.cask firefox --dry-run --json
+envy sw add homebrew.system.cask firefox --yes --json
+envy sw rm homebrew.system.cask firefox --dry-run --json
+```
+
+These commands emit exactly one JSON document with `schemaVersion`, `command`,
+`ok`, `data.result`, and the complete `data.plan`. JSON mutations require
+`--yes` before writing; this lets a TUI render the preview first and explicitly
+confirm the second invocation. The JSON path suppresses Rich tables and Git
+commit guidance, while the normal interactive CLI remains unchanged.
 
 | Source | Implementation |
 |---|---|

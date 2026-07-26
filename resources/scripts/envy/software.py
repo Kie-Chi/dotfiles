@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+import sqlite3
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,8 +20,12 @@ from envy.evaluation import (
     machine_manifest,
     manifest_software_groups,
 )
+from envy.jsonio import emit, emit_error
 from envy.mutation import offer_mutation_commit
 from envy.process import run_process
+from envy.search.index import RegistryIndex
+from envy.search.model import SearchResult
+from envy.search.providers import resolve_exact
 from envy.secure_io import atomic_write_text
 from envy.utils import current_machine_id, machine_config_file, platform_name
 
@@ -224,6 +229,50 @@ class SoftwarePlan:
             self.include_added or self.include_removed
             or self.exclude_added or self.exclude_removed
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the complete plan contract consumed by TUI frontends."""
+        return {
+            "action": self.action,
+            "group": {
+                "id": self.group.key,
+                "label": self.group.label,
+                "ecosystem": self.group.ecosystem,
+                "scope": self.group.scope,
+                "kind": self.group.kind,
+            },
+            "item": self.item_id,
+            "includeAdded": list(self.include_added),
+            "includeRemoved": list(self.include_removed),
+            "excludeAdded": list(self.exclude_added),
+            "excludeRemoved": list(self.exclude_removed),
+            "expected": {
+                "included": self.expected_included,
+                "excluded": self.expected_excluded,
+                "effective": self.expected_effective,
+            },
+            "clean": self.clean,
+            "changed": self.changed,
+            "blocked": self.blocked,
+        }
+
+
+@dataclass(frozen=True)
+class AuditFinding:
+    severity: str
+    code: str
+    group: str
+    item_id: str
+    message: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "severity": self.severity,
+            "code": self.code,
+            "group": self.group,
+            "item": self.item_id,
+            "message": self.message,
+        }
 
 
 class SoftwarePolicyError(ValueError):
@@ -964,7 +1013,7 @@ def _completion_policy() -> tuple[
 ]:
     """Load completion candidates without allowing evaluation errors to escape."""
     try:
-        manifest = machine_manifest()
+        manifest = machine_manifest(write_cache=False)
         if not manifest_software_groups(manifest):
             return (), {}
         groups = groups_for_manifest(manifest, include_empty=True)
@@ -1096,11 +1145,134 @@ def complete_remove_groups(ctx, incomplete: str) -> list[tuple[str, str]]:
 
 
 def complete_add_items(ctx, incomplete: str) -> list[tuple[str, str]]:
-    return _complete_items(ctx, incomplete, action="add")
+    group_key = ctx.params.get("group") if ctx is not None else None
+    if not isinstance(group_key, str):
+        return []
+    groups, all_items_by_group = _completion_policy()
+    try:
+        group = require_group(group_key, groups)
+    except typer.BadParameter:
+        return []
+    items = [
+        item for item in all_items_by_group[group.key]
+        if not item.checked and not item.locked
+    ]
+    needle = incomplete.casefold()
+    candidates = [
+        (item.id, _completion_help(item, group, action="add"))
+        for item in items
+        if (
+            item.id.casefold().startswith(needle)
+            or item.name.casefold().startswith(needle)
+            or (item.ref or "").casefold().startswith(needle)
+        )
+    ]
+    if group.ecosystem not in {"homebrew", "npm", "pypi", "native"}:
+        return candidates
+
+    known = {
+        value.casefold()
+        for item in all_items_by_group[group.key]
+        for value in (item.id, item.name, item.ref)
+        if value
+    }
+    for indexed in RegistryIndex().suggest(group.ecosystem, group.kind, incomplete):
+        result = indexed.result
+        identity = {value.casefold() for value in (result.name, result.ref) if value}
+        if known & identity:
+            continue
+        details = ["registry index"]
+        if result.version:
+            details.append(f"v{result.version}")
+        if result.ref:
+            details.append(result.ref)
+        candidates.append((result.name, "; ".join(details)))
+        known.update(identity)
+    return candidates
 
 
 def complete_remove_items(ctx, incomplete: str) -> list[tuple[str, str]]:
     return _complete_items(ctx, incomplete, action="rm")
+
+
+def complete_why_groups(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete every evaluated policy group, including currently empty groups."""
+    del ctx
+    try:
+        manifest = machine_manifest(write_cache=False)
+        if not manifest_software_groups(manifest):
+            return []
+        groups = groups_for_manifest(manifest, include_empty=True)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return []
+    return [
+        (group.key, group.label)
+        for group in groups
+        if group.key.startswith(incomplete)
+    ]
+
+
+def complete_why_items(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete exact explainable IDs across evaluated and machine-owned policy."""
+    try:
+        manifest = machine_manifest(write_cache=False)
+        if not manifest_software_groups(manifest):
+            return []
+        groups = groups_for_manifest(manifest, include_empty=True)
+        includes, exclusions = read_managed_policy(groups=groups)
+    except (OSError, RuntimeError, SoftwarePolicyError, TypeError, ValueError):
+        return []
+
+    group_filter = ctx.params.get("group") if ctx is not None else None
+    if group_filter is not None and not isinstance(group_filter, str):
+        return []
+    if isinstance(group_filter, str):
+        try:
+            selected_groups = (require_group(group_filter, groups),)
+        except typer.BadParameter:
+            return []
+    else:
+        selected_groups = groups
+
+    manifest_groups = manifest_software_groups(manifest)
+    needle = incomplete.casefold()
+    matches: dict[str, dict[str, object]] = {}
+    for group in selected_groups:
+        selection = manifest_groups.get(group.key, {}).get("selection", {})
+        entries = {
+            item["id"]: item
+            for key in ("include", "effective")
+            for item in _software_entries(selection.get(key))
+        }
+        for managed in includes:
+            if managed.group == group.key:
+                entries.setdefault(managed.id, managed.to_selection())
+        for item_id in _ordered_unique([
+            *entries,
+            *_string_list(selection.get("exclude")),
+            *exclusions.get(group.key, []),
+        ]):
+            entry = entries.get(item_id, {"id": item_id, "name": item_id})
+            name = str(entry.get("name") or item_id)
+            ref = _optional_string(entry.get("ref"))
+            if not any(
+                value.casefold().startswith(needle)
+                for value in (item_id, name, ref)
+                if value
+            ):
+                continue
+            match = matches.setdefault(item_id, {"groups": [], "details": []})
+            match["groups"].append(group.key)
+            for detail in (name if name != item_id else None, ref):
+                if detail and detail not in match["details"]:
+                    match["details"].append(detail)
+
+    candidates = []
+    for item_id, match in matches.items():
+        group_help = ", ".join(match["groups"])
+        details = "; ".join(match["details"])
+        candidates.append((item_id, f"{group_help}; {details}" if details else group_help))
+    return candidates
 
 
 def complete_search_sources(ctx, incomplete: str) -> list[tuple[str, str]]:
@@ -1239,6 +1411,7 @@ def _include_for_spec(
     manifest: dict[str, Any],
     *,
     explicit_ref: str | None = None,
+    resolved: SearchResult | None = None,
 ) -> ManagedInclude:
     ref = explicit_ref or (value if ":" in value else None)
     if group.ecosystem == "nix":
@@ -1285,6 +1458,33 @@ def _include_for_spec(
         raise SoftwarePolicyError(
             f"software group does not support registry-backed includes: {group.key}"
         )
+    if resolved is not None:
+        if resolved.ecosystem != group.ecosystem or resolved.kind != group.kind:
+            raise SoftwarePolicyError(
+                f"resolved registry object does not match {group.key}: "
+                f"{resolved.ecosystem}.{resolved.kind}"
+            )
+        names_match = (
+            re.sub(r"[-_.]+", "-", resolved.name).casefold()
+            == re.sub(r"[-_.]+", "-", name).casefold()
+            if group.ecosystem == "pypi"
+            else resolved.name == name
+        )
+        refs_match = (
+            names_match and resolved.ref is not None and resolved.ref.startswith("pypi:")
+            if group.ecosystem == "pypi"
+            else resolved.ref == ref
+        )
+        if not refs_match:
+            raise SoftwarePolicyError(
+                f"resolved registry reference does not match request: {resolved.ref or '<none>'}"
+            )
+        if not names_match:
+            raise SoftwarePolicyError(
+                f"resolved registry name does not match request: {resolved.name}"
+            )
+        name = resolved.name
+        ref = resolved.ref
     _validate_name(name)
     item_id = value if explicit_ref is not None else name
     _validate_name(item_id)
@@ -1292,7 +1492,8 @@ def _include_for_spec(
         group=group.key,
         id=item_id,
         name=name,
-        ref=ref,
+        version=resolved.version if resolved is not None else None,
+        ref=resolved.ref if resolved is not None else ref,
         parameters={},
     )
 
@@ -1307,6 +1508,7 @@ def build_desired_plan(
     exclusions: dict[str, list[str]],
     clean: bool,
     explicit_ref: str | None = None,
+    resolved: SearchResult | None = None,
 ) -> SoftwarePlan:
     if action not in {"add", "rm"}:
         raise ValueError(f"unknown desired-state action: {action}")
@@ -1333,7 +1535,7 @@ def build_desired_plan(
                 f"software group does not support managed includes: {group.key}"
             )
         request = _include_for_spec(
-            group, item_value, manifest, explicit_ref=explicit_ref
+            group, item_value, manifest, explicit_ref=explicit_ref, resolved=resolved,
         )
         item_id = request.id
     else:
@@ -1366,6 +1568,7 @@ def build_desired_plan(
                         existing.ref if existing and existing.ref else item_value,
                         manifest,
                         explicit_ref=explicit_ref,
+                        resolved=resolved,
                     )
                     includes_after.append(request)
                     managed_for_item = [request]
@@ -1451,6 +1654,118 @@ def _render_plan(plan: SoftwarePlan) -> None:
         log.error("software", "plan is blocked", reason=plan.blocked)
 
 
+def _emit_mutation_result(
+    plan: SoftwarePlan,
+    *,
+    result: str,
+    machine: str | None = None,
+    message: str | None = None,
+) -> None:
+    data: dict[str, Any] = {
+        "result": result,
+        "plan": plan.to_dict(),
+    }
+    if machine is not None:
+        data["machine"] = machine
+    if message is not None:
+        data["message"] = message
+    emit(f"software.{plan.action}", data=data)
+
+
+def _resolve_new_include(
+    *,
+    action: str,
+    group: SelectionGroup,
+    item_value: str,
+    explicit_ref: str | None,
+    manifest: dict[str, Any],
+    includes: list[ManagedInclude],
+    exclusions: dict[str, list[str]],
+    offline: bool,
+    refresh: bool,
+    quiet: bool = False,
+) -> SearchResult | None:
+    """Verify a genuinely new registry include before the planner can write it."""
+    if action != "add":
+        return None
+    active_groups = groups_for_manifest(manifest, include_empty=True)
+    normalized_includes = normalize_managed_includes(includes, active_groups)
+    managed = _resolve_managed_include(normalized_includes, group.key, item_value)
+    items = build_software_items(
+        manifest, exclusions, groups=(group,)
+    )[group.key]
+    existing = _resolve_existing_item(
+        items, managed.id if managed is not None else item_value
+    )
+    if managed is not None or existing is not None:
+        return None
+    if not group.editable_include:
+        return None
+    # Nix already performs an exact pname evaluation in _nix_request. It does
+    # not rely on registry search output and remains usable without this index.
+    if group.ecosystem == "nix":
+        return None
+    if group.ecosystem not in {"homebrew", "npm", "pypi", "native"}:
+        raise SoftwarePolicyError(
+            f"software group has no exact registry resolver: {group.key}"
+        )
+
+    requested = explicit_ref or item_value
+    index = RegistryIndex()
+    cached = None if refresh else index.lookup(
+        group.ecosystem, group.kind, requested, allow_stale=offline,
+    )
+    if cached is not None:
+        state = "stale index" if cached.stale else "registry index"
+        if not quiet:
+            log.info(
+                "software", "resolved registry identity",
+                source=state, ref=cached.result.ref or "",
+                age=f"{cached.age_seconds}s",
+            )
+        return cached.result
+    if offline:
+        raise SoftwarePolicyError(
+            f"offline registry index miss for {group.key}: {requested}"
+        )
+    if not refresh and index.recently_missing(group.ecosystem, group.kind, requested):
+        raise SoftwarePolicyError(
+            f"software was not found during a recent exact lookup: {requested}"
+        )
+
+    if not quiet:
+        log.info(
+            "software", "resolving exact registry identity",
+            provider=group.ecosystem, kind=group.kind, item=requested,
+        )
+    outcome = resolve_exact(group.ecosystem, group.kind, requested)
+    if outcome.status == "not_found":
+        try:
+            index.put_miss(group.ecosystem, group.kind, requested)
+        except (OSError, sqlite3.Error):
+            pass
+        detail = f": {outcome.error}" if outcome.error else ""
+        raise SoftwarePolicyError(
+            f"software does not exist in {group.ecosystem}.{group.kind}: {requested}{detail}"
+        )
+    if outcome.status == "unavailable" or outcome.result is None:
+        raise SoftwarePolicyError(
+            f"cannot verify software identity with {group.ecosystem}: "
+            f"{outcome.error or 'registry unavailable'}"
+        )
+    try:
+        index.put_results([outcome.result])
+    except (OSError, sqlite3.Error):
+        pass
+    if not quiet:
+        log.info(
+            "software", "resolved registry identity",
+            source="registry", ref=outcome.result.ref or "",
+            version=outcome.result.version or "unknown",
+        )
+    return outcome.result
+
+
 def _apply_desired_state(
     group_value: str,
     item_value: str,
@@ -1460,15 +1775,38 @@ def _apply_desired_state(
     yes: bool,
     dry_run: bool,
     explicit_ref: str | None,
+    offline: bool = False,
+    refresh: bool = False,
+    json_output: bool = False,
 ) -> None:
-    manifest = _manifest_or_exit()
-    groups = groups_for_manifest(manifest, include_empty=True)
-    group = require_group(group_value, groups)
-    target = machine_file()
-    original_source = target.read_text()
-    digest = source_digest(original_source)
-    includes, exclusions = _parse_managed_policy_source(original_source, groups)
+    command = f"software.{action}"
     try:
+        manifest = _manifest_or_exit()
+        groups = groups_for_manifest(manifest, include_empty=True)
+        group = require_group(group_value, groups)
+        target = machine_file()
+        original_source = target.read_text()
+        digest = source_digest(original_source)
+        includes, exclusions = _parse_managed_policy_source(original_source, groups)
+    except (OSError, SoftwarePolicyError, typer.BadParameter) as exc:
+        if json_output:
+            emit_error(command, str(exc), code="invalid-policy")
+        else:
+            log.error("software", str(exc))
+        raise typer.Exit(code=1) from exc
+    try:
+        resolved = _resolve_new_include(
+            action=action,
+            group=group,
+            item_value=item_value,
+            explicit_ref=explicit_ref,
+            manifest=manifest,
+            includes=includes,
+            exclusions=exclusions,
+            offline=offline,
+            refresh=refresh,
+            quiet=json_output,
+        )
         plan = build_desired_plan(
             action=action,
             group=group,
@@ -1478,21 +1816,42 @@ def _apply_desired_state(
             exclusions=exclusions,
             clean=clean,
             explicit_ref=explicit_ref,
+            resolved=resolved,
         )
     except SoftwarePolicyError as exc:
-        log.error("software", str(exc))
+        if json_output:
+            emit_error(command, str(exc), code="invalid-policy")
+        else:
+            log.error("software", str(exc))
         raise typer.Exit(code=1) from exc
-    _render_plan(plan)
+    if not json_output:
+        _render_plan(plan)
     if plan.blocked:
+        if json_output:
+            emit(command, ok=False, data={"result": "blocked", "plan": plan.to_dict()},
+                 error={"code": "blocked", "message": plan.blocked})
         raise typer.Exit(code=1)
     if dry_run:
-        log.info("software", "dry run; no files changed")
+        if json_output:
+            _emit_mutation_result(plan, result="dry-run")
+        else:
+            log.info("software", "dry run; no files changed")
         return
     if not plan.changed:
-        log.ok("software", f"already satisfies {action} intent", group=group.key, item=plan.item_id)
+        if json_output:
+            _emit_mutation_result(plan, result="already-satisfied")
+        else:
+            log.ok("software", f"already satisfies {action} intent", group=group.key, item=plan.item_id)
         return
+    if json_output and not yes:
+        emit(command, ok=False, data={"result": "confirmation-required", "plan": plan.to_dict()},
+             error={"code": "confirmation-required", "message": "pass --yes to apply JSON mutation"})
+        raise typer.Exit(code=2)
     if not yes and not typer.confirm("Apply this software plan?", default=None):
-        log.info("software", "plan cancelled; no files changed")
+        if json_output:
+            _emit_mutation_result(plan, result="cancelled")
+        else:
+            log.info("software", "plan cancelled; no files changed")
         return
     updated_exclusions = {key: list(values) for key, values in exclusions.items()}
     updated_exclusions[group.key] = list(plan.exclusions_after)
@@ -1507,21 +1866,173 @@ def _apply_desired_state(
             groups=groups,
         )
     except SoftwarePolicyError as exc:
-        log.error("software", str(exc))
+        if json_output:
+            emit_error(command, str(exc), code="apply-failed")
+        else:
+            log.error("software", str(exc))
         raise typer.Exit(code=1) from exc
-    log.ok(
-        "software",
-        "intent applied",
-        action=action,
-        group=group.key,
-        item=plan.item_id,
-        effective=str(plan.expected_effective).lower(),
-        machine=evaluated.get("id", current_machine_id()),
-    )
+    machine = evaluated.get("id", current_machine_id())
+    if json_output:
+        _emit_mutation_result(plan, result="applied", machine=machine)
+    else:
+        log.ok(
+            "software",
+            "intent applied",
+            action=action,
+            group=group.key,
+            item=plan.item_id,
+            effective=str(plan.expected_effective).lower(),
+            machine=machine,
+        )
     offer_mutation_commit(
         [target],
         f"chore(host): {action} {plan.item_id} on {evaluated.get('id') or current_machine_id()}",
+        quiet=json_output,
     )
+
+
+def audit_policy(
+    manifest: dict[str, Any],
+    includes: list[ManagedInclude],
+    exclusions: dict[str, list[str]],
+    groups: tuple[SelectionGroup, ...],
+) -> list[AuditFinding]:
+    """Find redundant or ambiguous machine-owned software policy."""
+    findings: list[AuditFinding] = []
+    manifest_groups = manifest_software_groups(manifest)
+    for group in groups:
+        selection = manifest_groups.get(group.key, {}).get("selection", {})
+        evaluated_include = {
+            item["id"] for item in _software_entries(selection.get("include"))
+        }
+        evaluated_effective = {
+            item["id"] for item in _software_entries(selection.get("effective"))
+        }
+        managed_include = {
+            item.id for item in includes if item.group == group.key
+        }
+        managed_exclude = set(exclusions.get(group.key, []))
+        _, external_include, external_exclude = _managed_source_counts(
+            manifest, group, includes, exclusions,
+        )
+        for item_id in sorted(managed_include & managed_exclude):
+            findings.append(AuditFinding(
+                "warn", "managed-include-exclude", group.key, item_id,
+                "machine policy both includes and excludes this stable ID",
+            ))
+        for item_id in sorted(managed_exclude - evaluated_include):
+            findings.append(AuditFinding(
+                "warn", "stale-exclusion", group.key, item_id,
+                "machine exclusion no longer masks an evaluated contribution",
+            ))
+        for item_id in sorted(managed_include):
+            if external_include[item_id] > 0:
+                findings.append(AuditFinding(
+                    "info", "redundant-managed-include", group.key, item_id,
+                    "the same stable ID is also contributed outside the managed block",
+                ))
+            if external_exclude[item_id] > 0:
+                findings.append(AuditFinding(
+                    "warn", "external-exclusion", group.key, item_id,
+                    "an external exclusion masks this machine-managed include",
+                ))
+            if item_id in evaluated_include and item_id not in evaluated_effective and (
+                item_id not in managed_exclude and external_exclude[item_id] == 0
+            ):
+                findings.append(AuditFinding(
+                    "warn", "unexpected-ineffective", group.key, item_id,
+                    "item is included but not effective without a visible exclusion",
+                ))
+
+    effective_names: dict[str, list[tuple[str, str]]] = {}
+    for group in groups:
+        selection = manifest_groups.get(group.key, {}).get("selection", {})
+        for item in _software_entries(selection.get("effective")):
+            effective_names.setdefault(item["name"].casefold(), []).append(
+                (group.key, item["id"])
+            )
+    for matches in effective_names.values():
+        ecosystems = {
+            require_group(group_key, groups).ecosystem
+            for group_key, _ in matches
+        }
+        if len(matches) > 1 and len(ecosystems) > 1:
+            for group_key, item_id in matches:
+                findings.append(AuditFinding(
+                    "warn", "cross-ecosystem-name", group_key, item_id,
+                    "the same effective software name appears in another ecosystem",
+                ))
+    return sorted(
+        findings,
+        key=lambda item: (
+            0 if item.severity == "warn" else 1,
+            item.group, item.item_id, item.code,
+        ),
+    )
+
+
+def explain_policy_item(
+    manifest: dict[str, Any],
+    includes: list[ManagedInclude],
+    exclusions: dict[str, list[str]],
+    groups: tuple[SelectionGroup, ...],
+    value: str,
+    group_filter: str | None = None,
+) -> list[dict[str, object]]:
+    """Explain evaluated and machine-owned state for every exact item match."""
+    rows: list[dict[str, object]] = []
+    manifest_groups = manifest_software_groups(manifest)
+    selected_groups = [
+        group for group in groups
+        if group_filter is None or group.key == group_filter
+    ]
+    if group_filter is not None and not selected_groups:
+        require_group(group_filter, groups)
+    for group in selected_groups:
+        selection = manifest_groups.get(group.key, {}).get("selection", {})
+        entries = {
+            item["id"]: item
+            for key in ("include", "effective")
+            for item in _software_entries(selection.get(key))
+        }
+        candidates = {
+            item_id for item_id, item in entries.items()
+            if value in {item_id, item["name"], item.get("ref")}
+        }
+        candidates.update(
+            item.id for item in includes
+            if item.group == group.key and value in {item.id, item.name, item.ref}
+        )
+        if value in exclusions.get(group.key, []):
+            candidates.add(value)
+        for item_id in sorted(candidates):
+            included, effective, excluded = _evaluated_item_state(
+                manifest, group.key, item_id,
+            )
+            managed_include = next((
+                item for item in includes
+                if item.group == group.key and item.id == item_id
+            ), None)
+            machine_excluded = item_id in exclusions.get(group.key, [])
+            _, external_include, external_exclude = _managed_source_counts(
+                manifest, group, includes, exclusions,
+            )
+            entry = entries.get(item_id, {})
+            rows.append({
+                "group": group.key,
+                "label": group.label,
+                "item": item_id,
+                "name": entry.get("name") or (managed_include.name if managed_include else item_id),
+                "ref": entry.get("ref") or (managed_include.ref if managed_include else None),
+                "included": included,
+                "excluded": excluded,
+                "effective": effective,
+                "machineInclude": managed_include is not None,
+                "machineExclude": machine_excluded,
+                "externalInclude": external_include[item_id] > 0,
+                "externalExclude": external_exclude[item_id] > 0,
+            })
+    return rows
 
 
 app = typer.Typer(
@@ -1531,26 +2042,35 @@ app = typer.Typer(
     no_args_is_help=False,
 )
 
+cache_app = typer.Typer(
+    name="cache",
+    help="Inspect or clear the exact registry identity index",
+    no_args_is_help=True,
+)
+
 
 @app.callback()
 def cmd_software(ctx: typer.Context):
     """List evaluated software policy when no subcommand is supplied."""
     if ctx.invoked_subcommand is None:
-        _print_policy(details=False)
+        _print_policy(details=False, json_output=False)
 
 
 @app.command(name="list")
 @app.command(name="ls", rich_help_panel="Aliases")
 def cmd_list(
     details: bool = typer.Option(False, "--details", "-d", help="Include empty groups and package metadata"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ):
     """List checkbox state for all software groups."""
-    _print_policy(details=details)
+    _print_policy(details=details, json_output=json_output)
 
 
 @app.command(name="status")
 @app.command(name="st", rich_help_panel="Aliases")
-def cmd_status():
+def cmd_status(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
     """Summarize the selected machine's evaluated software policy."""
     manifest = _manifest_or_exit()
     groups = groups_for_manifest(manifest, include_empty=True)
@@ -1559,10 +2079,114 @@ def cmd_status():
     included = sum(item.included for items in items_by_group.values() for item in items)
     effective = sum(item.checked for items in items_by_group.values() for item in items)
     excluded = sum(not item.checked for items in items_by_group.values() for item in items)
-    log.info(
-        "software", "policy status", machine=manifest.get("id", "current"),
-        groups=len(groups), included=included, effective=effective, excluded=excluded,
+    payload = {
+        "schemaVersion": 1,
+        "machine": manifest.get("id", "current"),
+        "groups": len(groups),
+        "included": included,
+        "effective": effective,
+        "excluded": excluded,
+    }
+    if json_output:
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+    else:
+        log.info(
+            "software", "policy status", machine=payload["machine"],
+            groups=len(groups), included=included, effective=effective, excluded=excluded,
+        )
+
+
+@app.command(name="audit")
+def cmd_audit(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    strict: bool = typer.Option(False, "--strict", help="Exit non-zero when warnings are found"),
+):
+    """Find stale, redundant, or ambiguous machine software policy."""
+    manifest = _manifest_or_exit()
+    groups = groups_for_manifest(manifest, include_empty=True)
+    source = machine_file().read_text()
+    includes, exclusions = _parse_managed_policy_source(source, groups)
+    findings = audit_policy(manifest, includes, exclusions, groups)
+    payload = {
+        "schemaVersion": 1,
+        "machine": manifest.get("id", current_machine_id()),
+        "findings": [finding.to_dict() for finding in findings],
+    }
+    if json_output:
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+    elif findings:
+        table = Table(title=f"Software audit - {payload['machine']}")
+        table.add_column("Severity")
+        table.add_column("Code")
+        table.add_column("Group")
+        table.add_column("Item")
+        table.add_column("Finding")
+        for finding in findings:
+            style = "yellow" if finding.severity == "warn" else "cyan"
+            table.add_row(
+                f"[{style}]{finding.severity.upper()}[/{style}]",
+                finding.code, finding.group, finding.item_id, finding.message,
+            )
+        log.console.print(table)
+    else:
+        log.ok("software", "policy audit found no issues")
+    warnings = sum(finding.severity == "warn" for finding in findings)
+    if strict and warnings:
+        raise typer.Exit(code=1)
+
+
+@app.command(name="why")
+def cmd_why(
+    item: str = typer.Argument(
+        ..., help="Stable ID, exact name, or canonical reference",
+        autocompletion=complete_why_items,
+    ),
+    group: str | None = typer.Option(
+        None, "--group", "-g", help="Restrict to one canonical group",
+        autocompletion=complete_why_groups,
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Explain why an item is included, excluded, or effective."""
+    manifest = _manifest_or_exit()
+    groups = groups_for_manifest(manifest, include_empty=True)
+    source = machine_file().read_text()
+    includes, exclusions = _parse_managed_policy_source(source, groups)
+    rows = explain_policy_item(
+        manifest, includes, exclusions, groups, item, group_filter=group,
     )
+    payload = {
+        "schemaVersion": 1,
+        "machine": manifest.get("id", current_machine_id()),
+        "query": item,
+        "matches": rows,
+    }
+    if json_output:
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
+    if not rows:
+        log.error("software", "no exact policy item match", item=item)
+        raise typer.Exit(code=1)
+    table = Table(title=f"Why software - {item}")
+    for column in (
+        "Group", "Item", "Reference", "Included", "Excluded", "Effective", "Ownership",
+    ):
+        table.add_column(column)
+    for row in rows:
+        ownership = ", ".join(name for name, enabled in (
+            ("machine include", row["machineInclude"]),
+            ("shared include", row["externalInclude"]),
+            ("machine exclude", row["machineExclude"]),
+            ("external exclude", row["externalExclude"]),
+        ) if enabled) or "evaluated only"
+        table.add_row(
+            str(row["group"]), str(row["item"]), str(row["ref"] or ""),
+            "yes" if row["included"] else "no",
+            "yes" if row["excluded"] else "no",
+            "yes" if row["effective"] else "no",
+            ownership,
+        )
+    log.console.print(table)
 
 
 @app.command(name="disable")
@@ -1611,11 +2235,21 @@ def cmd_add(
     ref: str | None = typer.Option(None, "--ref", help="Canonical registry reference when item is a custom stable ID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply the displayed plan without confirmation"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Display the plan without writing"),
+    offline: bool = typer.Option(
+        False, "--offline", help="Require a cached identity; stale positive entries are allowed",
+    ),
+    refresh: bool = typer.Option(
+        False, "--refresh", help="Ignore registry identity cache and resolve again",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit a stable plan/result document for frontends",
+    ),
 ):
     """Ensure one software item is effective on the selected machine."""
     _apply_desired_state(
         group, item, action="add", clean=clean, yes=yes,
-        dry_run=dry_run, explicit_ref=ref,
+        dry_run=dry_run, explicit_ref=ref, offline=offline, refresh=refresh,
+        json_output=json_output,
     )
 
 
@@ -1633,11 +2267,15 @@ def cmd_remove(
     clean: bool = typer.Option(False, "--clean", help="Remove redundant Envy-managed state for this item"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply the displayed plan without confirmation"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Display the plan without writing"),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit a stable plan/result document for frontends",
+    ),
 ):
     """Ensure one software item is not effective on the selected machine."""
     _apply_desired_state(
         group, item, action="rm", clean=clean, yes=yes,
         dry_run=dry_run, explicit_ref=None,
+        json_output=json_output,
     )
 
 
@@ -1661,6 +2299,49 @@ def cmd_search(
         query, sources=source, limit=limit, exact=exact,
         json_output=json_output, refresh=refresh,
     )
+
+
+@cache_app.command(name="status")
+def cmd_cache_status(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Show exact registry index freshness and provider counts."""
+    stats = RegistryIndex().stats()
+    payload = {"schemaVersion": 1, **stats}
+    if json_output:
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
+    table = Table(title="Software registry index")
+    table.add_column("Field")
+    table.add_column("Value")
+    for key in ("path", "entries", "fresh", "stale", "misses"):
+        table.add_row(key, str(stats[key]))
+    providers = stats.get("providers")
+    if isinstance(providers, dict):
+        for provider, count in sorted(providers.items()):
+            table.add_row(f"provider.{provider}", str(count))
+    log.console.print(table)
+
+
+@cache_app.command(name="clean")
+def cmd_cache_clean(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm exact registry index deletion"),
+):
+    """Delete the exact registry identity index; future search/add recreates it."""
+    index = RegistryIndex()
+    if not index.path.exists():
+        log.info("software", "registry index is already empty", path=str(index.path))
+        return
+    if not yes and not typer.confirm(f"Delete registry index {index.path}?", default=None):
+        log.info("software", "registry index cleanup cancelled")
+        return
+    removed = index.clear()
+    if removed:
+        log.ok("software", "registry index removed", path=str(index.path))
+        log.hint("It will be rebuilt by software search and exact add lookups.")
+
+
+app.add_typer(cache_app, name="cache")
 
 
 def _manifest_or_exit() -> dict[str, Any]:
@@ -1775,11 +2456,37 @@ def _change_one(group_value: str, item_value: str, *, excluded: bool) -> None:
     )
 
 
-def _print_policy(*, details: bool) -> None:
+def _print_policy(*, details: bool, json_output: bool = False) -> None:
     manifest = _manifest_or_exit()
     groups = groups_for_manifest(manifest, include_empty=details)
     managed = read_managed_exclusions(groups=groups)
     items_by_group = build_software_items(manifest, managed, groups=groups)
+    if json_output:
+        payload = {
+            "schemaVersion": 1,
+            "machine": manifest.get("id", current_machine_id()),
+            "platform": manifest.get("platform"),
+            "groups": [{
+                "id": group.key,
+                "label": group.label,
+                "ecosystem": group.ecosystem,
+                "scope": group.scope,
+                "kind": group.kind,
+                "items": [{
+                    "id": item.id,
+                    "name": item.name,
+                    "version": item.version,
+                    "ref": item.ref,
+                    "included": item.included,
+                    "effective": item.checked,
+                    "machineExclude": item.managed,
+                    "externalExclude": item.locked,
+                    "stale": item.stale,
+                } for item in items_by_group[group.key]],
+            } for group in groups],
+        }
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
     table = Table(title=f"Machine software - {manifest.get('id', current_machine_id())}")
     table.add_column("Group")
     table.add_column("State")

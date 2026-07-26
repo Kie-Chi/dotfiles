@@ -1,5 +1,6 @@
 """Per-machine host configuration commands for envy."""
 
+import json
 import re
 from pathlib import Path
 from typing import Optional
@@ -65,6 +66,136 @@ def complete_machine_ids(ctx, incomplete: str) -> list[tuple[str, str]]:
         for path in sorted(MACHINES_DIR.glob("*.nix"))
         if path.is_file() and path.stem.startswith(incomplete)
     ]
+
+
+def complete_all_machine_ids(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete repository machines across Darwin and Linux."""
+    del ctx
+    try:
+        entries = machine_entries()
+        current = current_machine_id()
+        current_platform = platform_name()
+    except (OSError, RuntimeError, ValueError):
+        return []
+    return [
+        (
+            machine_id,
+            "currently selected"
+            if machine_id == current and platform == current_platform
+            else f"{platform} machine",
+        )
+        for platform, machine_id, _ in entries
+        if machine_id.startswith(incomplete)
+    ]
+
+
+def complete_platforms(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete supported host platform selectors."""
+    del ctx
+    return [
+        (platform, f"{platform} machine")
+        for platform in ("darwin", "linux")
+        if platform.startswith(incomplete)
+    ]
+
+
+def complete_matrix_groups(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete canonical groups without evaluating every repository machine."""
+    del ctx
+    try:
+        from envy.software import groups_for_platform
+
+        by_key: dict[str, tuple[str, set[str]]] = {}
+        for platform in ("darwin", "linux"):
+            for group in groups_for_platform(platform):
+                label, platforms = by_key.setdefault(group.key, (group.label, set()))
+                platforms.add(platform)
+        return [
+            (group_id, f"{label} ({'/'.join(sorted(platforms))})")
+            for group_id, (label, platforms) in sorted(by_key.items())
+            if group_id.startswith(incomplete)
+        ]
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return []
+
+
+def resolve_machine_entry(machine_id: str, selected_platform: str | None = None):
+    matches = [
+        entry for entry in machine_entries()
+        if entry[1] == machine_id and (
+            selected_platform is None or entry[0] == selected_platform
+        )
+    ]
+    if not matches:
+        raise typer.BadParameter(f"machine configuration does not exist: {machine_id}")
+    if len(matches) > 1:
+        platforms = ", ".join(entry[0] for entry in matches)
+        raise typer.BadParameter(
+            f"machine ID exists on multiple platforms ({platforms}); pass a platform option"
+        )
+    return matches[0]
+
+
+def evaluate_machine_manifest(platform: str, machine_id: str) -> dict:
+    if platform == "darwin":
+        attr = f"path:.#darwinConfigurations.{machine_id}.config.envy.machine.manifest"
+    elif platform == "linux":
+        attr = f"path:.#homeConfigurations.{machine_id}.config.envy.machine.manifest"
+    else:
+        raise ValueError(f"unsupported machine platform: {platform}")
+    result = run_process(
+        ["nix", "eval", "--impure", attr, "--json"],
+        cwd=DOTFILES_DIR, capture=True, check=False, timeout=60,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or "manifest evaluation failed").strip().splitlines()[-1]
+        raise RuntimeError(f"cannot evaluate {platform}/{machine_id}: {detail[:500]}")
+    try:
+        value = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"invalid manifest JSON for {platform}/{machine_id}") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError(f"invalid manifest for {platform}/{machine_id}")
+    return value
+
+
+def manifest_diff(left: dict, right: dict) -> dict[str, object]:
+    left_settings = left.get("settings") if isinstance(left.get("settings"), dict) else {}
+    right_settings = right.get("settings") if isinstance(right.get("settings"), dict) else {}
+    settings = [{
+        "path": path,
+        "left": left_settings.get(path),
+        "right": right_settings.get(path),
+    } for path in sorted(set(left_settings) | set(right_settings))
+      if left_settings.get(path) != right_settings.get(path)]
+
+    def effective(manifest):
+        software = manifest.get("software") if isinstance(manifest.get("software"), dict) else {}
+        groups = software.get("groups") if isinstance(software.get("groups"), dict) else {}
+        values = set()
+        for group_id, group in groups.items():
+            selection = group.get("selection") if isinstance(group, dict) else None
+            items = selection.get("effective") if isinstance(selection, dict) else None
+            for item in items if isinstance(items, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    values.add((str(group_id), item["id"]))
+        return values
+
+    left_effective = effective(left)
+    right_effective = effective(right)
+    return {
+        "settings": settings,
+        "software": {
+            "leftOnly": [
+                {"group": group, "item": item}
+                for group, item in sorted(left_effective - right_effective)
+            ],
+            "rightOnly": [
+                {"group": group, "item": item}
+                for group, item in sorted(right_effective - left_effective)
+            ],
+        },
+    }
 
 
 def complete_init_modes(ctx, incomplete: str) -> list[tuple[str, str]]:
@@ -173,7 +304,9 @@ def cmd_init(
 
 @app.command(name="list")
 @app.command(name="ls", rich_help_panel="Aliases")
-def cmd_list():
+def cmd_list(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
     """List machine configurations in the repository."""
     current = current_machine_id()
     table = Table(title="envy machines")
@@ -182,7 +315,20 @@ def cmd_list():
     table.add_column("Current")
     table.add_column("File")
     local_platform = platform_name()
-    for platform, machine_id, path in machine_entries():
+    entries = list(machine_entries())
+    if json_output:
+        payload = {
+            "schemaVersion": 1,
+            "machines": [{
+                "platform": platform,
+                "machineId": machine_id,
+                "current": platform == local_platform and machine_id == current,
+                "file": str(path),
+            } for platform, machine_id, path in entries],
+        }
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
+    for platform, machine_id, path in entries:
         table.add_row(
             platform,
             machine_id,
@@ -211,7 +357,9 @@ def cmd_select(
 
 @app.command(name="status")
 @app.command(name="st", rich_help_panel="Aliases")
-def cmd_status():
+def cmd_status(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
     """Show the selected machine and flake target."""
     machine_id = current_machine_id()
     path = machine_file(machine_id)
@@ -229,7 +377,129 @@ def cmd_status():
         cwd=DOTFILES_DIR, capture=True, check=False,
     )
     branch = (branch_result.stdout or "").strip()
+    if json_output:
+        payload = {
+            "schemaVersion": 1,
+            "machineId": machine_id,
+            "platform": platform_name(),
+            "deviceMetadata": str(DEVICE_LABEL_FILE),
+            "machineFile": str(path),
+            "fileExists": path.exists(),
+            "flakeTarget": flake_target(),
+            "gitBranch": branch or None,
+        }
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
     table.add_row("Git branch", branch or "<detached>")
+    log.console.print(table)
+
+
+@app.command(name="diff")
+def cmd_diff(
+    left: str = typer.Argument(
+        ..., help="First machine ID", autocompletion=complete_all_machine_ids,
+    ),
+    right: str = typer.Argument(
+        ..., help="Second machine ID", autocompletion=complete_all_machine_ids,
+    ),
+    left_platform: str | None = typer.Option(
+        None, "--left-platform", help="darwin or linux",
+        autocompletion=complete_platforms,
+    ),
+    right_platform: str | None = typer.Option(
+        None, "--right-platform", help="darwin or linux",
+        autocompletion=complete_platforms,
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Compare evaluated scalar settings and effective software for two machines."""
+    left_entry = resolve_machine_entry(left, left_platform)
+    right_entry = resolve_machine_entry(right, right_platform)
+    try:
+        left_manifest = evaluate_machine_manifest(left_entry[0], left_entry[1])
+        right_manifest = evaluate_machine_manifest(right_entry[0], right_entry[1])
+    except RuntimeError as exc:
+        log.error("host", str(exc))
+        raise typer.Exit(code=1) from exc
+    differences = manifest_diff(left_manifest, right_manifest)
+    payload = {
+        "schemaVersion": 1,
+        "left": {"platform": left_entry[0], "machineId": left_entry[1]},
+        "right": {"platform": right_entry[0], "machineId": right_entry[1]},
+        "diff": differences,
+    }
+    if json_output:
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
+    settings = differences["settings"]
+    software = differences["software"]
+    table = Table(title=f"Machine diff - {left} → {right}")
+    table.add_column("Kind")
+    table.add_column("Path/Group")
+    table.add_column(left)
+    table.add_column(right)
+    for row in settings:
+        table.add_row("setting", row["path"], str(row["left"]), str(row["right"]))
+    for row in software["leftOnly"]:
+        table.add_row("software", row["group"], row["item"], "-")
+    for row in software["rightOnly"]:
+        table.add_row("software", row["group"], "-", row["item"])
+    if not settings and not software["leftOnly"] and not software["rightOnly"]:
+        table.add_row("-", "no evaluated differences", "", "")
+    log.console.print(table)
+
+
+@app.command(name="matrix")
+def cmd_matrix(
+    group: str | None = typer.Option(
+        None, "--group", "-g", help="Restrict to one software group",
+        autocompletion=complete_matrix_groups,
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Show which evaluated machines make each software item effective."""
+    manifests = []
+    for platform, machine_id, _ in machine_entries():
+        if not json_output:
+            log.step("host", "evaluating matrix machine", platform=platform, machine=machine_id)
+        try:
+            manifests.append((platform, machine_id, evaluate_machine_manifest(platform, machine_id)))
+        except RuntimeError as exc:
+            log.error("host", str(exc))
+            raise typer.Exit(code=1) from exc
+    coverage: dict[tuple[str, str], list[str]] = {}
+    for platform, machine_id, manifest in manifests:
+        software = manifest.get("software") if isinstance(manifest.get("software"), dict) else {}
+        groups = software.get("groups") if isinstance(software.get("groups"), dict) else {}
+        for group_id, value in groups.items():
+            if group is not None and group_id != group:
+                continue
+            selection = value.get("selection") if isinstance(value, dict) else None
+            effective = selection.get("effective") if isinstance(selection, dict) else None
+            for item in effective if isinstance(effective, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    coverage.setdefault((str(group_id), item["id"]), []).append(
+                        f"{platform}/{machine_id}"
+                    )
+    rows = [{"group": key[0], "item": key[1], "machines": machines}
+            for key, machines in sorted(coverage.items())]
+    payload = {
+        "schemaVersion": 1,
+        "machines": [
+            {"platform": platform, "machineId": machine_id}
+            for platform, machine_id, _ in manifests
+        ],
+        "software": rows,
+    }
+    if json_output:
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
+    table = Table(title="Machine software matrix")
+    table.add_column("Group")
+    table.add_column("Item")
+    table.add_column("Effective on")
+    for row in rows:
+        table.add_row(row["group"], row["item"], ", ".join(row["machines"]))
     log.console.print(table)
 
 

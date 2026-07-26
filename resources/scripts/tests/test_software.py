@@ -753,6 +753,32 @@ class SoftwarePolicyTests(unittest.TestCase):
         self.assertIn("envy.software.nix.packages.exclude", self.machine.read_text())
         self.assertNotIn("envy.packages.home", self.machine.read_text())
 
+    def test_audit_finds_machine_include_exclude_pair(self):
+        manifest = _manifest("darwin", {
+            "homebrew.system.cask": _group(
+                "envy.darwin.software.homebrew.casks", "Homebrew casks",
+                "homebrew", include=["maven"], exclude=["maven"], effective=[],
+                editable_include=True, kind="cask",
+            ),
+        })
+        groups = software.groups_for_manifest(manifest, include_empty=True)
+        includes = [software.ManagedInclude(
+            group="homebrew.system.cask", id="maven", name="maven",
+            ref="homebrew:cask/maven",
+        )]
+        exclusions = {"homebrew.system.cask": ["maven"]}
+
+        findings = software.audit_policy(manifest, includes, exclusions, groups)
+        rows = software.explain_policy_item(
+            manifest, includes, exclusions, groups, "maven",
+        )
+
+        self.assertIn("managed-include-exclude", [item.code for item in findings])
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["machineInclude"])
+        self.assertTrue(rows[0]["machineExclude"])
+        self.assertFalse(rows[0]["effective"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,11 +32,13 @@ def changed_repo_paths(paths: list[Path]) -> list[str]:
     return changed
 
 
-def offer_mutation_commit(paths: list[Path], message: str) -> None:
+def offer_mutation_commit(paths: list[Path], message: str, *, quiet: bool = False) -> None:
     """Offer one explicit-path commit in a TTY; print guidance otherwise."""
     assert_worktree_secret_encrypted()
     changed = changed_repo_paths(paths)
     if not changed:
+        return
+    if quiet:
         return
     if not sys.stdin.isatty():
         log.info("git", "versioned mutation is not committed", files=", ".join(changed))

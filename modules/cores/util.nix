@@ -31,7 +31,7 @@ let
   # Special package for envy Python CLI — writeShellApplication wraps it with all runtime deps
   envyPackage = pkgs.writeShellApplication {
     name = "envy";
-    runtimeInputs = [ envyPythonEnv ] ++ (with pkgs; [
+    runtimeInputs = [ envyPythonEnv envyTuiPackage ] ++ (with pkgs; [
       # External tools used by envy commands
       git
       nix
@@ -56,13 +56,29 @@ let
         export PYTHONPATH="$bundled:''${PYTHONPATH:-}"
       fi
 
+      if [ "''${1:-}" = "tui" ] && command -v envy-tui >/dev/null 2>&1; then
+        shift
+        exec envy-tui "$@"
+      fi
+
       exec python3 -m envy "$@"
     '';
+  };
+
+  envyTuiPackage = pkgs.rustPlatform.buildRustPackage {
+    pname = "envy-tui";
+    version = "0.1.0";
+    src = ../../tools/envy-tui;
+    cargoLock.lockFile = ../../tools/envy-tui/Cargo.lock;
+    meta = {
+      description = "Ratatui frontend for the Envy dotfiles manager";
+      mainProgram = "envy-tui";
+    };
   };
 
   packagedScripts = lib.filter (x: x != null) (packageScriptsFromDir scriptsSrc);
 
 in
 {
-  envy.software.nix.packages.include = packagedScripts ++ [ envyPackage ];
+  envy.software.nix.packages.include = packagedScripts ++ [ envyPackage envyTuiPackage ];
 }

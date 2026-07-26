@@ -9,11 +9,13 @@ from envy.config import app as config_app
 from envy.doctor import app as doctor_app
 from envy.key import app as key_app
 from envy.mirror import app as mirror_app
-from envy.host import app as host_app
+from envy.host import app as host_app, complete_platforms
 from envy.software import app as software_app
 from envy.process import run_process
 from envy.workflows.check import check_or_exit
 from envy.workflows.update import update_homebrew, update_inputs
+from envy.workflows.plan import plan_configuration
+from envy.workflows.generations import app as history_app
 from envy.workflows import system as system_workflow
 from envy.workflows import git as git_workflow
 from envy.utils import DOTFILES_DIR, PLATFORM
@@ -36,9 +38,16 @@ def complete_git_branches(ctx, incomplete):
 
 def complete_rollback_target(ctx, incomplete):
     """Complete rollback target: 'list' or generation numbers."""
+    candidates = []
     if "list".startswith(incomplete):
-        return [("list", "List all available generations")]
-    return []
+        candidates.append(("list", "List all available generations"))
+    try:
+        from envy.workflows.generations import complete_generation_numbers
+
+        candidates.extend(complete_generation_numbers(ctx, incomplete))
+    except (OSError, RuntimeError, ValueError):
+        pass
+    return candidates
 
 
 # ==========================================
@@ -137,7 +146,8 @@ def cmd_check_all(
     all_machines: bool = typer.Option(False, "--all", help="Check every Darwin and Linux machine"),
     changed: bool = typer.Option(False, "--changed", help="Check machines affected by worktree changes"),
     selected_platform: Optional[str] = typer.Option(
-        None, "--platform", help="Restrict checks to darwin or linux"
+        None, "--platform", help="Restrict checks to darwin or linux",
+        autocompletion=complete_platforms,
     ),
     build: bool = typer.Option(False, "--build", help="Build selected local-platform targets"),
 ):
@@ -148,6 +158,14 @@ def cmd_check_all(
         selected_platform=selected_platform,
         build=build,
     )
+
+
+@cli.command(name="plan")
+def cmd_plan(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Build the selected machine and compare it with the active closure."""
+    plan_configuration(json_output=json_output)
 
 
 @cli.command(name="init")
@@ -162,9 +180,10 @@ def cmd_init():
 @cli.command(name="r", rich_help_panel="Aliases")
 def cmd_rollback(
     target: str = typer.Argument(None, help="Generation number or 'list'", autocompletion=complete_rollback_target),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the generation closure diff without activating"),
 ):
     """Rollback to a previous configuration generation."""
-    system_workflow.rollback_configuration(target)
+    system_workflow.rollback_configuration(target, dry_run=dry_run)
 
 
 @cli.command(name="edit")
@@ -278,3 +297,6 @@ cli.add_typer(doctor_app, name="dr", rich_help_panel="Aliases")
 
 # Mirror policy inspection is read-only; configuration remains machine-owned.
 cli.add_typer(mirror_app, name="mirror")
+
+# Read-only generation inventory and closure comparison.
+cli.add_typer(history_app, name="history")

@@ -1,6 +1,7 @@
 """Doctor orchestration and terminal rendering."""
 
 from collections.abc import Callable, Iterable
+import json
 
 from rich.table import Table
 
@@ -51,7 +52,12 @@ APP_RESULT_SECTIONS: set[DoctorSection] = {
 }
 
 
-def run_sections(sections: list[str], selected: Iterable[str] | None = None) -> list[CheckResult]:
+def run_sections(
+    sections: list[str],
+    selected: Iterable[str] | None = None,
+    *,
+    log_progress: bool = True,
+) -> list[CheckResult]:
     selection = parse_only(selected)
     allow_apps = "apps" in sections
     errors = selection_errors(selection, allow_apps=allow_apps)
@@ -63,7 +69,8 @@ def run_sections(sections: list[str], selected: Iterable[str] | None = None) -> 
         if not _scope_needed(section, selection):
             continue
         check = CHECKS[section]
-        log.step("doctor", f"checking {section}")
+        if log_progress:
+            log.step("doctor", f"checking {section}")
         if section == "apps":
             results.extend(apps.run_checks(selection=selection))
         else:
@@ -123,6 +130,21 @@ def render(results: list[CheckResult]) -> None:
         log.warn("doctor", "completed with warnings", warnings=warnings)
     else:
         log.ok("doctor", "all checks passed")
+
+
+def render_json(results: list[CheckResult], *, strict: bool = False) -> None:
+    payload = {
+        "schemaVersion": 1,
+        "summary": {
+            "ok": sum(result.status == "ok" for result in results),
+            "warn": sum(result.status == "warn" for result in results),
+            "error": sum(result.status == "error" for result in results),
+            "info": sum(result.status == "info" for result in results),
+            "exitCode": exit_code(results, strict=strict),
+        },
+        "results": [result.to_dict() for result in results],
+    }
+    log.console.print_json(json.dumps(payload, ensure_ascii=False, default=str))
 
 
 def exit_code(results: list[CheckResult], *, strict: bool = False) -> int:

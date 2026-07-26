@@ -1,6 +1,7 @@
 """Normalized software registry search records."""
 
 from dataclasses import asdict, dataclass
+from typing import Literal
 
 
 @dataclass
@@ -32,3 +33,27 @@ class ProviderReport:
             "results": [result.to_dict() for result in self.results],
             "error": self.error,
         }
+
+
+ResolveStatus = Literal["found", "not_found", "unavailable"]
+
+
+@dataclass(frozen=True)
+class ResolveResult:
+    """Outcome of an exact registry identity lookup."""
+
+    status: ResolveStatus
+    result: SearchResult | None = None
+    error: str | None = None
+
+    @classmethod
+    def found(cls, result: SearchResult) -> "ResolveResult":
+        return cls(status="found", result=result)
+
+    @classmethod
+    def not_found(cls, error: str | None = None) -> "ResolveResult":
+        return cls(status="not_found", error=error)
+
+    @classmethod
+    def unavailable(cls, error: str) -> "ResolveResult":
+        return cls(status="unavailable", error=error)

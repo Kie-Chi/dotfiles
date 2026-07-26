@@ -64,6 +64,7 @@ def check_installed(spec: AppSpec) -> list[CheckResult]:
         spec.name,
         "app bundle not found",
         hint="Run: envy apply  # or check the declared application package",
+        action={"kind": "run", "argv": ["envy", "apply"]},
     )]
 
 
@@ -85,6 +86,7 @@ def check_commands(spec: AppSpec) -> list[CheckResult]:
         f"{spec.name} commands",
         message,
         hint="Run: envy apply  # or check package/Home Manager activation",
+        action={"kind": "run", "argv": ["envy", "apply"]},
     )]
 
 
@@ -102,6 +104,7 @@ def check_running(spec: AppSpec) -> list[CheckResult]:
             f"{spec.name} running",
             "expected background app is not running",
             hint=f"Open {spec.name} once and enable launch-at-login if needed.",
+            action={"kind": "open-app", "name": spec.name},
         )]
     return [info(SECTION_RUNTIME, f"{spec.name} running", "not running")]
 
@@ -118,6 +121,7 @@ def check_state(spec: AppSpec) -> list[CheckResult]:
         f"{spec.name} state",
         "expected state/config path is missing",
         hint=f"Open {spec.name} once, then rerun envy apply if the file is managed.",
+        action={"kind": "open-app", "name": spec.name},
     )]
 
 
@@ -151,6 +155,7 @@ def check_permissions(spec: AppSpec) -> list[CheckResult]:
             "TCC database",
             "Full Disk Access required — cannot verify app permissions",
             hint="System Settings -> Privacy & Security -> Full Disk Access: enable your terminal app.",
+            action={"kind": "open-settings", "target": "privacy-full-disk-access"},
         )]
 
     results: list[CheckResult] = []
@@ -169,6 +174,7 @@ def check_permissions(spec: AppSpec) -> list[CheckResult]:
                     f"Open {spec.name} and use the feature once; if macOS prompts, allow it. "
                     f"Then confirm System Settings -> Privacy & Security -> {perm.label} if it appears."
                 ),
+                action={"kind": "open-app", "name": spec.name},
             ))
         else:
             results.append(warn(

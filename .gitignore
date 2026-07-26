@@ -8,3 +8,4 @@ result
 # Old secrets.nix (replaced by machine config + sops)
 /secrets.nix
 __pycache__
+target/

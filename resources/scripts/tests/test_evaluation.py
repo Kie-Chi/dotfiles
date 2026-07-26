@@ -109,6 +109,22 @@ class EvaluationTests(unittest.TestCase):
             evaluate.assert_called_once_with("test-machine")
             self.assertTrue(evaluation._cache_path("test-machine").exists())
 
+    def test_non_persisting_manifest_read_never_creates_cache(self):
+        manifest = {"id": "completion-machine", "settings": {}}
+        with tempfile.TemporaryDirectory() as cache_root, patch.dict(
+            os.environ, {"XDG_CACHE_HOME": cache_root}, clear=False
+        ), patch.object(
+            evaluation, "current_machine_id", return_value="completion-machine"
+        ), patch.object(
+            evaluation, "_repository_fingerprint", return_value="fingerprint"
+        ), patch.object(
+            evaluation, "_evaluate_machine_manifest", return_value=manifest
+        ):
+            value = evaluation.machine_manifest(write_cache=False)
+
+            self.assertEqual(value, manifest)
+            self.assertFalse(evaluation._cache_path("completion-machine").exists())
+
     def test_refresh_bypasses_persistent_cache_and_replaces_it(self):
         first_manifest = {"id": "first"}
         refreshed_manifest = {"id": "refreshed"}

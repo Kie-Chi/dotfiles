@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Iterator
@@ -29,6 +30,16 @@ class ProbeResult:
     status: str
     elapsed_ms: int | None
     detail: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "url": self.url,
+            "ok": self.ok,
+            "status": self.status,
+            "elapsedMs": self.elapsed_ms,
+            "detail": self.detail,
+        }
 
 
 def mirror_entries(mirrors: dict[str, Any]) -> Iterator[tuple[str, str]]:
@@ -123,14 +134,25 @@ def _manifest_or_exit(refresh: bool) -> dict[str, Any]:
 @app.command(name="status")
 def cmd_status(
     refresh: bool = typer.Option(False, "--refresh", help="Ignore the saved manifest cache."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
     """Show the effective mirror endpoints for the selected machine."""
     evaluated = _manifest_or_exit(refresh)
     manifest = evaluated["manifest"]
+    entries = list(mirror_entries(evaluated["mirrors"]))
+    if json_output:
+        payload = {
+            "schemaVersion": 1,
+            "machine": manifest.get("id", "current"),
+            "platform": manifest.get("platform"),
+            "settings": dict(entries),
+        }
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
     table = Table(title=f"Mirror policy - {manifest.get('id', 'current')}")
     table.add_column("Setting", style="cyan", no_wrap=True)
     table.add_column("Value")
-    for path, value in mirror_entries(evaluated["mirrors"]):
+    for path, value in entries:
         table.add_row(path, value)
     log.console.print(table)
 
@@ -139,12 +161,21 @@ def cmd_status(
 def cmd_probe(
     refresh: bool = typer.Option(False, "--refresh", help="Ignore the saved manifest cache."),
     timeout: int = typer.Option(15, "--timeout", min=1, max=120, help="Per-endpoint timeout in seconds."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
     """Test effective mirror endpoints without modifying configuration."""
     evaluated = _manifest_or_exit(refresh)
     specs = probe_specs(evaluated["mirrors"])
     if not specs:
-        log.warn("mirror", "no probe endpoints are declared")
+        if json_output:
+            log.console.print_json(json.dumps({
+                "schemaVersion": 1,
+                "machine": evaluated["manifest"].get("id", "current"),
+                "failed": 0,
+                "results": [],
+            }, ensure_ascii=False))
+        else:
+            log.warn("mirror", "no probe endpoints are declared")
         return
 
     table = Table(title=f"Mirror probe - {evaluated['manifest'].get('id', 'current')}")
@@ -154,20 +185,33 @@ def cmd_probe(
     table.add_column("Latency", justify="right")
     table.add_column("URL")
     failed = 0
+    results = []
     for name, url in specs:
         result = probe_endpoint(name, url, timeout=timeout)
+        results.append(result)
         if not result.ok:
             failed += 1
-        table.add_row(
-            "[green]OK[/green]" if result.ok else "[red]FAIL[/red]",
-            result.name,
-            result.status,
-            f"{result.elapsed_ms} ms" if result.elapsed_ms is not None else "-",
-            result.url,
-        )
-        if result.detail:
-            log.debug("mirror", "probe detail", endpoint=result.name, detail=result.detail)
-    log.console.print(table)
+        if not json_output:
+            table.add_row(
+                "[green]OK[/green]" if result.ok else "[red]FAIL[/red]",
+                result.name,
+                result.status,
+                f"{result.elapsed_ms} ms" if result.elapsed_ms is not None else "-",
+                result.url,
+            )
+            if result.detail:
+                log.debug("mirror", "probe detail", endpoint=result.name, detail=result.detail)
+    if json_output:
+        payload = {
+            "schemaVersion": 1,
+            "machine": evaluated["manifest"].get("id", "current"),
+            "failed": failed,
+            "results": [result.to_dict() for result in results],
+        }
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+    else:
+        log.console.print(table)
     if failed:
-        log.warn("mirror", "one or more endpoints failed", failed=failed, total=len(specs))
+        if not json_output:
+            log.warn("mirror", "one or more endpoints failed", failed=failed, total=len(specs))
         raise typer.Exit(code=1)

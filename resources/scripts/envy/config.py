@@ -49,6 +49,7 @@ from envy.utils import (
     device_metadata_is_toml,
     is_sops_encrypted,
     machine_config_file as versioned_machine_file,
+    platform_name,
     read_device_metadata,
     run_cmd,
     set_device_machine_id,
@@ -740,30 +741,51 @@ def cmd_secret_set(
 @app.command(name="show")
 def cmd_show(
     refresh: bool = typer.Option(False, "--refresh", help="Ignore the saved manifest cache"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ):
     """Show evaluated machine values and secret status."""
     manifest = machine_manifest(refresh=refresh)
     evaluated_values = manifest_settings(manifest)
     config_values = evaluated_values or read_machine_nix()
+    device_values = read_device_metadata()
+    secret_values, _ = read_secrets_yaml()
+    payload = {
+        "schemaVersion": 1,
+        "source": "evaluated" if evaluated_values else "source-fallback",
+        # Keep the target platform in the machine-readable config envelope.
+        # It is runtime metadata, not a user-editable machine option.
+        "platform": platform_name(),
+        "device": {
+            "machineId": device_values.get("machine_id", ""),
+            "sopsLabel": device_values.get("sops_label", ""),
+        },
+        "values": {
+            field.path: config_values.get(field.path, "")
+            for field in MACHINE_FIELDS
+        },
+        "secrets": {
+            field.yaml_path: bool(secret_values.get(field.path, ""))
+            for field in SECRET_FIELDS
+        },
+    }
+    if json_output:
+        log.console.print_json(json.dumps(payload, ensure_ascii=False))
+        return
+
     table = Table(title="envy config (evaluated)" if evaluated_values else "envy config (source fallback)")
     table.add_column("Kind")
     table.add_column("Path")
     table.add_column("Value")
-
-    device_values = read_device_metadata()
     table.add_row("device", "device.machine_id", device_values.get("machine_id", ""))
     table.add_row("device", "device.sops_label", device_values.get("sops_label", ""))
-
     for f in MACHINE_FIELDS:
         table.add_row("value", f.path, config_values.get(f.path, ""))
-
     if not manifest:
         log.warn(
             "config",
             "Nix evaluation failed; showing direct machine assignments without imported defaults",
         )
 
-    secret_values, _ = read_secrets_yaml()
     for f in SECRET_FIELDS:
         value = secret_values.get(f.path, "")
         status = "<set>" if value else "<empty>"

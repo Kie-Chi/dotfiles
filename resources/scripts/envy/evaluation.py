@@ -212,8 +212,17 @@ def invalidate_machine_manifest() -> None:
     _memoized_machine_manifest.cache_clear()
 
 
-def machine_manifest(*, refresh: bool = False) -> dict[str, Any] | None:
-    """Return the evaluated manifest, reusing a Git-fingerprinted disk cache."""
+def machine_manifest(
+    *,
+    refresh: bool = False,
+    write_cache: bool = True,
+) -> dict[str, Any] | None:
+    """Return the manifest, optionally forbidding persistent cache writes."""
+    if not write_cache:
+        return _load_machine_manifest(
+            read_cache=not refresh and not _cache_disabled(),
+            write_cache=False,
+        )
     if refresh:
         invalidate_machine_manifest()
         return _load_machine_manifest(read_cache=False, write_cache=True)

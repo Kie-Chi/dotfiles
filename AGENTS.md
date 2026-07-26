@@ -38,10 +38,13 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `resources/scripts/envy/config.py` | Machine managed-block and secret validation/read-write engine used by setup and `envy config`. |
 | `resources/scripts/envy/evaluation.py` | Shared reader for the evaluated machine manifest, with process-local and Git-fingerprinted persistent caches used by config views, setup, software policy, and doctor. |
 | `resources/scripts/envy/{process,secure_io,transaction}.py` | Shared command boundary, atomic/private file I/O, and multi-file rollback primitives. |
+| `resources/scripts/envy/jsonio.py` | Stable JSON envelope used by non-interactive frontends and future TUI clients. |
+| `tools/envy-tui/` | Rust/Ratatui frontend; invokes the Envy CLI through its JSON boundary and owns no policy. |
 | `resources/scripts/envy/workflows/` | Check, update, system lifecycle, and shared-branch Git workflows kept out of the CLI registration layer. |
 | `resources/scripts/envy/keys/` | Age/sops storage, device identity, and recovery-key encryption primitives. |
 | `resources/scripts/envy/software.py` | Direct managed include/exclude policy, desired-state planner, checkbox model, atomic writes, and evaluation rollback. |
 | `resources/scripts/envy/search/` | Concurrent registry providers, normalized search results, manifest matching, and TTL cache. |
+| `resources/scripts/envy/search/index.py` | Private SQLite exact-identity index shared by software search/add, with positive and negative TTLs. |
 | `resources/scripts/envy/host.py` | Creates and inspects per-machine files; init only asks for Machine ID and import/copy mode. |
 | `resources/scripts/envy/schemas/{common,darwin,linux}/` | Common and platform-only config/app schemas; top-level schema modules dispatch to the current platform. |
 | `resources/scripts/envy/doctor/checks/apps/` | App doctor implementation: generic checks, registry, app-specific auth/login checks, and VS Code checks. |
@@ -113,13 +116,19 @@ Hybrid approach (in `setup.py`):
 | `envy sw add/rm <group> <id-or-ref>` | Preview and apply a current-machine desired-state plan; `--clean` normalizes only the target's Envy-owned state |
 | `envy sw en/dis <group> <id>` | Enable or exclude one stable software item ID |
 | `envy sw search <query>` / `envy sw se <query>` | Search registries with isolated timeouts and manifest matching |
+| `envy sw audit` / `envy sw why <item>` | Find ambiguous machine policy or explain evaluated ownership/state |
+| `envy sw cache status/clean` | Inspect or clear the exact registry identity index |
 | `envy config edit` | Open the selected versioned machine file in `$EDITOR` |
 | `envy host init [id]` | Create a machine module by importing or copying `hosts/default.nix`; never selects software |
 | `envy host list` / `envy host status` | List repository machines or show the locally selected target |
+| `envy host diff <a> <b>` / `envy host matrix` | Compare evaluated machine manifests or show effective software coverage |
 | `envy host select <id>` | Change `.device-label`'s machine ID without changing machine policy |
 | `envy host check [id]` | Evaluate one machine system derivation without applying it |
 | `envy mirror status` / `probe` | Inspect or read-only probe the evaluated mirror policy |
 | `envy check [--all|--changed] [--platform ...] [--build]` | Evaluate or locally build selected cross-platform machine targets |
+| `envy plan` | Build without activation and compare the target with the active generation closure |
+| `envy history` / `envy history diff <a> <b>` | Inspect generations or compare two generation closures |
+| `envy tui` | Launch the Rust/Ratatui frontend; it owns presentation only and calls Envy through JSON |
 | `envy update` / `envy update inputs [name]` | Update inputs transactionally and validate every machine before retaining `flake.lock` |
 | `envy sync --no-apply` | Fast-forward the shared `master` branch without applying |
 | `envy sync --build-only` | Fast-forward and build only the selected machine |
@@ -130,7 +139,7 @@ Hybrid approach (in `setup.py`):
 | `envy doctor apps --only perm` | Check only declared macOS TCC permissions |
 | `envy doctor system` / `network` | Check host workflow prerequisites or explicitly probe evaluated mirror endpoints |
 | `envy key repair` | Repair interrupted key rotations, permissions, and encrypted recovery state |
-| `nix develop` | Enter devShell (jq, sops, age, ssh-to-age, Python, Typer, Rich, and prompt_toolkit) |
+| `nix develop` | Enter devShell (jq, sops, age, ssh-to-age, Python, Typer, Rich, prompt_toolkit, cargo, and rustc) |
 | `envy apply` | Apply the locally selected `path:.#<machine-id>` target |
 | `sops --decrypt secrets/secrets.yaml` | View encrypted secrets |
 | `sops updatekeys secrets/secrets.yaml` | Re-encrypt with updated .sops.yaml keys |
@@ -189,6 +198,7 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 - Manifest software group IDs use `<ecosystem>.<scope>.<kind>`; platform and installer are fields, not ID segments. Search providers may exist without a declarative manifest group.
 - The marked `ENVY MANAGED SOFTWARE` block directly assigns ecosystem `include`/`exclude`. Setup and `en/dis` mutate only its exclusions; `add/rm` may mutate both. Never rewrite hand-maintained policy outside its markers.
 - `--clean` may normalize only the target ID's Envy-owned entries and must never rewrite shared contributions or external exclusions.
+- A new registry-backed managed include must resolve through the evaluated manifest, the exact identity index, or a provider-specific exact lookup before writing. Never synthesize an unverified canonical reference; distinguish not-found from provider-unavailable and leave machine policy unchanged on either failure.
 - Push scope checks must include both worktree paths and outgoing commits. `--machine-only` may cover several machine files; `--self` may cover only the selected machine file. Both must fail before staging when out-of-scope paths exist.
 - Do not add an `enable` option merely because a setting could theoretically differ by machine. Shared infrastructure is unconditional; software is selected by package/cask/brew names; new machine options require a demonstrated behavioral difference.
 - Every non-sensitive machine value belongs in `hosts/<platform>/<id>.nix`; do not recreate an ignored local Nix config layer.

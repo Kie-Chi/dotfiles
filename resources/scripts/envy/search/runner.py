@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -12,6 +13,7 @@ from rich.table import Table
 
 from envy import log
 from envy.evaluation import machine_manifest, manifest_software_groups
+from envy.search.index import RegistryIndex
 from envy.search.model import ProviderReport, SearchResult
 from envy.search.providers import available_providers
 from envy.utils import platform_name
@@ -56,6 +58,13 @@ def search_and_render(
         reports = _run_providers(active, query, limit, timeout)
         if all(report.error is None for report in reports):
             _write_cache(query, sorted(active), limit, reports)
+
+    # Query cache and exact identity index have different lifecycles. Preserve
+    # every successful provider result even when another provider failed.
+    try:
+        RegistryIndex().put_reports(reports)
+    except (OSError, sqlite3.Error):
+        pass
 
     results = [result for report in reports for result in report.results]
     if exact:

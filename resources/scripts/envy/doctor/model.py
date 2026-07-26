@@ -84,6 +84,7 @@ class CheckResult:
     message: str
     hint: str = ""
     details: dict[str, Any] = field(default_factory=dict)
+    action: dict[str, Any] | None = None
 
     @property
     def failed(self) -> bool:
@@ -93,18 +94,53 @@ class CheckResult:
     def warned(self) -> bool:
         return self.status == "warn"
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "section": self.section,
+            "name": self.name,
+            "status": self.status,
+            "message": self.message,
+            "hint": self.hint,
+            "details": self.details,
+            "action": self.action,
+        }
 
-def ok(section: DoctorSection, name: str, message: str, **details: Any) -> CheckResult:
-    return CheckResult(section=section, name=name, status="ok", message=message, details=details)
+
+def ok(
+    section: DoctorSection, name: str, message: str,
+    action: dict[str, Any] | None = None, **details: Any,
+) -> CheckResult:
+    return CheckResult(
+        section=section, name=name, status="ok", message=message,
+        details=details, action=action,
+    )
 
 
-def warn(section: DoctorSection, name: str, message: str, hint: str = "", **details: Any) -> CheckResult:
-    return CheckResult(section=section, name=name, status="warn", message=message, hint=hint, details=details)
+def warn(
+    section: DoctorSection, name: str, message: str, hint: str = "",
+    action: dict[str, Any] | None = None, **details: Any,
+) -> CheckResult:
+    return CheckResult(
+        section=section, name=name, status="warn", message=message,
+        hint=hint, details=details, action=action,
+    )
 
 
-def error(section: DoctorSection, name: str, message: str, hint: str = "", **details: Any) -> CheckResult:
-    return CheckResult(section=section, name=name, status="error", message=message, hint=hint, details=details)
+def error(
+    section: DoctorSection, name: str, message: str, hint: str = "",
+    action: dict[str, Any] | None = None, **details: Any,
+) -> CheckResult:
+    return CheckResult(
+        section=section, name=name, status="error", message=message,
+        hint=hint, details=details, action=action,
+    )
 
 
-def info(section: DoctorSection, name: str, message: str, hint: str = "", **details: Any) -> CheckResult:
-    return CheckResult(section=section, name=name, status="info", message=message, hint=hint, details=details)
+def info(
+    section: DoctorSection, name: str, message: str, hint: str = "",
+    action: dict[str, Any] | None = None, **details: Any,
+) -> CheckResult:
+    return CheckResult(
+        section=section, name=name, status="info", message=message,
+        hint=hint, details=details, action=action,
+    )
