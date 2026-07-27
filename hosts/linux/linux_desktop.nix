@@ -17,6 +17,10 @@
   envy.git.name = "Kie-Chi";
   envy.git.email = "137579437@qq.com";
 
+  # --- HABITS CONFIG ---
+  envy.habits.terminalScratchpad.gesture = "F12";
+  envy.habits.globalLauncher.gesture = "Option+Space";
+
   # --- LLM CONFIG ---
   envy.llm.steps.url = "https://models-proxy.stepfun-inc.com";
   envy.llm.steps.model = "claude-opus-4-6";

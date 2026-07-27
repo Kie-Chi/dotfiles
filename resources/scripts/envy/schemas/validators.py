@@ -26,6 +26,21 @@ def is_url(val: str) -> Optional[str]:
     return None
 
 
+def is_terminal_scratchpad_gesture(val: str) -> Optional[str]:
+    if val not in {"F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F12"}:
+        return "Terminal scratchpad gesture must be one of F2 through F10, or F12"
+    return None
+
+
+def is_global_launcher_gesture(val: str) -> Optional[str]:
+    if not re.fullmatch(
+        r"Option\+(?:[A-Za-z0-9]|Space|Return|Tab|Escape|F(?:[1-9]|1[0-2]))",
+        val or "",
+    ):
+        return "Global launcher gesture must use Option+<key>, for example Option+Space"
+    return None
+
+
 def is_machine_id(val: str) -> Optional[str]:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", val or ""):
         return "Machine ID may contain only letters, digits, underscores, and hyphens"

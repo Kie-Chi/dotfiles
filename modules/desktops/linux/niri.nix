@@ -58,6 +58,17 @@ let
       "org.freedesktop.impl.portal.Secrets" = "gnome-keyring;";
     };
   };
+  terminalScratchpad = {
+    binding = config.envy.habits.terminalScratchpad.gesture;
+    backend = "nscratch + Alacritty quake-term";
+    command = "${config.home.profileDirectory}/bin/nscratch -id quake-term -a -m -s '${pkgs.alacritty}/bin/alacritty --class quake-term'";
+  };
+  globalLauncher = {
+    gesture = config.envy.habits.globalLauncher.gesture;
+    binding = lib.replaceStrings [ "Option+" ] [ "Super+" ] config.envy.habits.globalLauncher.gesture;
+    backend = "Fuzzel";
+    command = "${pkgs.fuzzel}/bin/fuzzel";
+  };
 in
 {
   config = lib.mkMerge [
@@ -91,6 +102,47 @@ in
     screenshot = "local:modules/desktops/linux/niri.nix#screenshotHelper";
     "fix-pipewire" = "local:modules/desktops/linux/niri.nix#fixPipewireHelper";
   };
+
+  envy.machine.habits = [
+    {
+      id = "terminal-scratchpad";
+      label = "Terminal scratchpad";
+      gesture = terminalScratchpad.binding;
+      semantic = "Toggle a reusable Quake-style terminal overlay.";
+      context = "niri";
+      backend = terminalScratchpad.backend;
+      binding = terminalScratchpad.binding;
+      ownership = "declarative";
+      note = "nscratch reuses quake-term, moves it to the focused monitor, and returns it to the scratch workspace when hidden.";
+      requirements = [
+        {
+          group = "nix.user.package";
+          item = "niri-scratchpad";
+        }
+        {
+          group = "nix.user.package";
+          item = "alacritty";
+        }
+      ];
+    }
+    {
+      id = "global-launcher";
+      label = "Global launcher";
+      gesture = globalLauncher.gesture;
+      semantic = "Open the global launcher and search surface.";
+      context = "niri";
+      backend = globalLauncher.backend;
+      binding = globalLauncher.binding;
+      ownership = "declarative";
+      note = "The Niri binding uses the logical Super key; the contract preserves the user's Option+Space gesture.";
+      requirements = [
+        {
+          group = "nix.user.package";
+          item = "fuzzel";
+        }
+      ];
+    }
+  ];
 
   xdg.configFile."niri/config.kdl".text = ''
 
@@ -173,9 +225,9 @@ in
     binds {
       "F1" { spawn "${config.home.profileDirectory}/bin/screenshot"; }
       "F11" { spawn-sh "${config.home.profileDirectory}/bin/nscratch -id nemo"; }
-      "F12" { spawn-sh "${config.home.profileDirectory}/bin/nscratch -id quake-term -a -m -s '${pkgs.alacritty}/bin/alacritty --class quake-term'"; }
+      "${terminalScratchpad.binding}" { spawn-sh "${terminalScratchpad.command}"; }
       "Mod+Return" { spawn "${pkgs.alacritty}/bin/alacritty"; }
-      "Super+Space" { spawn "${pkgs.fuzzel}/bin/fuzzel"; }
+      "${globalLauncher.binding}" { spawn "${globalLauncher.command}"; }
       "Mod+Q" { close-window; }
       "Mod+Shift+E" { quit; }
       "Mod+V" { spawn "${pkgs.copyq}/bin/copyq" "toggle" ; }

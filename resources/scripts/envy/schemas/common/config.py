@@ -5,7 +5,13 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from envy.schemas.validators import is_email, is_url, non_empty
+from envy.schemas.validators import (
+    is_email,
+    is_global_launcher_gesture,
+    is_terminal_scratchpad_gesture,
+    is_url,
+    non_empty,
+)
 from envy.utils import DOTFILES_DIR, HOME_DIR
 
 
@@ -36,6 +42,12 @@ COMMON_MACHINE_FIELDS = [
     FieldDef(group="GIT", dest="machine", path="envy.git.email", prompt="Git user email",
              default_fn=lambda: f"{os.getenv('USER','chi')}@{subprocess.getoutput('hostname -f')}",
              validators=[is_email], required=True),
+    FieldDef(group="HABITS", dest="machine", path="envy.habits.terminalScratchpad.gesture",
+             prompt="Terminal scratchpad gesture", default_fn=lambda: "F12",
+             validators=[is_terminal_scratchpad_gesture], ignore=True, required=True),
+    FieldDef(group="HABITS", dest="machine", path="envy.habits.globalLauncher.gesture",
+             prompt="Global launcher gesture", default_fn=lambda: "Option+Space",
+             validators=[is_global_launcher_gesture], ignore=True, required=True),
     FieldDef(group="ENV", dest="machine", path="envy.repository.path", prompt="Dotfiles local path",
              default_fn=lambda: str(DOTFILES_DIR), ignore=True, required=True),
     FieldDef(group="VSCODE", dest="machine", path="envy.vscode.mode", prompt="VS Code config mode",

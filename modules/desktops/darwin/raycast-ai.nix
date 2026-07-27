@@ -2,6 +2,26 @@
 
 {
   config = lib.mkIf (!(builtins.elem "raycast" config.envy.darwin.software.homebrew.casks.exclude)) {
+  envy.machine.habits = [
+    {
+      id = "global-launcher";
+      label = "Global launcher";
+      gesture = config.envy.habits.globalLauncher.gesture;
+      semantic = "Open the global launcher and search surface.";
+      context = "darwin";
+      backend = "Raycast";
+      binding = config.envy.habits.globalLauncher.gesture;
+      ownership = "application";
+      note = "Raycast owns its global hotkey; Envy records but does not overwrite the application preference.";
+      requirements = [
+        {
+          group = "homebrew.system.cask";
+          item = "raycast";
+        }
+      ];
+    }
+  ];
+
   # --- sops template: raycast AI providers with encrypted keys ---
   sops.templates."raycast-providers" = {
     path = "${config.home.homeDirectory}/.config/raycast/ai/providers.yaml";

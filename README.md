@@ -115,6 +115,7 @@ envy host select <machine-id>
 | `envy sw cache status` | 查看供 search/add 共用的精确 registry identity index |
 | `envy mirror status` | 展示当前 machine 求值后生效的镜像端点 |
 | `envy mirror probe` | 只读探测镜像 HTTP 状态与延迟 |
+| `envy habit list/show/set/check/repair` | 管理跨平台个人交互习惯的 machine policy，并检查或重新应用对应实现 |
 | `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载 |
 | `envy doctor system` | 检查运行依赖、apply runner、Git 状态与中断残留 |
 | `envy doctor network` | 只读探测求值后的镜像端点 |
@@ -209,6 +210,7 @@ sops updatekeys secrets/secrets.yaml
 
 - 完整安装说明见 [docs/install.md](docs/install.md)
 - machine 设计见 [docs/machines.md](docs/machines.md)
+- 跨平台交互习惯契约见 [docs/habits.md](docs/habits.md)
 - age/sops 密钥生命周期见 [docs/key.md](docs/key.md)
 - doctor 维护说明见 [docs/doctor.md](docs/doctor.md)
 

@@ -46,6 +46,8 @@ in
         "envy.llm.steps.model" = config.envy.llm.steps.model;
         "envy.llm.deepseek.url" = config.envy.llm.deepseek.url;
         "envy.llm.deepseek.model" = config.envy.llm.deepseek.model;
+        "envy.habits.terminalScratchpad.gesture" = config.envy.habits.terminalScratchpad.gesture;
+        "envy.habits.globalLauncher.gesture" = config.envy.habits.globalLauncher.gesture;
         "envy.vscode.mode" = config.envy.vscode.mode;
         "envy.linux.desktop" = policy.desktop;
         "envy.linux.option" = policy.option;
@@ -57,6 +59,7 @@ in
         dockerInstallerMirror = mirrorProfile.dockerInstallerMirror;
         probes = mirrorProfile.probes.common ++ mirrorProfile.probes.linux;
       };
+      habits = config.envy.machine.habits;
       software.groups = {
         "nix.user.package" = manifestLib.group {
           label = "Nix packages";

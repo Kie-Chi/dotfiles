@@ -5,6 +5,23 @@ let
     url = "https://raw.githubusercontent.com/dracula/iterm/master/Dracula.itermcolors";
     sha256 = "sha256-X+/B1lmyAggD5mIk0zNkuFPsUqVNIJ71PD18niEn/SA=";
   };
+  terminalScratchpadGesture = config.envy.habits.terminalScratchpad.gesture;
+  quakeHotkeys = {
+    F2 = { keyCode = 120; character = 63237; };
+    F3 = { keyCode = 99; character = 63238; };
+    F4 = { keyCode = 118; character = 63239; };
+    F5 = { keyCode = 96; character = 63240; };
+    F6 = { keyCode = 97; character = 63241; };
+    F7 = { keyCode = 98; character = 63242; };
+    F8 = { keyCode = 100; character = 63243; };
+    F9 = { keyCode = 101; character = 63244; };
+    F10 = { keyCode = 109; character = 63245; };
+    F12 = { keyCode = 111; character = 63247; };
+  };
+  quakeHotkey = quakeHotkeys.${terminalScratchpadGesture} // {
+    binding = terminalScratchpadGesture;
+    modifier = 8388608;
+  };
 in
 {
   envy.darwin.software.nix.fonts.include = with pkgs; [
@@ -20,6 +37,26 @@ in
   };
 
   envy.darwin.software.homebrew.casks.include = [ "iterm2" ];
+
+  envy.machine.habits = lib.optional (
+    builtins.elem "iterm2" config.envy.darwin.software.homebrew.casks.effective
+  ) {
+    id = "terminal-scratchpad";
+    label = "Terminal scratchpad";
+    gesture = quakeHotkey.binding;
+    semantic = "Toggle a reusable Quake-style terminal overlay.";
+    context = "darwin";
+    backend = "iTerm2 Quake Hotkey Window";
+    binding = quakeHotkey.binding;
+    ownership = "declarative";
+    note = "The Quake profile is a floating full-width iTerm2 hotkey window.";
+    requirements = [
+      {
+        group = "homebrew.system.cask";
+        item = "iterm2";
+      }
+    ];
+  };
 
   home-manager.users."${config.envy.user.name}" = lib.mkIf (
     builtins.elem "iterm2" config.envy.darwin.software.homebrew.casks.effective
@@ -86,10 +123,10 @@ in
             "Ansi 7 Color" = { "Red Component" = 0.9725; "Green Component" = 0.9725; "Blue Component" = 0.9490; }; # White
             "Has Hotkey" = true;
             "HotKey Activated By Modifier" = false;
-            "HotKey Key Code" = 111;            # 111 是 F12 的硬件码
-            "HotKey Character" = 63247;         # F12 的 Unicode 字符码
-            "HotKey Character (Native)" = 63247;
-            "HotKey Modifier" = 8388608;        # 8388608 代表 Function 键掩码
+            "HotKey Key Code" = quakeHotkey.keyCode;            # F12 的硬件码
+            "HotKey Character" = quakeHotkey.character;         # F12 的 Unicode 字符码
+            "HotKey Character (Native)" = quakeHotkey.character;
+            "HotKey Modifier" = quakeHotkey.modifier;           # Function 键掩码
           }
           {
             Name = "BtopDashboard";

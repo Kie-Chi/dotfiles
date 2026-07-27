@@ -35,6 +35,72 @@ in
         readOnly = true;
         description = "Normalized evaluated machine policy for Envy tooling.";
       };
+      habits = mkOption {
+        type = types.listOf (types.submodule {
+          options = {
+            id = mkOption {
+              type = types.strMatching "[a-z][a-z0-9-]*";
+              description = "Stable semantic habit identifier.";
+            };
+            label = mkOption {
+              type = types.nonEmptyStr;
+              description = "Human-readable habit label.";
+            };
+            gesture = mkOption {
+              type = types.nonEmptyStr;
+              description = "Canonical user gesture, independent of platform key syntax.";
+            };
+            semantic = mkOption {
+              type = types.nonEmptyStr;
+              description = "User-facing action semantics, such as toggling a scratchpad.";
+            };
+            context = mkOption {
+              type = types.nonEmptyStr;
+              description = "Platform or desktop-session context that implements the habit.";
+            };
+            backend = mkOption {
+              type = types.nonEmptyStr;
+              description = "Application or compositor backend used in this context.";
+            };
+            binding = mkOption {
+              type = types.nonEmptyStr;
+              description = "Platform-native key binding or hotkey representation.";
+            };
+            ownership = mkOption {
+              type = types.enum [ "declarative" "application" ];
+              description = "Whether Envy declares the binding or only records an application-owned preference.";
+            };
+            note = mkOption {
+              type = types.str;
+              default = "";
+              description = "Short implementation note shown by Envy inspection commands.";
+            };
+            requirements = mkOption {
+              type = types.listOf (types.submodule {
+                options = {
+                  group = mkOption {
+                    type = types.nonEmptyStr;
+                    description = "Canonical evaluated software group required by this implementation.";
+                  };
+                  item = mkOption {
+                    type = types.nonEmptyStr;
+                    description = "Stable software item ID required by this implementation.";
+                  };
+                };
+              });
+              default = [ ];
+              description = "Software selected by the machine policy for this implementation.";
+            };
+          };
+        });
+        default = [ ];
+        internal = true;
+        description = ''
+          Module-owned implementations of stable personal interaction habits.
+          Their gestures come from envy.habits machine policy; this option only
+          aggregates implementation facts for the evaluated manifest.
+        '';
+      };
     };
 
     user = {
@@ -69,6 +135,25 @@ in
       type = types.enum [ "upstream" "china" ];
       default = "china";
       description = "Network mirror policy used by bootstrap and managed package ecosystems.";
+    };
+
+    habits = {
+      terminalScratchpad.gesture = mkOption {
+        type = types.enum [ "F2" "F3" "F4" "F5" "F6" "F7" "F8" "F9" "F10" "F12" ];
+        default = "F12";
+        description = ''
+          Desired terminal scratchpad gesture. F1 remains the Niri screenshot
+          shortcut and F11 remains a platform-specific action.
+        '';
+      };
+      globalLauncher.gesture = mkOption {
+        type = types.strMatching "Option\\+([A-Za-z0-9]|Space|Return|Tab|Escape|F([1-9]|1[0-2]))";
+        default = "Option+Space";
+        description = ''
+          Desired global-launcher gesture in the user's cross-platform Option
+          notation. Desktop modules render their native modifier representation.
+        '';
+      };
     };
 
     git = {

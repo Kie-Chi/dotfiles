@@ -31,6 +31,8 @@ let
   casks = selectStrings softwarePolicy.homebrew.casks;
   taps = selectStrings softwarePolicy.homebrew.repositories;
   homePolicy = config.home-manager.users.${config.envy.user.name}.envy.software;
+  systemHabits = config.envy.machine.habits;
+  homeHabits = config.home-manager.users.${config.envy.user.name}.envy.machine.habits;
 in
 {
   imports = [
@@ -78,6 +80,8 @@ in
         "envy.llm.steps.model" = config.envy.llm.steps.model;
         "envy.llm.deepseek.url" = config.envy.llm.deepseek.url;
         "envy.llm.deepseek.model" = config.envy.llm.deepseek.model;
+        "envy.habits.terminalScratchpad.gesture" = config.envy.habits.terminalScratchpad.gesture;
+        "envy.habits.globalLauncher.gesture" = config.envy.habits.globalLauncher.gesture;
         "envy.darwin.proxy.mode" = policy.proxy.mode;
         "envy.darwin.proxy.tun" = policy.proxy.tun;
         "envy.vscode.mode" = config.envy.vscode.mode;
@@ -88,6 +92,7 @@ in
         homebrew = mirrorProfile.homebrew;
         probes = mirrorProfile.probes.common ++ mirrorProfile.probes.darwin;
       };
+      habits = systemHabits ++ homeHabits;
       software.groups = {
         "nix.user.package" = manifestLib.group {
           label = "Nix packages";

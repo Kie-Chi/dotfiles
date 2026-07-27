@@ -12,6 +12,8 @@ class PlatformSchemaTests(unittest.TestCase):
         paths = {field.path for field in COMMON_MACHINE_FIELDS}
         self.assertIn("envy.vscode.mode", paths)
         self.assertIn("envy.mirrors.mode", paths)
+        self.assertIn("envy.habits.terminalScratchpad.gesture", paths)
+        self.assertIn("envy.habits.globalLauncher.gesture", paths)
         self.assertTrue(all(not path.startswith("envy.darwin.") for path in paths))
         self.assertTrue(all(not path.startswith("envy.linux.") for path in paths))
 

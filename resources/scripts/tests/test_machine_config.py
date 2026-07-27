@@ -88,6 +88,20 @@ class MachineConfigTests(unittest.TestCase):
             config.write_machine_nix(values)
         self.assertIn("envy.darwin.proxy.tun = false;", self.machine.read_text())
 
+    def test_set_value_persists_habit_policy_through_managed_machine_block(self):
+        with self.machine_file_patch(), patch.object(
+            config, "current_machine_id", return_value="test-mac"
+        ), patch.object(config, "set_device_machine_id"):
+            config.write_machine_nix(self.values())
+            config.set_config_value("envy.habits.terminalScratchpad.gesture", "F8")
+            values = config.read_machine_nix()
+
+        self.assertEqual(values["envy.habits.terminalScratchpad.gesture"], "F8")
+        self.assertIn(
+            'envy.habits.terminalScratchpad.gesture = "F8";',
+            self.machine.read_text(),
+        )
+
     def test_refine_migrates_legacy_config_into_machine_block(self):
         legacy = self.root / "legacy-config.nix"
         legacy.write_text(

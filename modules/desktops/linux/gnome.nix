@@ -10,6 +10,11 @@ let
     runtimeInputs = with pkgs; [ coreutils gnugrep gawk wmctrl xdotool ];
     text = builtins.readFile ../../../resources/helpers/quake;
   };
+  tilixQuake = {
+    name = "Tilix Quake";
+    command = "tilix --quake";
+    binding = config.envy.habits.terminalScratchpad.gesture;
+  };
 in
 {
   config = lib.mkIf enabled {
@@ -19,6 +24,26 @@ in
       xdotool = "nix:xdotool";
       quake = "local:modules/desktops/linux/gnome.nix#quakeHelper";
     };
+
+    envy.machine.habits = [
+      {
+        id = "terminal-scratchpad";
+        label = "Terminal scratchpad";
+        gesture = tilixQuake.binding;
+        semantic = "Toggle a reusable Quake-style terminal overlay.";
+        context = "gnome";
+        backend = tilixQuake.name;
+        binding = tilixQuake.binding;
+        ownership = "declarative";
+        note = "GNOME delegates the overlay lifecycle to Tilix --quake.";
+        requirements = [
+          {
+            group = "nix.user.package";
+            item = "tilix";
+          }
+        ];
+      }
+    ];
 
     dconf.settings = {
       "org/gnome/desktop/background" = {
@@ -44,9 +69,9 @@ in
       };
 
       "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-quake" = {
-        name = "Tilix Quake";
-        command = "tilix --quake";
-        binding = "F12";
+        name = tilixQuake.name;
+        command = tilixQuake.command;
+        binding = tilixQuake.binding;
       };
 
       "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-tilix-normal" = {
