@@ -289,7 +289,9 @@ def initialize_machine(machine_id: str, mode: str, force: bool = False) -> Path:
 
 @app.command(name="init")
 def cmd_init(
-    machine_id: Optional[str] = typer.Argument(None, help="Machine ID; defaults to the local device label"),
+    machine_id: Optional[str] = typer.Argument(
+        None, help="Machine ID; defaults to the local device label", autocompletion=complete_machine_ids,
+    ),
     mode: Optional[str] = typer.Option(
         None, "--mode", "-m", help="Creation mode: import or copy",
         autocompletion=complete_init_modes,

@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 
@@ -67,6 +68,30 @@ def complete_journal_operations(ctx, incomplete):
         ("clean", "Garbage-collect generations"),
     ]
     return [item for item in operations if item[0].startswith(incomplete)]
+
+
+def complete_flake_inputs(ctx, incomplete):
+    """Complete root flake input names from the local lock file only."""
+    del ctx
+    lock_path = DOTFILES_DIR / "flake.lock"
+    try:
+        payload = json.loads(lock_path.read_text())
+        nodes = payload.get("nodes", {})
+        root = nodes.get("root", {}).get("inputs", {})
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return []
+    if not isinstance(root, dict) or not isinstance(nodes, dict):
+        return []
+    values = []
+    for name in sorted(root):
+        if not isinstance(name, str) or not name.startswith(incomplete):
+            continue
+        node_name = root.get(name)
+        node = nodes.get(node_name, {}) if isinstance(node_name, str) else {}
+        locked = node.get("locked", {}) if isinstance(node, dict) else {}
+        kind = locked.get("type", "input") if isinstance(locked, dict) else "input"
+        values.append((name, f"flake input ({kind})"))
+    return values
 
 
 # ==========================================
@@ -149,7 +174,9 @@ def cmd_update(ctx: typer.Context):
 
 @update_app.command(name="inputs")
 def cmd_update_inputs(
-    input_name: Optional[str] = typer.Argument(None, help="One flake input; omit for all"),
+    input_name: Optional[str] = typer.Argument(
+        None, help="One flake input; omit for all", autocompletion=complete_flake_inputs,
+    ),
     no_check: bool = typer.Option(False, "--no-check", help="Skip all-machine validation"),
 ):
     """Update one or all flake inputs and roll back flake.lock on validation failure."""
@@ -372,7 +399,7 @@ cli.add_typer(host_app, name="h", rich_help_panel="Aliases")
 cli.add_typer(doctor_app, name="doctor")
 cli.add_typer(doctor_app, name="dr", rich_help_panel="Aliases")
 
-# Mirror policy inspection is read-only; configuration remains machine-owned.
+# Mirror inspection and generated per-target selection; configuration remains machine-owned.
 cli.add_typer(mirror_app, name="mirror")
 
 # Personal interaction habits are versioned machine policy.

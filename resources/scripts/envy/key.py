@@ -96,6 +96,20 @@ def complete_sops_labels(ctx, incomplete):
     labels = [match.group(1) for match in pattern.finditer(text)]
     return [name for name in labels if name.startswith(incomplete)]
 
+
+def complete_export_formats(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete the public key export formats supported by Envy."""
+    del ctx
+    formats = {
+        "age": "age public key format",
+        "ssh": "SSH public key format",
+    }
+    return [
+        (name, description)
+        for name, description in formats.items()
+        if name.startswith(incomplete.casefold())
+    ]
+
 def confirm(prompt_text: str) -> bool:
     """Require explicit y/n confirmation. Auto-answer yes with --yes/-y."""
     if _yes_flag:
@@ -933,7 +947,10 @@ def cmd_remove(
 @app.command(name="export")
 @app.command(name="ex", rich_help_panel="Aliases")
 def cmd_export(
-    format: str = typer.Option("age", "--format", "-F", help="Export format (age, ssh)"),
+    format: str = typer.Option(
+        "age", "--format", "-F", help="Export format (age, ssh)",
+        autocompletion=complete_export_formats,
+    ),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path"),
 ):
     """Export current device key for transfer."""

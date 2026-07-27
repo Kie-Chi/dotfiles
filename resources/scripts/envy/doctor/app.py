@@ -3,6 +3,8 @@
 import typer
 
 from envy.doctor.selection import ONLY_HELP
+from envy.doctor.model import ALL_SECTIONS
+from envy.schemas.apps import ALL_APP_SPECS, APP_ALIASES
 from envy.doctor.runner import CHECKS, DEFAULT_CHECKS, exit_code, render, render_json, run_sections
 
 
@@ -20,6 +22,39 @@ def _run(
         render(results)
     raise typer.Exit(exit_code(results, strict=strict))
 
+
+def complete_doctor_selection(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete repeatable/comma-separated doctor section and app filters."""
+    del ctx
+    prefix = incomplete.rsplit(",", 1)[-1].strip()
+    completed = incomplete[: len(incomplete) - len(prefix)] if prefix else incomplete
+    candidates: list[tuple[str, str]] = []
+    sections = [(name, f"doctor section: {name}") for name in ALL_SECTIONS]
+    apps = [(name, f"app check: {name}") for name in sorted(ALL_APP_SPECS)]
+    aliases = [
+        (alias, f"app alias for {target}")
+        for alias, target in sorted(APP_ALIASES.items())
+        if alias != target
+    ]
+    if ":" in prefix:
+        kind, value = prefix.split(":", 1)
+        kind = kind.casefold()
+        if kind == "section":
+            sections = [(f"section:{name}", description) for name, description in sections]
+            apps = []
+            aliases = []
+        elif kind == "app":
+            apps = [(f"app:{name}", description) for name, description in apps]
+            aliases = [(f"app:{name}", description) for name, description in aliases]
+            sections = []
+        else:
+            return []
+        prefix = f"{kind}:{value}"
+    for value, description in [*sections, *apps, *aliases]:
+        if value.startswith(prefix):
+            candidates.append((completed + value, description))
+    return candidates
+
 app = typer.Typer(
     name="doctor",
     help="Check local dotfiles health, app state, login hints, and platform permissions.",
@@ -31,7 +66,9 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def cmd_doctor(
     ctx: typer.Context,
-    only: list[str] = typer.Option(None, "--only", "-o", help=ONLY_HELP),
+    only: list[str] = typer.Option(
+        None, "--only", "-o", help=ONLY_HELP, autocompletion=complete_doctor_selection,
+    ),
     strict: bool = typer.Option(False, "--strict", help="Exit non-zero when warnings are present."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
@@ -43,7 +80,9 @@ def cmd_doctor(
 
 @app.command(name="all")
 def cmd_all(
-    only: list[str] = typer.Option(None, "--only", "-o", help=ONLY_HELP),
+    only: list[str] = typer.Option(
+        None, "--only", "-o", help=ONLY_HELP, autocompletion=complete_doctor_selection,
+    ),
     strict: bool = typer.Option(False, "--strict", help="Exit non-zero when warnings are present."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
@@ -53,7 +92,9 @@ def cmd_all(
 
 @app.command(name="config")
 def cmd_config(
-    only: list[str] = typer.Option(None, "--only", "-o", help=ONLY_HELP),
+    only: list[str] = typer.Option(
+        None, "--only", "-o", help=ONLY_HELP, autocompletion=complete_doctor_selection,
+    ),
     strict: bool = typer.Option(False, "--strict", help="Exit non-zero when warnings are present."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
@@ -63,7 +104,9 @@ def cmd_config(
 
 @app.command(name="apps")
 def cmd_apps(
-    only: list[str] = typer.Option(None, "--only", "-o", help=ONLY_HELP),
+    only: list[str] = typer.Option(
+        None, "--only", "-o", help=ONLY_HELP, autocompletion=complete_doctor_selection,
+    ),
     strict: bool = typer.Option(False, "--strict", help="Exit non-zero when warnings are present."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
@@ -73,7 +116,9 @@ def cmd_apps(
 
 @app.command(name="system")
 def cmd_system(
-    only: list[str] = typer.Option(None, "--only", "-o", help=ONLY_HELP),
+    only: list[str] = typer.Option(
+        None, "--only", "-o", help=ONLY_HELP, autocompletion=complete_doctor_selection,
+    ),
     strict: bool = typer.Option(False, "--strict", help="Exit non-zero when warnings are present."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):

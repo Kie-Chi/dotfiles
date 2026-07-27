@@ -116,6 +116,36 @@ _HABIT_POLICY_PATHS = {
 }
 
 
+def complete_habit_ids(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete the stable habit IDs owned by the machine policy schema."""
+    del ctx
+    descriptions = {
+        "terminal-scratchpad": "toggle the terminal scratchpad",
+        "global-launcher": "open the global launcher",
+    }
+    return [
+        (habit_id, descriptions.get(habit_id, "managed habit"))
+        for habit_id in sorted(_HABIT_POLICY_PATHS)
+        if habit_id.startswith(incomplete)
+    ]
+
+
+def complete_habit_gestures(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete safe gesture values for the selected habit."""
+    params = getattr(ctx, "params", {}) if ctx is not None else {}
+    habit_id = params.get("habit_id") if isinstance(params, dict) else None
+    if habit_id == "terminal-scratchpad":
+        values = sorted(_TERMINAL_SCRATCHPAD_GESTURES)
+    elif habit_id == "global-launcher":
+        values = [
+            "Option+Space", "Option+Return", "Option+Tab", "Option+Escape",
+            *[f"Option+F{number}" for number in range(1, 13)],
+        ]
+    else:
+        values = []
+    return [(value, "managed gesture") for value in values if value.startswith(incomplete)]
+
+
 def normalize_policy_gesture(habit_id: str, gesture: str) -> tuple[str, str]:
     """Return the managed machine-policy path and canonical gesture."""
     path = _HABIT_POLICY_PATHS.get(habit_id)
@@ -411,7 +441,9 @@ def cmd_list(
 
 @app.command(name="show")
 def cmd_show(
-    habit_id: str = typer.Argument(help="Stable habit ID, for example terminal-scratchpad."),
+    habit_id: str = typer.Argument(
+        help="Stable habit ID, for example terminal-scratchpad.", autocompletion=complete_habit_ids,
+    ),
     refresh: bool = typer.Option(False, "--refresh", help="Ignore the saved manifest cache."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
@@ -458,8 +490,12 @@ def cmd_check(
 
 @app.command(name="set")
 def cmd_set(
-    habit_id: str = typer.Argument(help="Habit ID, for example terminal-scratchpad."),
-    gesture: str = typer.Argument(help="Desired gesture, for example F12 or Option+Space."),
+    habit_id: str = typer.Argument(
+        help="Habit ID, for example terminal-scratchpad.", autocompletion=complete_habit_ids,
+    ),
+    gesture: str = typer.Argument(
+        help="Desired gesture, for example F12 or Option+Space.", autocompletion=complete_habit_gestures,
+    ),
     apply: bool = typer.Option(False, "--apply", help="Apply the repaired desktop configuration now."),
 ):
     """Write one desired habit gesture into the selected machine policy."""
