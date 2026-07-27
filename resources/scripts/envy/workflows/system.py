@@ -11,6 +11,7 @@ import typer
 from envy import log
 from envy.config import refine_all
 from envy.host import current_machine_file, initialize_machine, require_current_machine_file
+from envy.journal import record_operation
 from envy.process import run_process
 from envy.utils import (
     DOTFILES_DIR,
@@ -40,12 +41,14 @@ def refine_before_apply() -> None:
         raise typer.Exit(code=1)
 
 
+@record_operation("apply")
 def apply_configuration() -> None:
     refine_before_apply()
     require_current_machine_file()
     run_apply()
 
 
+@record_operation("bootstrap")
 def bootstrap_configuration() -> None:
     refine_before_apply()
     require_current_machine_file()
@@ -57,6 +60,13 @@ def bootstrap_configuration() -> None:
     log.ok("bootstrap", "bootstrap completed successfully")
 
 
+@record_operation(
+    "rollback",
+    detail=lambda target=None, **_: (
+        {"generation": target} if target and target != "list" else {}
+    ),
+    skip=lambda target=None, *, dry_run=False, **_: dry_run or target == "list",
+)
 def rollback_configuration(target: str | None = None, *, dry_run: bool = False) -> None:
     if dry_run and target != "list":
         preview_rollback(target)
@@ -157,6 +167,13 @@ def open_editor() -> None:
     run_process([editor, str(DOTFILES_DIR)], check=True)
 
 
+@record_operation(
+    "clean",
+    detail=lambda **kw: {
+        "olderThan": kw.get("older_than") or "all",
+        "brew": kw.get("brew", False),
+    },
+)
 def clean_generations(*, yes: bool, older_than: str | None, brew: bool) -> None:
     policy = f"older than {older_than}" if older_than else "all old generations"
     log.warn("nix", "cleanup will permanently delete generations", policy=policy)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -140,6 +141,56 @@ class _ActivityReporter:
         return time.monotonic() - self.started
 
 
+NOTIFY_THRESHOLD_SECONDS = 30.0
+_NOTIFY_ENV = "ENVY_NOTIFY"
+
+
+def _notify_enabled() -> bool:
+    """Gate desktop notifications: opt-out env, interactive TTY, non-JSON only."""
+    value = os.environ.get(_NOTIFY_ENV, "1").strip().casefold()
+    if value in {"0", "false", "no", "off"}:
+        return False
+    if not sys.stderr.isatty():
+        return False
+    # Never notify in machine-readable mode. Scanning argv is reliable here
+    # because every --json flag in this CLI is a boolean long option.
+    if "--json" in sys.argv:
+        return False
+    return True
+
+
+def _notify_command(title: str, body: str) -> list[str] | None:
+    """Return the platform notification command, or None when unsupported."""
+    if sys.platform == "darwin":
+        script = f"display notification {shlex.quote(body)} with title {shlex.quote(title)}"
+        return ["osascript", "-e", script]
+    if sys.platform.startswith("linux"):
+        binary = shutil.which("notify-send")
+        if binary is None:
+            return None
+        return [binary, "--app-name=envy", title, body]
+    return None
+
+
+def _fire_completion_notification(label: str, duration: float, exit_code: int) -> None:
+    """Fire a detached, best-effort desktop notification; never raise."""
+    status = "completed" if exit_code == 0 else f"failed (exit {exit_code})"
+    body = f"{label} {status} in {duration:.0f}s"
+    command = _notify_command("envy", body)
+    if command is None:
+        return
+    try:
+        subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        pass
+
+
 def run_process(
     command: Sequence[str],
     *,
@@ -184,6 +235,8 @@ def run_process(
             "command", "finished", task=reporter.label,
             elapsed=f"{duration:.1f}s", exit_code=result.returncode,
         )
+        if _notify_enabled() and duration >= NOTIFY_THRESHOLD_SECONDS:
+            _fire_completion_notification(reporter.label, duration, result.returncode)
 
     if log.is_debug():
         log.debug(
@@ -196,12 +249,72 @@ def run_process(
     return result
 
 
+_FAILURE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(r"attribute '[^']+' missing", re.I),
+        "A configuration attribute is missing. Run: envy host check <machine> to "
+        "locate the failing target, or envy config refine to normalize machine values.",
+    ),
+    (
+        re.compile(r"infinite recursion encountered", re.I),
+        "Infinite recursion in the Nix evaluation. Run: envy config check to inspect "
+        "evaluated values, or compare against a working machine with envy host diff.",
+    ),
+    (
+        re.compile(r"hash mismatch", re.I),
+        "A fixed-output hash changed. Run: envy update inputs <name> to refresh "
+        "flake.lock, then envy apply.",
+    ),
+    (
+        re.compile(r"builder for '[^']+' failed|build of '[^']+' failed", re.I),
+        "A Nix build failed. Run: envy doctor to check toolchain health, then retry "
+        "envy apply.",
+    ),
+    (
+        re.compile(r"syntax error", re.I),
+        "Nix syntax error in a machine or module file. Run: envy config check to "
+        "localize it, or envy edit to open the machine file.",
+    ),
+    (
+        re.compile(r"no matching (?:creation rules|keys)", re.I),
+        "SOPS cannot decrypt or re-encrypt secrets with the local age key. Run: "
+        "envy key repair, or envy setup to reconfigure the recovery key.",
+    ),
+    (
+        re.compile(r"Permission denied \(publickey\)", re.I),
+        "Git SSH authentication failed. Inspect remotes with envy git remote -v and "
+        "confirm your SSH key is loaded (ssh-add -l).",
+    ),
+    (
+        re.compile(r"non-fast-forward|failed to push some refs", re.I),
+        "Git push was rejected because the branch is behind. Run: envy sync first, "
+        "then retry envy push.",
+    ),
+    (
+        re.compile(r"diverged|divergent branches", re.I),
+        "Local and remote branches have diverged. Run: envy sync to reconcile before "
+        "pushing.",
+    ),
+]
+
+
+def translate_failure(command: Sequence[str], stderr: str) -> str | None:
+    """Map a known Nix/git/sops failure to one friendly next-step hint."""
+    if not stderr:
+        return None
+    for pattern, hint in _FAILURE_PATTERNS:
+        if pattern.search(stderr):
+            return hint
+    return None
+
+
 def render_command_error(error: CommandError) -> None:
     command = error.cmd if isinstance(error.cmd, list) else [str(error.cmd)]
     log.error("command", "external command failed", exit_code=error.returncode)
     log.hint(command_display(command))
-    if error.stderr:
-        lines = [line.strip() for line in str(error.stderr).splitlines() if line.strip()]
+    stderr = str(error.stderr or "")
+    if stderr:
+        lines = [line.strip() for line in stderr.splitlines() if line.strip()]
         if log.is_debug():
             selected = lines[-12:]
         else:
@@ -212,6 +325,9 @@ def render_command_error(error: CommandError) -> None:
             selected = [*(important[-2:]), *(lines[-2:])]
         for line in dict.fromkeys(selected):
             log.hint(line[:500])
+    translation = translate_failure(command, stderr)
+    if translation is not None:
+        log.hint(translation)
 
 
 def environment_with(base: Mapping[str, str] | None = None, **values: str) -> dict[str, str]:

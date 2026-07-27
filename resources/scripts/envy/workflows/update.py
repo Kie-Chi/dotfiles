@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from envy import log
+from envy.journal import record_operation
 from envy.process import run_process
 from envy.transaction import FileTransaction
 from envy.utils import DOTFILES_DIR
 from envy.workflows.check import check_or_exit
 
 
+@record_operation(
+    "update-inputs",
+    detail=lambda input_name=None, **_: {"input": input_name or "all"},
+)
 def update_inputs(input_name: str | None = None, *, validate: bool = True) -> None:
     lock_file = DOTFILES_DIR / "flake.lock"
     command = ["nix", "flake", "update"]
@@ -27,6 +32,7 @@ def update_inputs(input_name: str | None = None, *, validate: bool = True) -> No
     log.ok("update", "flake inputs updated and validated", input=input_name or "all")
 
 
+@record_operation("update-brew")
 def update_homebrew() -> None:
     log.step("update", "updating Homebrew metadata")
     run_process(["brew", "update"], check=True, activity="Homebrew metadata update")

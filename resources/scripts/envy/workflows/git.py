@@ -9,6 +9,7 @@ import typer
 from envy import log
 from envy.git_safety import SecretSafetyError, assert_git_secret_safety
 from envy.host import require_current_machine_file
+from envy.journal import record_operation
 from envy.process import run_process
 from envy.utils import DOTFILES_DIR, current_machine_id, machine_build_attr, platform_name, run_apply
 from envy.workflows.system import refine_before_apply
@@ -240,6 +241,10 @@ def select_sync_target(remote_refs: list[str]) -> str:
     return target
 
 
+@record_operation(
+    "sync",
+    detail=lambda **kw: {"remote": kw.get("remote") or "all", "branch": kw.get("branch")},
+)
 def sync(
     *, remote: str | None, branch: str, no_apply: bool, build_only: bool,
 ) -> None:
@@ -302,6 +307,10 @@ def sync(
     run_apply()
 
 
+@record_operation(
+    "push",
+    detail=lambda **kw: {"remote": kw.get("remote") or "all", "branch": kw.get("branch")},
+)
 def push(
     *, msg: str, remote: str | None, branch: str, machine_only: bool,
     self_only: bool, yes: bool,

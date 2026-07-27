@@ -65,6 +65,18 @@ RECOVERY_KEY_FILE = SECRETS_DIR / "recovery-key.age"
 DEVICE_LABEL_FILE = DOTFILES_DIR / ".device-label"
 SETUP_SCRIPT = DOTFILES_DIR / "setup.sh"
 
+
+def state_dir() -> Path:
+    """Return the persistent per-user state directory for envy.
+
+    Distinct from the ~/.cache convention used for manifests and the registry
+    index: state written here (e.g. the operation journal) must survive cache
+    clears and `envy clean`, which only runs nix-collect-garbage/brew cleanup.
+    """
+    root = os.environ.get("XDG_STATE_HOME", "").strip()
+    base = Path(root).expanduser() if root else HOME_DIR / ".local" / "state"
+    return base / "envy"
+
 # Darwin system profile. The flake target is resolved at runtime because every
 # machine has its own hosts/<platform>/<id>.nix entry.
 SYSTEM_PROFILE = Path("/nix/var/nix/profiles/system")

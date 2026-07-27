@@ -9,6 +9,7 @@ from envy import _check_schema_api
 from envy.config import app as config_app
 from envy.doctor import app as doctor_app
 from envy.habit import app as habit_app
+from envy.journal import show_log
 from envy.key import app as key_app
 from envy.mirror import app as mirror_app
 from envy.overview import show as show_overview
@@ -51,6 +52,21 @@ def complete_rollback_target(ctx, incomplete):
     except (OSError, RuntimeError, ValueError):
         pass
     return candidates
+
+
+def complete_journal_operations(ctx, incomplete):
+    """Complete the recorded operation names for envy log --operation."""
+    operations = [
+        ("apply", "Apply the configuration"),
+        ("bootstrap", "Bootstrap the configuration"),
+        ("sync", "Fast-forward and apply"),
+        ("push", "Commit and push changes"),
+        ("update-inputs", "Update flake inputs"),
+        ("update-brew", "Update Homebrew metadata"),
+        ("rollback", "Activate a previous generation"),
+        ("clean", "Garbage-collect generations"),
+    ]
+    return [item for item in operations if item[0].startswith(incomplete)]
 
 
 # ==========================================
@@ -183,7 +199,7 @@ def cmd_tui():
     if binary is not None:
         os.execv(binary, [binary])
 
-    manifest = DOTFILES_DIR / "tools" / "envy-tui" / "Cargo.toml"
+    manifest = DOTFILES_DIR / "resources" / "scripts" / "envy-tui" / "Cargo.toml"
     cargo = shutil.which("cargo")
     if cargo is not None and manifest.is_file():
         launcher = DOTFILES_DIR / "envy"
@@ -272,6 +288,25 @@ def cmd_status(
 ):
     """Show machine, repository, generation, software, and health status."""
     show_overview(json_output=json_output, refresh=refresh)
+
+
+@cli.command(name="log")
+@cli.command(name="logs", rich_help_panel="Aliases")
+def cmd_log(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    limit: int = typer.Option(
+        50, "--limit", "-n", min=1, max=1000, help="Number of recent records to show"
+    ),
+    failed: bool = typer.Option(False, "--failed", help="Only show failed operations"),
+    operation: Optional[str] = typer.Option(
+        None, "--operation", "-o", help="Filter by operation name",
+        autocompletion=complete_journal_operations,
+    ),
+):
+    """Show recent state-changing operations from the journal."""
+    show_log(
+        json_output=json_output, limit=limit, failed=failed, operation=operation,
+    )
 
 
 @cli.command(name="diff")

@@ -1,6 +1,8 @@
 import io
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from rich.console import Console
 from typer.main import get_command
@@ -53,6 +55,26 @@ class StructuredOutputTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["warn"], 1)
         self.assertEqual(payload["summary"]["exitCode"], 1)
         self.assertEqual(payload["results"][1]["hint"], "switch branch")
+
+
+    def test_log_json_emits_stable_envelope(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            with patch("envy.journal.state_dir", return_value=state):
+                from envy import journal
+
+                journal.append({"operation": "apply", "result": "ok"})
+                result = CliRunner().invoke(cli, ["log", "--json"])
+        self.assertEqual(result.exit_code, 0)
+        payload = json.loads(result.output)
+        self.assertEqual(payload["schemaVersion"], 1)
+        self.assertIsInstance(payload["entries"], list)
+        self.assertEqual(payload["entries"][0]["operation"], "apply")
+
+    def test_log_registered_with_alias(self):
+        commands = get_command(cli).commands
+        self.assertIn("log", commands)
+        self.assertIn("logs", commands)
 
 
 if __name__ == "__main__":
