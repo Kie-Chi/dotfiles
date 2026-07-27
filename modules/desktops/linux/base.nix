@@ -52,6 +52,32 @@ in
   ++ lib.optionals waydroidEnabled [ waydroidHelper ]
   ++ lib.optionals (nixGLDefault != null) [ nixGLDefault ];
 
+  envy.software.nix.packages.references = {
+    xclip = "nix:xclip";
+    xsel = "nix:xsel";
+    CopyQ = "nix:copyq";
+    slurp = "nix:slurp";
+    grim = "nix:grim";
+    swappy = "nix:swappy";
+    wev = "nix:wev";
+    "steam-run" = "nix:steam-run";
+    waydroid = "nix:waydroid-nftables";
+    okular = "nix:kdePackages.okular";
+    pavucontrol = "nix:pavucontrol";
+    feishu = "nix:feishu";
+    wemeet = "nix:wemeet";
+    todesk = "nix:todesk";
+    "google-chrome" = "nix:google-chrome";
+    "wpsoffice-cn" = "nix:wpsoffice-cn";
+    remmina = "nix:remmina";
+    libcanberra = "nix:libcanberra-gtk3";
+    mesa = "nix:mesa";
+  } // lib.optionalAttrs waydroidEnabled {
+    "waydroid-helper" = "local:modules/desktops/linux/base.nix#waydroidHelper";
+  } // lib.optionalAttrs (nixGLDefault != null) {
+    nixGLIntel = "local:flake.nix#nixGLDefault";
+  };
+
   home.pointerCursor = {
     name = "Yaru";
     package = pkgs.yaru-theme;

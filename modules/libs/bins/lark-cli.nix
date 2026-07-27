@@ -37,4 +37,7 @@ let
 in
 {
   envy.software.nix.packages.include = lib.optionals (machinePlatform == "darwin") [ lark-cli ];
+  envy.software.nix.packages.references = lib.optionalAttrs (machinePlatform == "darwin") {
+    "lark-cli" = "local:modules/libs/bins/lark-cli.nix#lark-cli";
+  };
 }

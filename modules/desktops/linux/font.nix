@@ -11,6 +11,12 @@ in
     noto-fonts-cjk-serif
     noto-fonts-color-emoji
   ];
+  envy.software.nix.packages.references = {
+    "MapleMono-NF-CN" = "nix:maple-mono.NF-CN";
+    "noto-fonts-cjk-sans" = "nix:noto-fonts-cjk-sans";
+    "noto-fonts-cjk-serif" = "nix:noto-fonts-cjk-serif";
+    "noto-fonts-color-emoji" = "nix:noto-fonts-color-emoji";
+  };
   fonts = {
     fontconfig.enable = true;
     fontconfig.defaultFonts = {

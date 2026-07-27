@@ -53,6 +53,11 @@ in
     envy.software.nix.packages.include = [
       claudeWithDefaults
     ] ++ lib.optional agentConfig.ccliAlias ccli;
+    envy.software.nix.packages.references = {
+      claude = "local:modules/agents/claude.nix#claudeWithDefaults";
+    } // lib.optionalAttrs agentConfig.ccliAlias {
+      ccli = "local:modules/agents/claude.nix#ccli";
+    };
 
     home.file.${promptFile}.source = ../../files/ccli/prompt;
   };

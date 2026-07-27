@@ -50,4 +50,5 @@ let
 in
 {
   envy.software.nix.packages.include = [ okular ];
+  envy.software.nix.packages.references.okular = "local:modules/desktops/darwin/dmgs.nix#okular";
 }

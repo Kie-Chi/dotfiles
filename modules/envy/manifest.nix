@@ -1,13 +1,15 @@
 { lib }:
 
 let
-  packageItem = package:
-    let version = lib.getVersion package;
-    in {
-      id = lib.getName package;
+  packageItem = references: package:
+    let
       name = lib.getName package;
+      version = lib.getVersion package;
+    in {
+      id = name;
+      inherit name;
       version = if version == "" then null else version;
-      ref = null;
+      ref = references.${name} or null;
       parameters = { };
     };
 
@@ -26,7 +28,11 @@ let
   };
 in
 {
-  packageSelection = normalize packageItem;
+  packageSelection = selection: {
+    include = map (packageItem selection.references) selection.include;
+    inherit (selection) exclude;
+    effective = map (packageItem selection.references) selection.effective;
+  };
   itemSelection = selection: {
     inherit (selection) include exclude effective;
   };

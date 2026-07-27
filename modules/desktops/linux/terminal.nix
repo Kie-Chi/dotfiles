@@ -9,6 +9,7 @@ in
 {
   config = lib.mkIf enabled {
     envy.software.nix.packages.include = with pkgs; [ tilix ];
+    envy.software.nix.packages.references.tilix = "nix:tilix";
 
     dconf.settings = {
       "com/gexperts/Tilix" = {

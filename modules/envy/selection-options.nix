@@ -39,6 +39,17 @@ in
       default = [ ];
       inherit description;
     };
+    references = mkOption {
+      type = types.attrsOf types.nonEmptyStr;
+      default = { };
+      description = ''
+        Canonical source references keyed by the final package name. Use
+        `nix:<attr-path>` for a nixpkgs attribute, `flake:<input>#<attr>` for
+        an external flake, and `local:<path>` for a derivation owned by this
+        repository. References are metadata only; package installation
+        continues to be owned by `include`.
+      '';
+    };
     exclude = mkOption {
       type = types.listOf types.str;
       default = [ ];

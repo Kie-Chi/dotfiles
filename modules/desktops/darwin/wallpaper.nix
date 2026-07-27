@@ -3,6 +3,7 @@
 {
   envy.software.nix.packages.include =
     [ pkgs.desktoppr ];
+  envy.software.nix.packages.references.desktoppr = "nix:desktoppr";
 
   home.file.".config/wallpapers/background.jpg" =
     lib.mkIf (builtins.elem "desktoppr" (map lib.getName config.envy.software.nix.packages.effective)) {

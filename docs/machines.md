@@ -207,7 +207,9 @@ setup 中按 Space 只修改内存里的 pending 状态；按 `s` 退出才进�
 
 `envy config show` 只展示 machine scalar 与 secret 设置状态。软件 policy 使用
 `envy sw ls`；`envy sw ls --details` 展示结构化 include/exclude/effective、版本和
-canonical reference。Linux manifest 直接声明 active groups，不再伪造空的 Homebrew
+canonical reference。Nix reference 是 package contributor 显式声明的来源 metadata：
+`nix:<attr>`、`flake:<input>#<attr>` 或 `local:<path>`；不会按最终 package name 猜测。
+Linux manifest 直接声明 active groups，不再伪造空的 Homebrew
 或 Darwin system/font 列表。
 
 evaluated manifest 使用 `schemaVersion = 2`，软件结构位于

@@ -10,6 +10,7 @@ in
   config = lib.mkMerge [
   (lib.mkIf selected {
     envy.software.nix.packages.include = [ pkgs.vscode ];
+    envy.software.nix.packages.references.vscode = "nix:vscode";
   })
   (lib.mkIf enabled {
   programs.vscode = {

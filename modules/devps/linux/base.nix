@@ -19,6 +19,14 @@ in
     nodejs_26
   ];
 
+  envy.software.nix.packages.references = {
+    "mamba-cpp" = "nix:mamba-cpp";
+    go = "nix:go";
+    uv = "nix:uv";
+    maven = "nix:maven";
+    nodejs = "nix:nodejs_26";
+  };
+
   programs.zsh = {
     initContent = ''
       # Mamba Initialization

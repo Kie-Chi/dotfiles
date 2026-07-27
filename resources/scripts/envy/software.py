@@ -420,6 +420,10 @@ def render_managed_policy(
             if group.ecosystem == "nix":
                 lines.append("[\n")
                 for item in includes:
+                    if item.ref is None:
+                        raise SoftwarePolicyError(
+                            f"managed Nix package has no canonical reference: {item.id}"
+                        )
                     metadata = {"id": item.id, "ref": item.ref}
                     payload = json.dumps(
                         metadata, ensure_ascii=False, separators=(",", ":"), sort_keys=True
@@ -427,6 +431,14 @@ def render_managed_policy(
                     lines.append(f"    {MANAGED_INCLUDE_METADATA}{payload}\n")
                     lines.append(f"    {_render_nix_package(item)}\n")
                 lines.append("  ];\n")
+                references = {item.id: item.ref for item in includes}
+                json_text = json.dumps(
+                    references, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+                )
+                lines.append(
+                    f"  {group.option}.references = builtins.fromJSON "
+                    f"{json.dumps(json_text, ensure_ascii=False)};\n"
+                )
             elif group.ecosystem == "homebrew":
                 lines.append("[\n")
                 for item in includes:
@@ -841,9 +853,11 @@ def _parse_managed_policy_source(
     body = block.split("\n", 1)[1].rsplit("\n", 1)[0]
     options = "|".join(re.escape(option) for option in group_by_option)
     assignment = re.compile(
-        rf"(?ms)^\s*({options})\.(include|exclude)\s*=\s*(.*?)\s*;[ \t]*(?:\n|$)"
+        rf"(?ms)^\s*({options})\.(include|exclude|references)\s*=\s*(.*?)\s*;[ \t]*(?:\n|$)"
     )
     cursor = 0
+    nix_include_values: list[tuple[SelectionGroup, str]] = []
+    nix_references: dict[str, dict[str, str]] = {}
     for assignment_match in assignment.finditer(body):
         gap = body[cursor:assignment_match.start()]
         if _strip_managed_comments(gap).strip():
@@ -857,8 +871,14 @@ def _parse_managed_policy_source(
         value = assignment_match.group(3)
         if field == "exclude":
             exclusions[group.key] = _parse_string_selection(value, "exclusion")
+        elif field == "references":
+            if group.ecosystem != "nix":
+                raise SoftwarePolicyError(
+                    f"managed source references are only supported for Nix groups: {group.key}"
+                )
+            nix_references[group.key] = _parse_nix_references(value)
         elif group.ecosystem == "nix":
-            includes.extend(_parse_nix_includes(value, group))
+            nix_include_values.append((group, value))
         elif group.ecosystem == "homebrew":
             includes.extend(
                 ManagedInclude(
@@ -875,6 +895,16 @@ def _parse_managed_policy_source(
         cursor = assignment_match.end()
     if _strip_managed_comments(body[cursor:]).strip():
         raise SoftwarePolicyError("unsupported content in managed software block")
+    for group, value in nix_include_values:
+        parsed = _parse_nix_includes(value, group)
+        references = nix_references.get(group.key)
+        if references is not None:
+            expected = {item.id: item.ref for item in parsed}
+            if references != expected:
+                raise SoftwarePolicyError(
+                    f"managed Nix source references do not match includes: {group.key}"
+                )
+        includes.extend(parsed)
     return (
         normalize_managed_includes(includes, groups),
         normalize_exclusions(exclusions, groups),
@@ -951,6 +981,27 @@ def _parse_nix_includes(value: str, group: SelectionGroup) -> list[ManagedInclud
         ))
         index += 1
     return normalize_managed_includes(includes, (group,))
+
+
+def _parse_nix_references(value: str) -> dict[str, str]:
+    match = re.fullmatch(
+        r'\s*builtins\.fromJSON\s+("(?:\\.|[^"\\])*")\s*', value, flags=re.DOTALL,
+    )
+    if match is None:
+        raise SoftwarePolicyError("managed Nix source references must use builtins.fromJSON")
+    try:
+        payload = json.loads(json.loads(match.group(1)))
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise SoftwarePolicyError("cannot parse managed Nix source references") from exc
+    if not isinstance(payload, dict) or not all(
+        isinstance(item_id, str) and isinstance(ref, str)
+        for item_id, ref in payload.items()
+    ):
+        raise SoftwarePolicyError("managed Nix source references must be a string mapping")
+    for item_id, ref in payload.items():
+        _validate_name(item_id)
+        _validate_text_value(ref, "reference")
+    return payload
 
 
 def _parse_string_list(body: str, *, label: str = "exclusion") -> list[str]:

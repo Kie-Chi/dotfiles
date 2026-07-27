@@ -159,6 +159,29 @@ Canonical references identify an ecosystem object independently of its pinned
 version, for example `npm:@openai/codex`, `pypi:ruff`, and
 `homebrew:cask/iterm2`. `version` carries the pin separately.
 
+### Nix source references
+
+Nix derivations do not retain the attribute expression that created them after
+evaluation, so Envy never guesses a `nix:<name>` reference from the displayed
+package name. Each Nix package contributor instead declares companion
+`references` metadata next to `include`, keyed by the final `lib.getName`
+package name:
+
+```nix
+envy.software.nix.packages.include = [ pkgs.git localTool ];
+envy.software.nix.packages.references = {
+  git = "nix:git";
+  local-tool = "local:modules/tools/local-tool.nix#localTool";
+};
+```
+
+Use `nix:<attr-path>` for nixpkgs, `flake:<input>#<attr>` for an external flake,
+and `local:<path>` for a repository-owned derivation. `references` affects only
+the manifest/TUI provenance display; `include` remains the installation policy.
+The Nix modules reject a reference whose key is not present in their evaluated
+include list. Machine-managed Nix additions written by `envy sw add` preserve
+the same metadata automatically.
+
 ## Search Providers
 
 Search is read-only and provider failures are isolated. Results are ranked by

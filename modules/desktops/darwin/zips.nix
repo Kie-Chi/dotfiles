@@ -35,4 +35,5 @@ let
 in
 {
   envy.software.nix.packages.include = [ wireguard-macos-app ];
+  envy.software.nix.packages.references."wireguard-macos-app" = "local:modules/desktops/darwin/zips.nix#wireguard-macos-app";
 }

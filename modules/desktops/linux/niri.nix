@@ -63,6 +63,7 @@ in
   config = lib.mkMerge [
     (lib.mkIf selected {
       envy.software.nix.packages.include = [ pkgs.niri ];
+      envy.software.nix.packages.references.niri = "nix:niri";
     })
     (lib.mkIf enabled {
   envy.software.nix.packages.include = (with pkgs; [
@@ -78,6 +79,18 @@ in
     screenshotHelper
     fixPipewireHelper
   ];
+  envy.software.nix.packages.references = {
+    nemo = "nix:nemo";
+    fuzzel = "nix:fuzzel";
+    alacritty = "nix:alacritty";
+    swaybg = "nix:swaybg";
+    "xwayland-satellite" = "nix:xwayland-satellite";
+    "wl-clipboard" = "nix:wl-clipboard";
+    dex = "nix:dex";
+    "noctalia-shell" = "nix:noctalia-shell";
+    screenshot = "local:modules/desktops/linux/niri.nix#screenshotHelper";
+    "fix-pipewire" = "local:modules/desktops/linux/niri.nix#fixPipewireHelper";
+  };
 
   xdg.configFile."niri/config.kdl".text = ''
 

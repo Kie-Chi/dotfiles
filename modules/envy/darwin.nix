@@ -7,6 +7,16 @@ let
     lib.all
       (values: builtins.length (lib.unique values) == 1)
       (builtins.attrValues (lib.groupBy lib.getName packages));
+  unmatchedReferences = selection:
+    lib.subtractLists
+      (map lib.getName selection.include)
+      (builtins.attrNames selection.references);
+  unreferencedPackages = selection:
+    lib.subtractLists
+      (builtins.attrNames selection.references)
+      (map lib.getName selection.include);
+  referencesMatchPackages = selection:
+    unmatchedReferences selection == [ ] && unreferencedPackages selection == [ ];
   selectPackages = selection: lib.filter
     (package: !(builtins.elem (lib.getName package) selection.exclude))
     (unique selection.include);
@@ -35,8 +45,16 @@ in
         message = "envy.darwin.software.nix.systemPackages contains one stable ID with different derivations";
       }
       {
+        assertion = referencesMatchPackages softwarePolicy.nix.systemPackages;
+        message = "envy.darwin.software.nix.systemPackages.references must match included package names; unknown: ${lib.concatStringsSep ", " (unmatchedReferences softwarePolicy.nix.systemPackages)}; missing: ${lib.concatStringsSep ", " (unreferencedPackages softwarePolicy.nix.systemPackages)}";
+      }
+      {
         assertion = compatiblePackages softwarePolicy.nix.fonts.include;
         message = "envy.darwin.software.nix.fonts contains one stable ID with different derivations";
+      }
+      {
+        assertion = referencesMatchPackages softwarePolicy.nix.fonts;
+        message = "envy.darwin.software.nix.fonts.references must match included package names; unknown: ${lib.concatStringsSep ", " (unmatchedReferences softwarePolicy.nix.fonts)}; missing: ${lib.concatStringsSep ", " (unreferencedPackages softwarePolicy.nix.fonts)}";
       }
     ];
     envy.darwin.software.nix.systemPackages.effective = systemPackages;

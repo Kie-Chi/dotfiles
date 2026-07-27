@@ -175,9 +175,25 @@ class SoftwarePolicyTests(unittest.TestCase):
         self.assertTrue(updated.startswith("{ pkgs, ... }:"))
         self.assertIn('envy.software.nix.packages.include = [', updated)
         self.assertIn('pkgs."hello"', updated)
+        self.assertIn("envy.software.nix.packages.references = builtins.fromJSON", updated)
+        self.assertIn('\\"hello\\":\\"nix:hello\\"', updated)
         self.assertNotIn('"parameters"', updated)
         self.assertNotIn('"version"', updated)
         self.assertEqual(software.read_managed_policy(self.machine, groups)[0], [managed_include])
+
+    def test_nix_reference_mapping_must_match_the_managed_include(self):
+        groups = software.groups_for_platform("darwin")
+        managed_include = software.ManagedInclude(
+            group="nix.user.package", id="hello", name="hello",
+            ref="nix:hello", parameters={"attrPath": ["hello"]},
+        )
+        updated = software._update_managed_policy_source(
+            self.original, [managed_include], software.empty_exclusions(groups), groups
+        ).replace('\\"hello\\":\\"nix:hello\\"', '\\"other\\":\\"nix:other\\"')
+        self.machine.write_text(updated)
+
+        with self.assertRaisesRegex(software.SoftwarePolicyError, "references do not match"):
+            software.read_managed_policy(self.machine, groups)
 
     def test_structured_include_is_assigned_directly_to_the_ecosystem(self):
         groups = software.groups_for_platform("linux")

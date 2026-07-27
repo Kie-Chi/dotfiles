@@ -16,6 +16,16 @@ let
     lib.all
       (values: builtins.length (lib.unique values) == 1)
       (builtins.attrValues (lib.groupBy (item: item.id) items));
+  unmatchedReferences = selection:
+    lib.subtractLists
+      (map lib.getName selection.include)
+      (builtins.attrNames selection.references);
+  unreferencedPackages = selection:
+    lib.subtractLists
+      (builtins.attrNames selection.references)
+      (map lib.getName selection.include);
+  referencesMatchPackages = selection:
+    unmatchedReferences selection == [ ] && unreferencedPackages selection == [ ];
 in
 {
   imports =
@@ -28,6 +38,10 @@ in
       {
         assertion = compatiblePackages selection.include;
         message = "envy.software.nix.packages contains the same stable ID with different derivations";
+      }
+      {
+        assertion = referencesMatchPackages selection;
+        message = "envy.software.nix.packages.references must match included package names; unknown: ${lib.concatStringsSep ", " (unmatchedReferences selection)}; missing: ${lib.concatStringsSep ", " (unreferencedPackages selection)}";
       }
       {
         assertion = compatibleItems config.envy.software.npm.tools.include;

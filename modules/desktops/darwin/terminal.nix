@@ -13,6 +13,12 @@ in
     noto-fonts-color-emoji
   ];
 
+  envy.darwin.software.nix.fonts.references = {
+    "MapleMono-NF-CN" = "nix:maple-mono.NF-CN";
+    "noto-fonts-cjk-sans" = "nix:noto-fonts-cjk-sans";
+    "noto-fonts-color-emoji" = "nix:noto-fonts-color-emoji";
+  };
+
   envy.darwin.software.homebrew.casks.include = [ "iterm2" ];
 
   home-manager.users."${config.envy.user.name}" = lib.mkIf (

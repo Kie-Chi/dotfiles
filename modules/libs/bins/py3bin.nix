@@ -147,5 +147,6 @@ in
 {
   config = lib.mkIf enabled {
     envy.software.nix.packages.include = [ niri-scratchpad ];
+    envy.software.nix.packages.references."niri-scratchpad" = "local:modules/libs/bins/py3bin.nix#niri-scratchpad";
   };
 }

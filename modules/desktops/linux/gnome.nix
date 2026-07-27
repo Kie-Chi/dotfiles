@@ -14,6 +14,11 @@ in
 {
   config = lib.mkIf enabled {
     envy.software.nix.packages.include = (with pkgs; [ wmctrl xdotool ]) ++ [ quakeHelper ];
+    envy.software.nix.packages.references = {
+      wmctrl = "nix:wmctrl";
+      xdotool = "nix:xdotool";
+      quake = "local:modules/desktops/linux/gnome.nix#quakeHelper";
+    };
 
     dconf.settings = {
       "org/gnome/desktop/background" = {

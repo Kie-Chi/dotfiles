@@ -15,6 +15,7 @@ in
   config = lib.mkMerge [
     (lib.mkIf isDesktop {
       envy.software.nix.packages.include = [ pkgs.sunshine ];
+      envy.software.nix.packages.references.sunshine = "nix:sunshine";
     })
     (lib.mkIf enabled {
   systemd.user.services.sunshine = {
