@@ -23,6 +23,7 @@ Read-only views expose versioned JSON documents through `--json`, including:
 
 ```bash
 envy config show --json
+envy status --json
 envy sw ls --details --json
 envy sw why firefox --json
 envy host status --json
@@ -92,9 +93,10 @@ cached independently for the 12 most recent submitted queries.
 
 Pressing `r` explicitly refreshes the active page. When cached content exists,
 the TUI keeps rendering it with a `refreshing` indicator instead of replacing
-the entire view with a loading screen. Dashboard loading also seeds the Doctor
-page cache because the dashboard response already contains the complete doctor
-payload.
+the entire view with a loading screen. Dashboard uses one `envy status --json`
+process so machine, Git, generation, software, and Doctor data come from one
+coherent manifest snapshot. Loading also seeds the Doctor page cache because
+the dashboard response already contains the complete doctor payload.
 
 The Software page supports guarded availability changes. Move the selected row
 with `j`/`k` or the arrow keys and press `Enter`/`Space`. The TUI first calls

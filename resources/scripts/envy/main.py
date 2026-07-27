@@ -10,6 +10,7 @@ from envy.config import app as config_app
 from envy.doctor import app as doctor_app
 from envy.key import app as key_app
 from envy.mirror import app as mirror_app
+from envy.overview import show as show_overview
 from envy.host import app as host_app, complete_platforms
 from envy.software import app as software_app
 from envy.process import run_process
@@ -263,9 +264,13 @@ def cmd_push(
 
 @cli.command(name="status")
 @cli.command(name="st", rich_help_panel="Aliases")
-def cmd_status():
-    """Show the git status of the dotfiles repository."""
-    run_process(["git", "status"], cwd=DOTFILES_DIR, check=True)
+@cli.command(name="overview", rich_help_panel="Aliases")
+def cmd_status(
+    json_output: bool = typer.Option(False, "--json", help="Emit one coherent dashboard snapshot"),
+    refresh: bool = typer.Option(False, "--refresh", help="Ignore the saved manifest cache"),
+):
+    """Show machine, repository, generation, software, and health status."""
+    show_overview(json_output=json_output, refresh=refresh)
 
 
 @cli.command(name="diff")

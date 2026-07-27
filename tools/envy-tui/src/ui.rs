@@ -226,6 +226,8 @@ fn render_dashboard(frame: &mut Frame, app: &App, area: Rect) {
     let config = payload.get("config").unwrap_or(&Value::Null);
     let software = payload.get("software").unwrap_or(&Value::Null);
     let doctor = payload.get("doctor").unwrap_or(&Value::Null);
+    let git = payload.get("git").unwrap_or(&Value::Null);
+    let generation = payload.get("generation").unwrap_or(&Value::Null);
     let values = config.get("values").unwrap_or(&Value::Null);
     let machine = config
         .get("device")
@@ -255,7 +257,22 @@ fn render_dashboard(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(format!("  included  {}", text(software.get("included")))),
         Line::from(format!("  effective {}", text(software.get("effective")))),
         Line::from(format!("  excluded  {}", text(software.get("excluded")))),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Repository",
+            Style::default().fg(Color::Cyan).bold(),
+        )),
+        Line::from(format!("  branch    {}", text(git.get("branch")))),
+        Line::from(format!("  changes   {}", text(git.get("changes")))),
     ];
+    let generation_number = generation
+        .get("current")
+        .and_then(|value| value.get("number"));
+    let recommendations = payload
+        .get("recommendations")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let right = vec![
         Line::from(Span::styled(
             "Doctor",
@@ -264,14 +281,31 @@ fn render_dashboard(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(format!("  ok       {}", text(summary.get("ok")))),
         Line::from(format!("  warnings {}", text(summary.get("warn")))),
         Line::from(format!("  errors   {}", text(summary.get("error")))),
+        Line::from(format!("  generation {}", text(generation_number))),
         Line::from(""),
         Line::from(Span::styled(
-            "Workflow",
+            "Recommended",
             Style::default().fg(Color::Cyan).bold(),
         )),
-        Line::from("  Inspect policy → search registries → preview change"),
-        Line::from("  Every write requires verified dry-run + confirmation"),
-        Line::from("  1 dashboard  2 software  3 search  4 doctor  5 history"),
+        Line::from(format!(
+            "  {}",
+            recommendations
+                .first()
+                .and_then(|value| value.get("command"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("No action required")
+        )),
+        Line::from(format!(
+            "  {}",
+            recommendations
+                .first()
+                .and_then(|value| value.get("reason"))
+                .and_then(Value::as_str)
+                .unwrap_or("The selected machine is healthy")
+        )),
+        Line::from(""),
+        Line::from("  Every write uses dry-run + explicit confirmation"),
     ];
     if area.width >= 88 {
         let columns = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])

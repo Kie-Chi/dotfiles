@@ -6,7 +6,7 @@ use crate::model::{
     LoadTarget, Message, MutationIntent, MutationStage, Screen, SearchEntry, SoftwareAction,
 };
 
-fn envy_binary() -> String {
+pub fn envy_binary() -> String {
     env::var("ENVY_BIN").unwrap_or_else(|_| "envy".to_string())
 }
 
@@ -37,21 +37,7 @@ pub fn run_json(args: &[&str]) -> Result<Value, String> {
 
 fn load_target(target: &LoadTarget) -> Result<Value, String> {
     match target {
-        LoadTarget::Screen(Screen::Dashboard) => {
-            let config = thread::spawn(|| run_json(&["config", "show", "--json"]));
-            let software = thread::spawn(|| run_json(&["sw", "st", "--json"]));
-            let doctor = thread::spawn(|| run_json(&["doctor", "--json"]));
-            let join = |worker: thread::JoinHandle<Result<Value, String>>, name: &str| {
-                worker
-                    .join()
-                    .map_err(|_| format!("{name} worker panicked"))?
-            };
-            Ok(json!({
-                "config": join(config, "config")?,
-                "software": join(software, "software")?,
-                "doctor": join(doctor, "doctor")?,
-            }))
-        }
+        LoadTarget::Screen(Screen::Dashboard) => run_json(&["status", "--json"]),
         LoadTarget::Screen(Screen::Software) => run_json(&["sw", "ls", "--details", "--json"]),
         LoadTarget::Search(query) => run_json(&["sw", "search", query, "--json"]),
         LoadTarget::Screen(Screen::Doctor) => run_json(&["doctor", "--json"]),

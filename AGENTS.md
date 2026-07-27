@@ -108,6 +108,7 @@ Hybrid approach (in `setup.py`):
 |---|---|
 | `bash install.sh` | Clone/reuse the configured checkout and hand off to setup; intended to work as a raw GitHub bootstrap. |
 | `bash setup.sh` | Run setup TUI through the minimal setup runtime; it does not require Cargo/Rustc |
+| `envy status` | Show one coherent machine/Git/generation/software/Doctor snapshot and recommended next actions |
 | `envy config check` | Check `.device-label`, the selected machine file, and secrets.yaml without writing |
 | `envy config refine` | Migrate/refine device metadata, the machine managed block, and secret paths before apply |
 | `envy config show` | Show evaluated machine scalar values and secret-set status |

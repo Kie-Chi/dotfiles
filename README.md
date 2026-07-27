@@ -82,6 +82,7 @@ envy host select <machine-id>
 
 | Command | Purpose |
 |---|---|
+| `envy status` | 用一个一致快照展示当前 machine、Git、generation、software、Doctor 摘要与推荐下一步；`--json` 供 TUI 使用 |
 | `envy apply` | Refine 并应用当前平台的 machine target |
 | `envy sync` | 从远端快进共享 `master`，成功后应用当前机器 |
 | `envy sync --no-apply` | 仅同步，不应用 |
