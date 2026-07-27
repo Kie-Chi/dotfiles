@@ -9,15 +9,24 @@ pub enum Screen {
     Search,
     Doctor,
     History,
+    Journal,
+    Hosts,
+    Mirror,
+    Config,
 }
 
 impl Screen {
-    pub const ALL: [Self; 5] = [
+    /// Top-level tabs, in bar order. Journal, Hosts, and Config are intentionally
+    /// absent: Journal is a sub-view of History, and Hosts/Config are edited inline
+    /// on the Dashboard. They remain enum variants so their backend commands,
+    /// cached `PageState`, and selection indices keep working off-tab.
+    pub const ALL: [Self; 6] = [
         Self::Dashboard,
         Self::Software,
         Self::Search,
         Self::Doctor,
         Self::History,
+        Self::Mirror,
     ];
 
     pub fn title(self) -> &'static str {
@@ -27,11 +36,47 @@ impl Screen {
             Self::Search => "Search",
             Self::Doctor => "Doctor",
             Self::History => "History",
+            Self::Journal => "Journal",
+            Self::Hosts => "Hosts",
+            Self::Mirror => "Mirror",
+            Self::Config => "Config",
         }
     }
 
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|item| *item == self).unwrap_or(0)
+    }
+}
+
+/// The two time-ordered views merged under the History tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HistoryView {
+    #[default]
+    Generations,
+    Operations,
+}
+
+impl HistoryView {
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Generations => Self::Operations,
+            Self::Operations => Self::Generations,
+        }
+    }
+
+    /// The backing screen whose command and cached payload feed this view.
+    pub fn screen(self) -> Screen {
+        match self {
+            Self::Generations => Screen::History,
+            Self::Operations => Screen::Journal,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Generations => "Generations",
+            Self::Operations => "Operations",
+        }
     }
 }
 
@@ -199,6 +244,64 @@ pub struct GroupChooser {
     pub selected: usize,
 }
 
+/// A Dashboard-editable setting: either the active host or one managed config field.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SettingKey {
+    Host,
+    Config(String),
+}
+
+impl SettingKey {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Host => "host".to_string(),
+            Self::Config(path) => path.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingRow {
+    pub key: SettingKey,
+    pub label: String,
+    pub value: String,
+    /// Non-empty = enumerated (dropdown); empty = freeform (text input).
+    pub choices: Vec<String>,
+}
+
+impl SettingRow {
+    pub fn freeform(&self) -> bool {
+        self.choices.is_empty()
+    }
+}
+
+/// A dropdown over an enumerated setting or the known host list.
+#[derive(Clone, Debug)]
+pub struct SettingChooser {
+    pub key: SettingKey,
+    pub title: String,
+    pub options: Vec<String>,
+    pub selected: usize,
+    pub current: String,
+}
+
+/// A freeform text edit in progress for one setting.
+#[derive(Clone, Debug)]
+pub struct SettingEdit {
+    pub key: SettingKey,
+    pub title: String,
+    pub buffer: String,
+    pub previous: String,
+}
+
+/// A chosen value awaiting explicit confirmation before it is written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingSetting {
+    pub key: SettingKey,
+    pub value: String,
+    pub previous: String,
+}
+
 #[derive(Clone, Debug)]
 pub enum DetailView {
     Loading { title: String },
@@ -236,6 +339,11 @@ pub enum Message {
     },
     HistoryDiffFinished {
         request: u64,
+        result: Result<Value, String>,
+    },
+    SettingApplied {
+        request: u64,
+        key: SettingKey,
         result: Result<Value, String>,
     },
 }
@@ -403,6 +511,185 @@ pub fn generation_number(payload: Option<&Value>, index: usize) -> Option<u64> {
 
 pub type Pages = HashMap<Screen, PageState>;
 
+// ==========================================
+// READ-ONLY SCREEN VIEW MODELS
+// ==========================================
+
+fn format_detail(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::Object(map)) if !map.is_empty() => map
+            .iter()
+            .map(|(key, val)| format!("{key}={}", text(Some(val))))
+            .collect::<Vec<_>>()
+            .join("  "),
+        _ => "—".to_string(),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalEntry {
+    pub timestamp: String,
+    pub operation: String,
+    pub result: String,
+    pub duration: String,
+    pub machine: String,
+    pub detail: String,
+}
+
+fn duration_text(duration_ms: Option<&Value>) -> String {
+    match duration_ms.and_then(Value::as_u64) {
+        Some(ms) => format!("{:.1}s", ms as f64 / 1000.0),
+        None => "—".to_string(),
+    }
+}
+
+pub fn journal_entries(payload: Option<&Value>) -> Vec<JournalEntry> {
+    payload
+        .and_then(|value| value.get("entries"))
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|entry| JournalEntry {
+                    timestamp: text(entry.get("timestamp")),
+                    operation: text(entry.get("operation")),
+                    result: text(entry.get("result")),
+                    duration: duration_text(entry.get("durationMs")),
+                    machine: text(entry.get("machine")),
+                    detail: format_detail(entry.get("detail")),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn journal_rows(payload: Option<&Value>) -> usize {
+    payload
+        .and_then(|value| value.get("entries"))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostRow {
+    pub platform: String,
+    pub machine: String,
+    pub current: bool,
+    pub file: String,
+}
+
+pub fn host_rows(payload: Option<&Value>) -> Vec<HostRow> {
+    payload
+        .and_then(|value| value.get("machines"))
+        .and_then(Value::as_array)
+        .map(|machines| {
+            machines
+                .iter()
+                .map(|machine| HostRow {
+                    platform: text(machine.get("platform")),
+                    machine: text(machine.get("machineId")),
+                    current: machine.get("current").and_then(Value::as_bool) == Some(true),
+                    file: text(machine.get("file")),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyValueRow {
+    pub key: String,
+    pub value: String,
+}
+
+pub fn mirror_rows(payload: Option<&Value>) -> Vec<KeyValueRow> {
+    payload
+        .and_then(|value| value.get("settings"))
+        .and_then(Value::as_object)
+        .map(|settings| {
+            settings
+                .iter()
+                .map(|(key, value)| KeyValueRow {
+                    key: key.clone(),
+                    value: text(Some(value)),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Build the Dashboard's editable settings list from the cached host list and
+/// config payloads. Row 0 is the active host; the rest are managed config fields
+/// (`fields[]` from `config show --json`), where a non-empty `choices` marks an
+/// enumerated field that should render as a dropdown.
+pub fn dashboard_settings(hosts: Option<&Value>, config: Option<&Value>) -> Vec<SettingRow> {
+    let mut rows = Vec::new();
+    let current_host = config
+        .and_then(|value| value.get("device"))
+        .and_then(|device| device.get("machineId"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let machine_ids = host_rows(hosts)
+        .into_iter()
+        .map(|host| host.machine)
+        .filter(|machine| machine != "—" && !machine.is_empty())
+        .collect::<Vec<_>>();
+    rows.push(SettingRow {
+        key: SettingKey::Host,
+        label: "host".to_string(),
+        value: current_host,
+        choices: machine_ids,
+    });
+    if let Some(fields) = config
+        .and_then(|value| value.get("fields"))
+        .and_then(Value::as_array)
+    {
+        for field in fields {
+            let path = field
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() {
+                continue;
+            }
+            let value = field
+                .get("value")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let choices = field
+                .get("choices")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            rows.push(SettingRow {
+                key: SettingKey::Config(path.clone()),
+                label: path,
+                value,
+                choices,
+            });
+        }
+    }
+    rows
+}
+
+pub fn count_rows(payload: Option<&Value>, key: &str) -> usize {
+    payload
+        .and_then(|value| value.get(key))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -435,5 +722,75 @@ mod tests {
             search_entries(Some(&payload))[0].managed_group.as_deref(),
             Some("homebrew.system.formula")
         );
+    }
+
+    #[test]
+    fn journal_entries_parse_and_format() {
+        let payload = json!({"entries": [{
+            "timestamp": "2026-07-27T14:52:03+08:00",
+            "operation": "push",
+            "result": "fail",
+            "durationMs": 18420,
+            "machine": "mac",
+            "detail": {"remote": "origin", "branch": "master"}
+        }]});
+        let entries = journal_entries(Some(&payload));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].operation, "push");
+        assert_eq!(entries[0].duration, "18.4s");
+        assert!(entries[0].detail.contains("remote=origin"));
+        assert_eq!(journal_rows(Some(&payload)), 1);
+    }
+
+    #[test]
+    fn host_rows_mark_current_machine() {
+        let payload = json!({"machines": [
+            {"platform": "darwin", "machineId": "mac", "current": true, "file": "hosts/darwin/mac.nix"},
+            {"platform": "linux", "machineId": "box", "current": false, "file": "hosts/linux/box.nix"}
+        ]});
+        let rows = host_rows(Some(&payload));
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].current);
+        assert!(!rows[1].current);
+    }
+
+    #[test]
+    fn mirror_rows_flatten_settings() {
+        let payload = json!({"settings": {"mode": "china", "npm.registry": "https://x"}});
+        let rows = mirror_rows(Some(&payload));
+        assert_eq!(rows.len(), 2);
+        assert!(rows
+            .iter()
+            .any(|row| row.key == "mode" && row.value == "china"));
+    }
+
+    #[test]
+    fn dashboard_settings_expose_host_and_config_editability() {
+        let hosts = json!({"machines": [
+            {"platform": "darwin", "machineId": "mac", "current": true, "file": "hosts/darwin/mac.nix"},
+            {"platform": "linux", "machineId": "box", "current": false, "file": "hosts/linux/box.nix"}
+        ]});
+        let config = json!({
+            "device": {"machineId": "mac"},
+            "fields": [
+                {"path": "envy.mirrors.mode", "value": "china", "choices": ["upstream", "china"]},
+                {"path": "envy.user.name", "value": "chi", "choices": []}
+            ]
+        });
+        let rows = dashboard_settings(Some(&hosts), Some(&config));
+        assert_eq!(rows[0].key, SettingKey::Host);
+        assert_eq!(rows[0].value, "mac");
+        assert_eq!(rows[0].choices, vec!["mac".to_string(), "box".to_string()]);
+        let mirror = rows
+            .iter()
+            .find(|row| row.key == SettingKey::Config("envy.mirrors.mode".to_string()))
+            .unwrap();
+        assert!(!mirror.freeform());
+        assert_eq!(mirror.value, "china");
+        let name = rows
+            .iter()
+            .find(|row| row.key == SettingKey::Config("envy.user.name".to_string()))
+            .unwrap();
+        assert!(name.freeform());
     }
 }

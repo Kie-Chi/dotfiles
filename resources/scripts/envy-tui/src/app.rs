@@ -8,12 +8,15 @@ use serde_json::Value;
 
 use crate::{
     backend::{
-        spawn_history_diff, spawn_mutation, spawn_request, spawn_search_groups, spawn_software_why,
+        spawn_history_diff, spawn_mutation, spawn_request, spawn_search_groups, spawn_setting,
+        spawn_software_why,
     },
     model::{
-        compatible_groups, filtered_software_entries, generation_number, generation_rows,
-        result_rows, search_entries, DetailView, GroupChooser, LoadTarget, Message, MutationIntent,
-        MutationPreview, MutationStage, PageState, Pages, Screen, SoftwareAction, WorkflowAction,
+        compatible_groups, count_rows, dashboard_settings, filtered_software_entries,
+        generation_number, generation_rows, result_rows, search_entries, DetailView, GroupChooser,
+        HistoryView, LoadTarget, Message, MutationIntent, MutationPreview, MutationStage,
+        PageState, Pages, PendingSetting, Screen, SettingChooser, SettingEdit, SettingRow,
+        SoftwareAction, WorkflowAction,
     },
 };
 
@@ -24,6 +27,7 @@ pub enum InputMode {
     Normal,
     Search,
     SoftwareFilter,
+    SettingValue,
 }
 
 pub struct App {
@@ -42,6 +46,12 @@ pub struct App {
     pub search_selected: usize,
     pub doctor_selected: usize,
     pub history_selected: usize,
+    pub journal_selected: usize,
+    pub hosts_selected: usize,
+    pub mirror_selected: usize,
+    pub config_selected: usize,
+    pub dashboard_selected: usize,
+    pub history_view: HistoryView,
     pub history_marked: Option<u64>,
     request_id: u64,
     tx: Sender<Message>,
@@ -61,6 +71,11 @@ pub struct App {
     pub post_mutation: Option<String>,
     pub workflow_confirmation: Option<WorkflowAction>,
     workflow_action: Option<WorkflowAction>,
+    setting_request: Option<u64>,
+    pub setting_loading: bool,
+    pub setting_chooser: Option<SettingChooser>,
+    pub setting_edit: Option<SettingEdit>,
+    pub pending_setting: Option<PendingSetting>,
 }
 
 impl App {
@@ -81,6 +96,12 @@ impl App {
             search_selected: 0,
             doctor_selected: 0,
             history_selected: 0,
+            journal_selected: 0,
+            hosts_selected: 0,
+            mirror_selected: 0,
+            config_selected: 0,
+            dashboard_selected: 0,
+            history_view: HistoryView::default(),
             history_marked: None,
             request_id: 0,
             tx,
@@ -100,6 +121,11 @@ impl App {
             post_mutation: None,
             workflow_confirmation: None,
             workflow_action: None,
+            setting_request: None,
+            setting_loading: false,
+            setting_chooser: None,
+            setting_edit: None,
+            pending_setting: None,
         }
     }
 
@@ -107,6 +133,9 @@ impl App {
         match self.screen {
             Screen::Search if self.submitted_query.is_empty() => None,
             Screen::Search => Some(LoadTarget::Search(self.submitted_query.clone())),
+            // History merges two time-ordered views; the active sub-view decides
+            // which backend command and cached payload we read.
+            Screen::History => Some(LoadTarget::Screen(self.history_view.screen())),
             screen => Some(LoadTarget::Screen(screen)),
         }
     }
@@ -184,6 +213,7 @@ impl App {
             .unwrap_or(true);
         if !should_start {
             self.sync_status();
+            self.ensure_dashboard_dependencies();
             return;
         }
         self.request_id += 1;
@@ -202,6 +232,39 @@ impl App {
         } else {
             format!("Loading {}", target.title().to_lowercase())
         };
+        spawn_request(self.tx.clone(), request, target);
+        self.ensure_dashboard_dependencies();
+    }
+
+    /// The Dashboard edits host and config inline, so it needs the host list and
+    /// config payloads cached alongside its own status snapshot.
+    fn ensure_dashboard_dependencies(&mut self) {
+        if self.screen != Screen::Dashboard {
+            return;
+        }
+        self.ensure_loaded(Screen::Hosts);
+        self.ensure_loaded(Screen::Config);
+    }
+
+    /// Start a background load for an off-tab screen if it has no cached payload,
+    /// without touching the current screen's status or selection.
+    fn ensure_loaded(&mut self, screen: Screen) {
+        let target = LoadTarget::Screen(screen);
+        self.prepare_target(&target);
+        let should_start = self
+            .state_for_target(&target)
+            .map(|state| !state.loading && !state.has_content())
+            .unwrap_or(true);
+        if !should_start {
+            return;
+        }
+        self.request_id += 1;
+        let request = self.request_id;
+        if let Some(state) = self.state_for_target_mut(&target) {
+            state.loading = true;
+            state.error = None;
+            state.request = Some(request);
+        }
         spawn_request(self.tx.clone(), request, target);
     }
 
@@ -246,12 +309,36 @@ impl App {
         filtered_software_entries(self.payload(), &self.software_filter)
     }
 
+    pub fn dashboard_settings(&self) -> Vec<SettingRow> {
+        let hosts = self
+            .pages
+            .get(&Screen::Hosts)
+            .and_then(|state| state.payload.as_ref());
+        let config = self
+            .pages
+            .get(&Screen::Config)
+            .and_then(|state| state.payload.as_ref());
+        dashboard_settings(hosts, config)
+    }
+
     pub fn row_count(&self) -> usize {
         match self.screen {
             Screen::Software => self.software_entries().len(),
             Screen::Search | Screen::Doctor => result_rows(self.payload()),
-            Screen::History => generation_rows(self.payload()),
-            Screen::Dashboard => 0,
+            Screen::History => match self.history_view {
+                HistoryView::Generations => generation_rows(self.payload()),
+                HistoryView::Operations => crate::model::journal_rows(self.payload()),
+            },
+            Screen::Journal => crate::model::journal_rows(self.payload()),
+            Screen::Hosts => count_rows(self.payload(), "machines"),
+            Screen::Mirror => self
+                .payload()
+                .and_then(|value| value.get("settings"))
+                .and_then(Value::as_object)
+                .map(|settings| settings.len())
+                .unwrap_or(0),
+            Screen::Config => 0,
+            Screen::Dashboard => self.dashboard_settings().len(),
         }
     }
 
@@ -260,8 +347,15 @@ impl App {
             Screen::Software => self.software_selected,
             Screen::Search => self.search_selected,
             Screen::Doctor => self.doctor_selected,
-            Screen::History => self.history_selected,
-            Screen::Dashboard => 0,
+            Screen::History => match self.history_view {
+                HistoryView::Generations => self.history_selected,
+                HistoryView::Operations => self.journal_selected,
+            },
+            Screen::Journal => self.journal_selected,
+            Screen::Hosts => self.hosts_selected,
+            Screen::Mirror => self.mirror_selected,
+            Screen::Config => self.config_selected,
+            Screen::Dashboard => self.dashboard_selected,
         }
     }
 
@@ -270,8 +364,15 @@ impl App {
             Screen::Software => self.software_selected = value,
             Screen::Search => self.search_selected = value,
             Screen::Doctor => self.doctor_selected = value,
-            Screen::History => self.history_selected = value,
-            Screen::Dashboard => {}
+            Screen::History => match self.history_view {
+                HistoryView::Generations => self.history_selected = value,
+                HistoryView::Operations => self.journal_selected = value,
+            },
+            Screen::Journal => self.journal_selected = value,
+            Screen::Hosts => self.hosts_selected = value,
+            Screen::Mirror => self.mirror_selected = value,
+            Screen::Config => self.config_selected = value,
+            Screen::Dashboard => self.dashboard_selected = value,
         }
     }
 
@@ -546,6 +647,100 @@ impl App {
         self.scroll = 0;
     }
 
+    /// Begin editing the selected Dashboard setting: enumerated fields open a
+    /// dropdown, freeform fields open a text input pre-filled with the value.
+    fn begin_setting_edit(&mut self) {
+        let settings = self.dashboard_settings();
+        let Some(row) = settings.get(self.dashboard_selected).cloned() else {
+            self.status = "No setting selected".to_string();
+            return;
+        };
+        if row.freeform() {
+            self.setting_edit = Some(SettingEdit {
+                key: row.key,
+                title: row.label,
+                buffer: row.value.clone(),
+                previous: row.value,
+            });
+            self.input_mode = InputMode::SettingValue;
+            self.status = "Edit value; Enter saves, Esc cancels".to_string();
+        } else {
+            let selected = row
+                .choices
+                .iter()
+                .position(|choice| *choice == row.value)
+                .unwrap_or(0);
+            self.setting_chooser = Some(SettingChooser {
+                key: row.key,
+                title: row.label,
+                options: row.choices,
+                selected,
+                current: row.value,
+            });
+            self.status = "Choose a value; Enter confirms, Esc cancels".to_string();
+        }
+    }
+
+    fn confirm_setting_choice(&mut self) {
+        let Some(chooser) = self.setting_chooser.take() else {
+            return;
+        };
+        let Some(value) = chooser.options.get(chooser.selected).cloned() else {
+            return;
+        };
+        if value == chooser.current {
+            self.status = format!("{} unchanged", chooser.key.label());
+            return;
+        }
+        self.pending_setting = Some(PendingSetting {
+            key: chooser.key,
+            value,
+            previous: chooser.current,
+        });
+    }
+
+    fn commit_setting_edit(&mut self) {
+        let Some(edit) = self.setting_edit.take() else {
+            return;
+        };
+        self.input_mode = InputMode::Normal;
+        let value = edit.buffer.trim().to_string();
+        if value.is_empty() {
+            self.status = format!("{} left unchanged (empty)", edit.key.label());
+            return;
+        }
+        if value == edit.previous {
+            self.status = format!("{} unchanged", edit.key.label());
+            return;
+        }
+        self.pending_setting = Some(PendingSetting {
+            key: edit.key,
+            value,
+            previous: edit.previous,
+        });
+    }
+
+    fn apply_pending_setting(&mut self) {
+        let Some(pending) = self.pending_setting.take() else {
+            return;
+        };
+        self.request_id += 1;
+        let request = self.request_id;
+        self.setting_request = Some(request);
+        self.setting_loading = true;
+        self.status = format!("Applying {}", pending.key.label());
+        spawn_setting(self.tx.clone(), request, pending.key, pending.value);
+    }
+
+    /// Host/config edits change the selected machine file, so drop and reload the
+    /// Dashboard's own snapshot plus the host list and config payloads it renders.
+    fn refresh_after_setting(&mut self) {
+        for screen in [Screen::Dashboard, Screen::Hosts, Screen::Config] {
+            self.pages.remove(&screen);
+        }
+        self.load_current(true);
+    }
+
     pub fn take_workflow_action(&mut self) -> Option<WorkflowAction> {
         self.workflow_action.take()
     }
@@ -709,6 +904,25 @@ impl App {
                         }
                     }
                 }
+                Message::SettingApplied {
+                    request,
+                    key,
+                    result,
+                } if self.setting_request == Some(request) => {
+                    self.setting_request = None;
+                    self.setting_loading = false;
+                    match result {
+                        Ok(_) => {
+                            self.refresh_after_setting();
+                            self.status = format!("{} updated; refreshing", key.label());
+                        }
+                        Err(error) => {
+                            self.overlay_error = Some(error);
+                            self.status = format!("{} change failed", key.label());
+                        }
+                    }
+                }
+                Message::SettingApplied { .. } => {}
                 _ => {}
             }
         }
@@ -780,6 +994,35 @@ impl App {
                 }
                 true
             }
+            InputMode::SettingValue => {
+                match key.code {
+                    KeyCode::Esc => {
+                        self.setting_edit = None;
+                        self.input_mode = InputMode::Normal;
+                        self.status = "Setting edit cancelled".to_string();
+                    }
+                    KeyCode::Enter => {
+                        self.commit_setting_edit();
+                    }
+                    KeyCode::Backspace => {
+                        if let Some(edit) = self.setting_edit.as_mut() {
+                            edit.buffer.pop();
+                        }
+                    }
+                    KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if let Some(edit) = self.setting_edit.as_mut() {
+                            edit.buffer.clear();
+                        }
+                    }
+                    KeyCode::Char(character) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if let Some(edit) = self.setting_edit.as_mut() {
+                            edit.buffer.push(character);
+                        }
+                    }
+                    _ => {}
+                }
+                true
+            }
         }
     }
 
@@ -795,6 +1038,11 @@ impl App {
                 self.software_selected = 0;
                 self.scroll = 0;
             }
+            InputMode::SettingValue => {
+                if let Some(edit) = self.setting_edit.as_mut() {
+                    edit.buffer.push_str(&normalized);
+                }
+            }
             InputMode::Normal => {}
         }
     }
@@ -805,8 +1053,20 @@ impl App {
             MouseEventKind::ScrollUp => -1,
             _ => return,
         };
-        if self.pending_mutation.is_some() || self.mutation_loading || self.overlay_error.is_some()
+        if self.pending_mutation.is_some()
+            || self.mutation_loading
+            || self.overlay_error.is_some()
+            || self.pending_setting.is_some()
+            || self.setting_loading
         {
+            return;
+        }
+        if let Some(chooser) = self.setting_chooser.as_mut() {
+            if direction > 0 {
+                chooser.selected = (chooser.selected + 1).min(chooser.options.len() - 1);
+            } else {
+                chooser.selected = chooser.selected.saturating_sub(1);
+            }
             return;
         }
         if let Some(chooser) = self.group_chooser.as_mut() {
@@ -877,6 +1137,33 @@ impl App {
             }
             return;
         }
+        if self.pending_setting.is_some() {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char('y') if !self.setting_loading => {
+                    self.apply_pending_setting();
+                }
+                KeyCode::Esc | KeyCode::Char('n') if !self.setting_loading => {
+                    self.pending_setting = None;
+                    self.status = "Setting change cancelled".to_string();
+                }
+                _ => {}
+            }
+            return;
+        }
+        if let Some(chooser) = self.setting_chooser.as_mut() {
+            match key.code {
+                KeyCode::Down | KeyCode::Char('j') => {
+                    chooser.selected = (chooser.selected + 1).min(chooser.options.len() - 1);
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    chooser.selected = chooser.selected.saturating_sub(1);
+                }
+                KeyCode::Enter => self.confirm_setting_choice(),
+                KeyCode::Esc => self.setting_chooser = None,
+                _ => {}
+            }
+            return;
+        }
         if self.pending_mutation.is_some() {
             match key.code {
                 KeyCode::Enter | KeyCode::Char('y') if !self.mutation_loading => {
@@ -938,7 +1225,7 @@ impl App {
             }
             return;
         }
-        if self.mutation_loading {
+        if self.mutation_loading || self.setting_loading {
             return;
         }
         if self.show_help {
@@ -984,8 +1271,14 @@ impl App {
                 self.input_mode = InputMode::Search;
                 self.sync_status();
             }
-            KeyCode::Char(character) if ('1'..='5').contains(&character) => {
-                self.set_screen(Screen::ALL[character as usize - '1' as usize]);
+            KeyCode::Char(character) if ('1'..='9').contains(&character) => {
+                let index = character as usize - '1' as usize;
+                if index < Screen::ALL.len() {
+                    self.set_screen(Screen::ALL[index]);
+                }
+            }
+            KeyCode::Enter if self.screen == Screen::Dashboard => {
+                self.begin_setting_edit();
             }
             KeyCode::Enter | KeyCode::Char(' ') if self.screen == Screen::Software => {
                 self.begin_selected_mutation();
@@ -999,13 +1292,26 @@ impl App {
             KeyCode::Enter | KeyCode::Char('i') if self.screen == Screen::Doctor => {
                 self.open_doctor_detail();
             }
-            KeyCode::Char(' ') if self.screen == Screen::History => {
+            KeyCode::Char('v') if self.screen == Screen::History => {
+                self.history_view = self.history_view.toggled();
+                self.history_marked = None;
+                self.scroll = 0;
+                self.load_current(false);
+                self.status = format!("Viewing {}", self.history_view.label());
+            }
+            KeyCode::Char(' ')
+                if self.screen == Screen::History
+                    && self.history_view == HistoryView::Generations =>
+            {
                 self.history_marked = generation_number(self.payload(), self.history_selected);
                 if let Some(number) = self.history_marked {
                     self.status = format!("Generation {number} marked; select another and press d");
                 }
             }
-            KeyCode::Enter | KeyCode::Char('d') if self.screen == Screen::History => {
+            KeyCode::Enter | KeyCode::Char('d')
+                if self.screen == Screen::History
+                    && self.history_view == HistoryView::Generations =>
+            {
                 self.begin_history_diff();
             }
             KeyCode::Home | KeyCode::Char('g') => self.move_selection_to(0),
@@ -1028,6 +1334,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::model::SettingKey;
 
     fn app() -> App {
         let (tx, rx) = mpsc::channel();
@@ -1047,6 +1354,47 @@ mod tests {
         app.set_screen(Screen::Software);
         assert_eq!(app.request_id, 0);
         assert_eq!(app.status, "Software cached");
+    }
+
+    #[test]
+    fn history_operations_subview_reads_journal_payload() {
+        let mut app = app();
+        app.pages.insert(
+            Screen::Journal,
+            PageState {
+                payload: Some(json!({"entries": [
+                    {"operation": "apply", "result": "ok"},
+                    {"operation": "push", "result": "fail"}
+                ]})),
+                ..PageState::default()
+            },
+        );
+        app.screen = Screen::History;
+        app.history_view = HistoryView::Operations;
+        assert_eq!(app.row_count(), 2);
+        app.visible_rows = 5;
+        app.move_selection(1);
+        assert_eq!(app.journal_selected, 1);
+    }
+
+    #[test]
+    fn history_view_toggles_between_generations_and_operations() {
+        let mut app = app();
+        app.screen = Screen::History;
+        assert_eq!(app.history_view, HistoryView::Generations);
+        app.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        assert_eq!(app.history_view, HistoryView::Operations);
+        app.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        assert_eq!(app.history_view, HistoryView::Generations);
+    }
+
+    #[test]
+    fn tab_bar_drops_journal_hosts_and_config() {
+        assert_eq!(Screen::ALL.len(), 6);
+        assert!(!Screen::ALL.contains(&Screen::Journal));
+        assert!(!Screen::ALL.contains(&Screen::Hosts));
+        assert!(!Screen::ALL.contains(&Screen::Config));
+        assert_eq!(Screen::ALL[5], Screen::Mirror);
     }
 
     #[test]
@@ -1199,5 +1547,73 @@ mod tests {
         app.handle_paste("  visual\n studio\tcode  ");
 
         assert_eq!(app.query, "visual studio code");
+    }
+
+    fn dashboard_app() -> App {
+        let mut app = app();
+        app.pages.insert(
+            Screen::Hosts,
+            PageState {
+                payload: Some(json!({"machines": [
+                    {"platform": "darwin", "machineId": "mac", "current": true, "file": "a"},
+                    {"platform": "darwin", "machineId": "air", "current": false, "file": "b"}
+                ]})),
+                ..PageState::default()
+            },
+        );
+        app.pages.insert(
+            Screen::Config,
+            PageState {
+                payload: Some(json!({
+                    "device": {"machineId": "mac"},
+                    "fields": [
+                        {"path": "envy.mirrors.mode", "value": "china", "choices": ["upstream", "china"]},
+                        {"path": "envy.user.name", "value": "chi", "choices": []}
+                    ]
+                })),
+                ..PageState::default()
+            },
+        );
+        app.screen = Screen::Dashboard;
+        app
+    }
+
+    #[test]
+    fn dashboard_enumerated_setting_opens_a_dropdown_and_confirms() {
+        let mut app = dashboard_app();
+        // Row 0 is host; move to the enumerated mirror field (row 1).
+        app.visible_rows = 10;
+        app.move_selection(1);
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let chooser = app.setting_chooser.as_ref().expect("dropdown opens");
+        assert_eq!(
+            chooser.key,
+            SettingKey::Config("envy.mirrors.mode".to_string())
+        );
+        assert_eq!(chooser.selected, 1); // "china" is currently selected
+                                         // Pick "upstream" and confirm.
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let pending = app.pending_setting.as_ref().expect("awaiting confirmation");
+        assert_eq!(pending.value, "upstream");
+    }
+
+    #[test]
+    fn dashboard_freeform_setting_uses_text_input() {
+        let mut app = dashboard_app();
+        app.visible_rows = 10;
+        app.move_selection(2); // envy.user.name (freeform)
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.input_mode, InputMode::SettingValue);
+        assert_eq!(app.setting_edit.as_ref().unwrap().buffer, "chi");
+    }
+
+    #[test]
+    fn host_row_dropdown_lists_machines() {
+        let mut app = dashboard_app();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let chooser = app.setting_chooser.as_ref().expect("host dropdown");
+        assert_eq!(chooser.key, SettingKey::Host);
+        assert_eq!(chooser.options, vec!["mac".to_string(), "air".to_string()]);
     }
 }

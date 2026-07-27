@@ -13,8 +13,8 @@ if [ "${1:-}" = "tui" ] && [ "$#" -eq 1 ] && [ -z "${_ENVY_COMPLETE:-}" ]; then
   shift
   if command -v envy-tui >/dev/null 2>&1; then
     exec envy-tui "$@"
-  elif command -v cargo >/dev/null 2>&1 && [ -f "$ROOT/tools/envy-tui/Cargo.toml" ]; then
-    exec env ENVY_BIN="$ROOT/envy" cargo run --quiet --manifest-path "$ROOT/tools/envy-tui/Cargo.toml" -- "$@"
+  elif command -v cargo >/dev/null 2>&1 && [ -f "$ROOT/resources/scripts/envy-tui/Cargo.toml" ]; then
+    exec env ENVY_BIN="$ROOT/envy" cargo run --quiet --manifest-path "$ROOT/resources/scripts/envy-tui/Cargo.toml" -- "$@"
   else
     echo "error: envy-tui is not installed; enter the Nix devShell or install the Envy package." >&2
     exit 1

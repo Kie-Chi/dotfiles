@@ -70,8 +70,8 @@ let
   envyTuiPackage = pkgs.rustPlatform.buildRustPackage {
     pname = "envy-tui";
     version = "0.1.0";
-    src = ../../tools/envy-tui;
-    cargoLock.lockFile = ../../tools/envy-tui/Cargo.lock;
+    src = ../../resources/scripts/envy-tui;
+    cargoLock.lockFile = ../../resources/scripts/envy-tui/Cargo.lock;
     meta = {
       description = "Ratatui frontend for the Envy dotfiles manager";
       mainProgram = "envy-tui";

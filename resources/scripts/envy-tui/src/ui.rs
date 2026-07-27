@@ -8,7 +8,10 @@ use serde_json::Value;
 
 use crate::{
     app::{App, InputMode},
-    model::{search_entries, text, DetailView, Screen, SoftwareAction},
+    model::{
+        journal_entries, mirror_rows, search_entries, text, DetailView, HistoryView, Screen,
+        SoftwareAction,
+    },
 };
 
 const BACKGROUND: Color = Color::Rgb(8, 15, 24);
@@ -142,8 +145,9 @@ fn page_keys(screen: Screen) -> &'static str {
         Screen::Software => "Enter toggle  w why  / filter",
         Screen::Search => "Enter add  / query",
         Screen::Doctor => "Enter details",
-        Screen::History => "Space mark  d diff",
-        Screen::Dashboard => "s search",
+        Screen::History => "v view  Space mark  d diff",
+        Screen::Dashboard => "Enter edit  s search",
+        _ => "r refresh",
     }
 }
 
@@ -152,8 +156,9 @@ fn compact_page_keys(screen: Screen) -> &'static str {
         Screen::Software => "↵ toggle  w why  / filter",
         Screen::Search => "↵ add  / query",
         Screen::Doctor => "↵ details",
-        Screen::History => "Space mark  d diff",
-        Screen::Dashboard => "s search",
+        Screen::History => "v view  Space mark  d diff",
+        Screen::Dashboard => "↵ edit  s search",
+        _ => "r refresh",
     }
 }
 
@@ -172,6 +177,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         InputMode::Normal => "NORMAL",
         InputMode::Search => "SEARCH",
         InputMode::SoftwareFilter => "FILTER",
+        InputMode::SettingValue => "EDIT",
     };
     let activity = if app.mutation_loading {
         format!("  {} verifying", spinner())
@@ -307,17 +313,82 @@ fn render_dashboard(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(""),
         Line::from("  Every write uses dry-run + explicit confirmation"),
     ];
-    if area.width >= 88 {
+    let panes =
+        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
+    let summary_area = panes[0];
+    let settings_area = panes[1];
+    if summary_area.width >= 88 {
         let columns = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(area);
+            .split(summary_area);
         frame.render_widget(card(Paragraph::new(left)), columns[0]);
         frame.render_widget(card(Paragraph::new(right)), columns[1]);
     } else {
-        let rows =
-            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
+        let rows = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(summary_area);
         frame.render_widget(card(Paragraph::new(left)), rows[0]);
         frame.render_widget(card(Paragraph::new(right)), rows[1]);
     }
+    render_dashboard_settings(frame, app, settings_area);
+}
+
+fn render_dashboard_settings(frame: &mut Frame, app: &App, area: Rect) {
+    let settings = app.dashboard_settings();
+    let count = settings.len();
+    if count == 0 {
+        frame.render_widget(
+            card(Paragraph::new(vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Loading host and config values…",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ])),
+            area,
+        );
+        return;
+    }
+    let offset = row_offset(app.scroll, count, area);
+    let rows = settings
+        .iter()
+        .skip(offset)
+        .map(|row| {
+            let kind = if row.key == crate::model::SettingKey::Host {
+                Cell::from("host").style(Style::default().fg(Color::Yellow))
+            } else if row.freeform() {
+                Cell::from("text").style(Style::default().fg(Color::DarkGray))
+            } else {
+                Cell::from("select").style(Style::default().fg(Color::Cyan))
+            };
+            let value = if row.value.is_empty() {
+                "—".to_string()
+            } else {
+                row.value.clone()
+            };
+            Row::new(vec![kind, Cell::from(row.label.clone()), Cell::from(value)])
+        })
+        .collect::<Vec<_>>();
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(8),
+            Constraint::Length(30),
+            Constraint::Min(20),
+        ],
+    )
+    .header(Row::new(["TYPE", "SETTING", "VALUE"]).style(Style::default().fg(Color::Cyan).bold()))
+    .row_highlight_style(Style::default().bg(SELECTED))
+    .highlight_symbol("▸ ")
+    .block(
+        Block::default()
+            .title({
+                let (selected, count) = app.selection_position().unwrap_or((0, count));
+                format!(" Settings — {selected} / {count} · Enter edit ")
+            })
+            .borders(Borders::ALL)
+            .border_style(Color::DarkGray),
+    );
+    let mut state = selected_state(app.dashboard_selected, offset, count == 0);
+    frame.render_stateful_widget(table, area, &mut state);
 }
 
 fn render_software(frame: &mut Frame, app: &App, area: Rect) {
@@ -593,6 +664,37 @@ fn render_doctor(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_history(frame: &mut Frame, app: &App, area: Rect) {
+    let sections = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
+    render_history_tabs(frame, app, sections[0]);
+    match app.history_view {
+        HistoryView::Generations => render_generations(frame, app, sections[1]),
+        HistoryView::Operations => render_journal(frame, app, sections[1]),
+    }
+}
+
+fn render_history_tabs(frame: &mut Frame, app: &App, area: Rect) {
+    let tab = |view: HistoryView| {
+        Span::styled(
+            format!(" {} ", view.label()),
+            if view == app.history_view {
+                Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+            } else {
+                Style::default().fg(Color::Gray)
+            },
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            tab(HistoryView::Generations),
+            Span::raw(" "),
+            tab(HistoryView::Operations),
+            Span::styled("   v switch view", Style::default().fg(Color::DarkGray)),
+        ])),
+        area,
+    );
+}
+
+fn render_generations(frame: &mut Frame, app: &App, area: Rect) {
     let generations = app
         .payload()
         .and_then(|payload| payload.get("generations"))
@@ -663,6 +765,117 @@ fn render_history(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
+fn render_journal(frame: &mut Frame, app: &App, area: Rect) {
+    let entries = journal_entries(app.payload());
+    let count = entries.len();
+    if count == 0 && !app.loading() {
+        render_empty_state(
+            frame,
+            area,
+            "No operations recorded yet",
+            "State-changing commands (apply, sync, push, update, rollback, clean) appear here.",
+            "Run an operation, then press r to refresh.",
+        );
+        return;
+    }
+    let offset = row_offset(app.scroll, count, area);
+    let rows = entries
+        .iter()
+        .skip(offset)
+        .map(|entry| {
+            let result_cell = if entry.result == "ok" {
+                Cell::from("ok").style(Style::default().fg(Color::Green))
+            } else {
+                Cell::from(entry.result.clone()).style(Style::default().fg(Color::Red))
+            };
+            Row::new(vec![
+                Cell::from(entry.timestamp.clone()),
+                Cell::from(entry.operation.clone()),
+                result_cell,
+                Cell::from(entry.duration.clone()),
+                Cell::from(entry.machine.clone()),
+                Cell::from(entry.detail.clone()),
+            ])
+        })
+        .collect::<Vec<_>>();
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(26),
+            Constraint::Length(15),
+            Constraint::Length(8),
+            Constraint::Length(10),
+            Constraint::Length(24),
+            Constraint::Min(20),
+        ],
+    )
+    .header(
+        Row::new([
+            "TIME",
+            "OPERATION",
+            "RESULT",
+            "DURATION",
+            "MACHINE",
+            "DETAIL",
+        ])
+        .style(Style::default().fg(Color::Cyan).bold()),
+    )
+    .row_highlight_style(Style::default().bg(SELECTED))
+    .highlight_symbol("▸ ")
+    .block(
+        Block::default()
+            .title({
+                let (selected, count) = app.selection_position().unwrap_or((0, count));
+                format!(" Operation journal — {selected} / {count} ")
+            })
+            .borders(Borders::ALL)
+            .border_style(Color::DarkGray),
+    );
+    let mut state = selected_state(app.journal_selected, offset, count == 0);
+    frame.render_stateful_widget(table, area, &mut state);
+}
+
+fn render_mirror(frame: &mut Frame, app: &App, area: Rect) {
+    let entries = mirror_rows(app.payload());
+    let count = entries.len();
+    if count == 0 && !app.loading() {
+        render_empty_state(
+            frame,
+            area,
+            "No mirror settings",
+            "The evaluated machine exposes no mirror endpoints.",
+            "Press r to refresh.",
+        );
+        return;
+    }
+    let offset = row_offset(app.scroll, count, area);
+    let rows = entries
+        .iter()
+        .skip(offset)
+        .map(|entry| {
+            Row::new(vec![
+                Cell::from(entry.key.clone()).style(Style::default().fg(Color::Cyan)),
+                Cell::from(entry.value.clone()),
+            ])
+        })
+        .collect::<Vec<_>>();
+    let table = Table::new(rows, [Constraint::Length(32), Constraint::Min(30)])
+        .header(Row::new(["SETTING", "VALUE"]).style(Style::default().fg(Color::Cyan).bold()))
+        .row_highlight_style(Style::default().bg(SELECTED))
+        .highlight_symbol("▸ ")
+        .block(
+            Block::default()
+                .title({
+                    let (selected, count) = app.selection_position().unwrap_or((0, count));
+                    format!(" Mirror endpoints — {selected} / {count} ")
+                })
+                .borders(Borders::ALL)
+                .border_style(Color::DarkGray),
+        );
+    let mut state = selected_state(app.mirror_selected, offset, count == 0);
+    frame.render_stateful_widget(table, area, &mut state);
+}
+
 fn render_body(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(error) = app.current_error().filter(|_| !app.current_has_content()) {
         frame.render_widget(
@@ -693,6 +906,10 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         Screen::Search => render_search(frame, app, area),
         Screen::Doctor => render_doctor(frame, app, area),
         Screen::History => render_history(frame, app, area),
+        Screen::Mirror => render_mirror(frame, app, area),
+        // Journal, Hosts, and Config are not top-level tabs; their data surfaces
+        // inside History (Journal) and the Dashboard (Hosts/Config).
+        Screen::Journal | Screen::Hosts | Screen::Config => {}
     }
     if app.loading() && !app.current_has_content() && app.screen != Screen::Search {
         frame.render_widget(Clear, area);
@@ -1220,19 +1437,145 @@ fn render_group_chooser(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
+fn render_setting_chooser(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(chooser) = &app.setting_chooser else {
+        return;
+    };
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("EDIT  ", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(
+                chooser.title.clone(),
+                Style::default().fg(Color::White).bold(),
+            ),
+        ]),
+        Line::from(format!("Current  {}", chooser.current)),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Choose a value",
+            Style::default().fg(Color::Cyan).bold(),
+        )),
+    ];
+    for (index, option) in chooser.options.iter().enumerate() {
+        lines.push(Line::from(vec![
+            Span::styled(
+                if index == chooser.selected {
+                    "▸ "
+                } else {
+                    "  "
+                },
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::styled(
+                option.clone(),
+                if index == chooser.selected {
+                    Style::default().fg(Color::White).bg(SELECTED).bold()
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "Enter confirms (then explicit apply); Esc cancels.",
+    ));
+    popup(
+        frame,
+        centered_size(72, (chooser.options.len() as u16 + 10).min(24), area),
+        "SELECT VALUE",
+        lines,
+        0,
+    );
+}
+
+fn render_setting_edit(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(edit) = &app.setting_edit else {
+        return;
+    };
+    let region = centered_size(72, 8, area);
+    frame.render_widget(Clear, region);
+    frame.render_widget(
+        Block::default()
+            .title(format!(" EDIT {} ", edit.title))
+            .borders(Borders::ALL)
+            .border_style(Color::Cyan)
+            .style(Style::default().bg(PANEL)),
+        region,
+    );
+    let inner = inset_rect(region, 2, 1);
+    let rows = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(inner);
+    render_input_field(
+        frame,
+        rows[0],
+        "VALUE · Enter save · Esc cancel · Ctrl-U clear",
+        &edit.buffer,
+        true,
+        "type a new value",
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            format!("Previous  {}", edit.previous),
+            Style::default().fg(Color::DarkGray),
+        ))),
+        rows[1],
+    );
+}
+
+fn render_setting_confirm(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(pending) = &app.pending_setting else {
+        return;
+    };
+    let previous = if pending.previous.is_empty() {
+        "—".to_string()
+    } else {
+        pending.previous.clone()
+    };
+    popup(
+        frame,
+        centered_size(72, 13, area),
+        "CONFIRM SETTING CHANGE",
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                pending.key.label(),
+                Style::default().fg(Color::Yellow).bold(),
+            )),
+            Line::from(""),
+            Line::from(format!("From  {previous}")),
+            Line::from(vec![
+                Span::raw("To    "),
+                Span::styled(
+                    pending.value.clone(),
+                    Style::default().fg(Color::Green).bold(),
+                ),
+            ]),
+            Line::from(""),
+            Line::from("This writes the selected machine file. Enter/y confirms; Esc/n cancels."),
+        ],
+        0,
+    );
+}
+
 fn render_help(frame: &mut Frame, area: Rect) {
     popup(
         frame,
         centered_size(80, 29, area),
         "KEYBOARD",
         vec![
-            Line::from("1..5        jump to a page"),
+            Line::from("1..6        jump to a page"),
             Line::from("Tab / ←→    switch pages"),
             Line::from("↑↓ / j k    select rows; detail dialogs scroll"),
             Line::from("PgUp/PgDn   move by one viewport; g/G first/last"),
             Line::from("s           search from any page"),
             Line::from("r           refresh current page"),
             Line::from("Esc         cancel or clear context; q quits"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Dashboard",
+                Style::default().fg(Color::Cyan).bold(),
+            )),
+            Line::from("Enter        edit host / config value (dropdown or text)"),
             Line::from(""),
             Line::from(Span::styled(
                 "Software",
@@ -1255,7 +1598,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
                 Style::default().fg(Color::Cyan).bold(),
             )),
             Line::from("Doctor Enter opens details; x runs an allow-listed safe action"),
-            Line::from("History Space marks one generation; d compares another"),
+            Line::from("History v toggles Generations/Operations; Space marks, d compares"),
             Line::from(""),
             Line::from("Every mutation: dry-run → contract validation → explicit confirmation."),
             Line::from("Press ? or Esc to close."),
@@ -1335,6 +1678,12 @@ fn render_overlays(frame: &mut Frame, app: &mut App) {
             ],
             0,
         );
+    } else if app.pending_setting.is_some() {
+        render_setting_confirm(frame, app, area);
+    } else if app.setting_chooser.is_some() {
+        render_setting_chooser(frame, app, area);
+    } else if app.setting_edit.is_some() {
+        render_setting_edit(frame, app, area);
     } else if app.pending_mutation.is_some() || app.mutation_loading {
         render_mutation(frame, app, area);
     } else if app.group_chooser.is_some() {
@@ -1416,6 +1765,66 @@ mod tests {
             strip_ansi("envy: \u{1b}[31;1m16 KiB\u{1b}[0m"),
             "envy: 16 KiB"
         );
+    }
+
+    #[test]
+    fn history_operations_subview_renders_journal() {
+        let mut app = test_app();
+        app.screen = Screen::History;
+        app.history_view = HistoryView::Operations;
+        app.pages.insert(
+            Screen::Journal,
+            crate::model::PageState {
+                payload: Some(json!({"entries": [
+                    {"timestamp": "2026-07-27T14:52:03+08:00", "operation": "apply",
+                     "result": "ok", "durationMs": 12300, "machine": "mac", "detail": {}}
+                ]})),
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Operations"));
+        assert!(text.contains("apply"));
+        assert!(text.contains("12.3s"));
+    }
+
+    #[test]
+    fn dashboard_renders_editable_settings() {
+        let mut app = test_app();
+        app.screen = Screen::Dashboard;
+        app.pages.insert(
+            Screen::Dashboard,
+            crate::model::PageState {
+                payload: Some(json!({"config": {"device": {"machineId": "mac"}}})),
+                ..Default::default()
+            },
+        );
+        app.pages.insert(
+            Screen::Hosts,
+            crate::model::PageState {
+                payload: Some(json!({"machines": [
+                    {"platform": "darwin", "machineId": "mac", "current": true, "file": "a"}
+                ]})),
+                ..Default::default()
+            },
+        );
+        app.pages.insert(
+            Screen::Config,
+            crate::model::PageState {
+                payload: Some(json!({
+                    "device": {"machineId": "mac"},
+                    "fields": [{"path": "envy.mirrors.mode", "value": "china", "choices": ["upstream", "china"]}]
+                })),
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Settings"));
+        assert!(text.contains("envy.mirrors.mode"));
     }
 
     #[test]

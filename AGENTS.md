@@ -39,7 +39,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `resources/scripts/envy/evaluation.py` | Shared reader for the evaluated machine manifest, with process-local and Git-fingerprinted persistent caches used by config views, setup, software policy, and doctor. |
 | `resources/scripts/envy/{process,secure_io,transaction}.py` | Shared command boundary, atomic/private file I/O, and multi-file rollback primitives. |
 | `resources/scripts/envy/jsonio.py` | Stable JSON envelope used by non-interactive frontends and future TUI clients. |
-| `tools/envy-tui/` | Rust/Ratatui frontend; invokes the Envy CLI through its JSON boundary and owns no policy. |
+| `resources/scripts/envy-tui/` | Rust/Ratatui frontend; invokes the Envy CLI through its JSON boundary and owns no policy. |
 | `resources/scripts/envy/workflows/` | Check, update, system lifecycle, and shared-branch Git workflows kept out of the CLI registration layer. |
 | `resources/scripts/envy/keys/` | Age/sops storage, device identity, and recovery-key encryption primitives. |
 | `resources/scripts/envy/software.py` | Direct managed include/exclude policy, desired-state planner, checkbox model, atomic writes, and evaluation rollback. |

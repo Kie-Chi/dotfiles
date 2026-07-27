@@ -3,7 +3,8 @@ use std::{env, path::Path, process::Command, sync::mpsc::Sender, thread};
 use serde_json::{json, Value};
 
 use crate::model::{
-    LoadTarget, Message, MutationIntent, MutationStage, Screen, SearchEntry, SoftwareAction,
+    LoadTarget, Message, MutationIntent, MutationStage, Screen, SearchEntry, SettingKey,
+    SoftwareAction,
 };
 
 pub fn envy_binary() -> String {
@@ -42,6 +43,10 @@ fn load_target(target: &LoadTarget) -> Result<Value, String> {
         LoadTarget::Search(query) => run_json(&["sw", "search", query, "--json"]),
         LoadTarget::Screen(Screen::Doctor) => run_json(&["doctor", "--json"]),
         LoadTarget::Screen(Screen::History) => run_json(&["history", "--json"]),
+        LoadTarget::Screen(Screen::Journal) => run_json(&["log", "--json", "--limit", "200"]),
+        LoadTarget::Screen(Screen::Hosts) => run_json(&["host", "list", "--json"]),
+        LoadTarget::Screen(Screen::Mirror) => run_json(&["mirror", "status", "--json"]),
+        LoadTarget::Screen(Screen::Config) => run_json(&["config", "show", "--json"]),
         LoadTarget::Screen(Screen::Search) => {
             Ok(json!({"query": "", "results": [], "providers": []}))
         }
@@ -184,6 +189,26 @@ pub fn spawn_history_diff(tx: Sender<Message>, request: u64, before: u64, after:
         let result = run_json(&["history", "diff", &before, &after, "--json"])
             .and_then(|payload| envelope_result(payload, "generation diff failed"));
         let _ = tx.send(Message::HistoryDiffFinished { request, result });
+    });
+}
+
+/// Apply an inline Dashboard setting through the unified, non-interactive CLI:
+/// `host select … --json --yes` or `config set … --json --yes`.
+pub fn spawn_setting(tx: Sender<Message>, request: u64, key: SettingKey, value: String) {
+    thread::spawn(move || {
+        let result = match &key {
+            SettingKey::Host => run_json(&["host", "select", &value, "--json", "--yes"])
+                .and_then(|payload| envelope_result(payload, "host select failed")),
+            SettingKey::Config(path) => {
+                run_json(&["config", "set", path, &value, "--json", "--yes"])
+                    .and_then(|payload| envelope_result(payload, "config set failed"))
+            }
+        };
+        let _ = tx.send(Message::SettingApplied {
+            request,
+            key,
+            result,
+        });
     });
 }
 

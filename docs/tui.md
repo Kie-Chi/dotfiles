@@ -7,7 +7,7 @@ envy tui
 ```
 
 From a repository checkout, the same command falls back to
-`cargo run --manifest-path tools/envy-tui/Cargo.toml` when `cargo` is available.
+`cargo run --manifest-path resources/scripts/envy-tui/Cargo.toml` when `cargo` is available.
 `tui` is also registered in the Typer command tree, so it appears in
 `envy --help`, shell completion, and `envy tui --help`; the shell wrapper keeps
 an exact `envy tui` fast path only for launching the installed binary.
@@ -83,7 +83,7 @@ meaningful for scripts and the TUI.
 
 ## Current implementation
 
-The first frontend now lives in `tools/envy-tui/` and is implemented with
+The first frontend now lives in `resources/scripts/envy-tui/` and is implemented with
 Rust/Ratatui and Crossterm. It currently provides Dashboard, Software, Search,
 Doctor, and History screens with background command execution, keyboard
 navigation, loading/error states, scrolling, and a help overlay. Each page is
