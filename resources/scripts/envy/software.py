@@ -5,6 +5,7 @@ import json
 import math
 import re
 import sqlite3
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -672,6 +673,94 @@ def require_group(
     raise typer.BadParameter(f"unknown software group: {value}; choose one of: {allowed}")
 
 
+def _group_matches_item(
+    manifest: dict[str, Any], groups: tuple[SelectionGroup, ...], item_value: str,
+) -> list[SelectionGroup]:
+    source = machine_file().read_text()
+    _, exclusions = _parse_managed_policy_source(source, groups)
+    items_by_group = build_software_items(manifest, exclusions, groups=groups)
+    needle = item_value.casefold()
+    matches: list[SelectionGroup] = []
+    for group in groups:
+        if any(
+            needle in {
+                item.id.casefold(),
+                item.name.casefold(),
+                (item.ref or "").casefold(),
+            }
+            for item in items_by_group[group.key]
+        ):
+            matches.append(group)
+            continue
+        if group.ecosystem in {"homebrew", "npm", "pypi", "native"}:
+            indexed = RegistryIndex().lookup(group.ecosystem, group.kind, item_value)
+            if indexed is not None:
+                matches.append(group)
+    return matches
+
+
+def _reference_groups(
+    groups: tuple[SelectionGroup, ...], item_value: str,
+) -> list[SelectionGroup]:
+    if ":" not in item_value:
+        return []
+    ecosystem, reference = item_value.split(":", 1)
+    matches = [group for group in groups if group.ecosystem == ecosystem]
+    if ecosystem == "homebrew" and "/" in reference:
+        kind = reference.split("/", 1)[0]
+        aliases = {"cask": "cask", "formula": "formula", "tap": "repository"}
+        if kind in aliases:
+            matches = [group for group in matches if group.kind == aliases[kind]]
+    return matches
+
+
+def _choose_cli_group(
+    item_value: str,
+    *,
+    action: str,
+    json_output: bool,
+) -> str:
+    manifest = _manifest_or_exit()
+    groups = groups_for_manifest(manifest, include_empty=True)
+    matches = _group_matches_item(manifest, groups, item_value)
+    if not matches:
+        matches = _reference_groups(groups, item_value)
+    if not matches and action == "add":
+        matches = [group for group in groups if group.editable_include]
+    matches = list(dict.fromkeys(matches))
+    if len(matches) == 1:
+        if not json_output:
+            log.info(
+                "software", "selected compatible group",
+                group=matches[0].key, label=matches[0].label,
+            )
+        return matches[0].key
+    if json_output or not sys.stdin.isatty():
+        if not matches:
+            raise typer.BadParameter(
+                f"cannot infer a software group for {item_value}; pass --group <group>"
+            )
+        choices = ", ".join(group.key for group in matches)
+        raise typer.BadParameter(
+            f"software group is ambiguous for {item_value}; pass --group with one of: {choices}"
+        )
+    if not matches:
+        raise typer.BadParameter(f"no compatible software group found for: {item_value}")
+
+    table = Table(title=f"Choose how Envy should manage {item_value}")
+    table.add_column("#", justify="right", style="cyan")
+    table.add_column("Type")
+    table.add_column("Canonical group", style="dim")
+    for index, group in enumerate(matches, start=1):
+        table.add_row(str(index), group.label, group.key)
+    log.console.print(table)
+    while True:
+        selected = typer.prompt("Software type", default=1, type=int)
+        if 1 <= selected <= len(matches):
+            return matches[selected - 1].key
+        log.warn("software", f"choose a number between 1 and {len(matches)}")
+
+
 def software_changes(
     original: dict[str, list[str]],
     current: dict[str, list[str]],
@@ -1062,7 +1151,9 @@ def _complete_groups(incomplete: str, *, action: str) -> list[tuple[str, str]]:
 
 
 def _complete_items(ctx, incomplete: str, *, action: str) -> list[tuple[str, str]]:
-    group_key = ctx.params.get("group") if ctx is not None else None
+    group_key = None
+    if ctx is not None:
+        group_key = ctx.params.get("group") or ctx.params.get("group_or_item")
     if not isinstance(group_key, str):
         return []
     groups, items_by_group = _completion_candidates(action)
@@ -1144,8 +1235,38 @@ def complete_remove_groups(ctx, incomplete: str) -> list[tuple[str, str]]:
     return _complete_groups(incomplete, action="rm")
 
 
+def _complete_smart_targets(incomplete: str, *, action: str) -> list[tuple[str, str]]:
+    candidates = list(_complete_groups(incomplete, action=action))
+    groups, items_by_group = _completion_candidates(action)
+    needle = incomplete.casefold()
+    seen = {value for value, _ in candidates}
+    for group in groups:
+        for item in items_by_group.get(group.key, []):
+            if item.id in seen or not (
+                item.id.casefold().startswith(needle)
+                or item.name.casefold().startswith(needle)
+                or (item.ref or "").casefold().startswith(needle)
+            ):
+                continue
+            candidates.append((item.id, f"{group.label}; {_completion_help(item, group, action=action)}"))
+            seen.add(item.id)
+    return candidates
+
+
+def complete_add_targets(ctx, incomplete: str) -> list[tuple[str, str]]:
+    del ctx
+    return _complete_smart_targets(incomplete, action="add")
+
+
+def complete_remove_targets(ctx, incomplete: str) -> list[tuple[str, str]]:
+    del ctx
+    return _complete_smart_targets(incomplete, action="rm")
+
+
 def complete_add_items(ctx, incomplete: str) -> list[tuple[str, str]]:
-    group_key = ctx.params.get("group") if ctx is not None else None
+    group_key = None
+    if ctx is not None:
+        group_key = ctx.params.get("group") or ctx.params.get("group_or_item")
     if not isinstance(group_key, str):
         return []
     groups, all_items_by_group = _completion_policy()
@@ -2223,13 +2344,17 @@ def cmd_enable(
 
 @app.command(name="add")
 def cmd_add(
-    group: str = typer.Argument(
-        ..., help="Canonical software group ID",
-        autocompletion=complete_add_groups,
+    group_or_item: str = typer.Argument(
+        ..., help="Software item, or canonical group ID when followed by ITEM",
+        autocompletion=complete_add_targets,
     ),
-    item: str = typer.Argument(
-        ..., help="Stable ID, package name, or canonical registry reference",
+    item: str | None = typer.Argument(
+        None, help="Stable ID, package name, or canonical reference in legacy GROUP ITEM form",
         autocompletion=complete_add_items,
+    ),
+    group: str | None = typer.Option(
+        None, "--group", "-g", help="Select a canonical group without an interactive chooser",
+        autocompletion=complete_add_groups,
     ),
     clean: bool = typer.Option(False, "--clean", help="Remove redundant Envy-managed state for this item"),
     ref: str | None = typer.Option(None, "--ref", help="Canonical registry reference when item is a custom stable ID"),
@@ -2245,9 +2370,19 @@ def cmd_add(
         False, "--json", help="Emit a stable plan/result document for frontends",
     ),
 ):
-    """Ensure one software item is effective on the selected machine."""
+    """Ensure one software item is effective; infer or ask for its software type."""
+    if item is not None:
+        if group is not None:
+            raise typer.BadParameter("use either legacy GROUP ITEM arguments or --group, not both")
+        selected_group = group_or_item
+        selected_item = item
+    else:
+        selected_item = group_or_item
+        selected_group = group or _choose_cli_group(
+            selected_item, action="add", json_output=json_output,
+        )
     _apply_desired_state(
-        group, item, action="add", clean=clean, yes=yes,
+        selected_group, selected_item, action="add", clean=clean, yes=yes,
         dry_run=dry_run, explicit_ref=ref, offline=offline, refresh=refresh,
         json_output=json_output,
     )
@@ -2256,13 +2391,17 @@ def cmd_add(
 @app.command(name="remove")
 @app.command(name="rm", rich_help_panel="Aliases")
 def cmd_remove(
-    group: str = typer.Argument(
-        ..., help="Canonical software group ID",
-        autocompletion=complete_remove_groups,
+    group_or_item: str = typer.Argument(
+        ..., help="Software item, or canonical group ID when followed by ITEM",
+        autocompletion=complete_remove_targets,
     ),
-    item: str = typer.Argument(
-        ..., help="Stable item ID, name, or reference",
+    item: str | None = typer.Argument(
+        None, help="Stable item ID, name, or reference in legacy GROUP ITEM form",
         autocompletion=complete_remove_items,
+    ),
+    group: str | None = typer.Option(
+        None, "--group", "-g", help="Select a canonical group without an interactive chooser",
+        autocompletion=complete_remove_groups,
     ),
     clean: bool = typer.Option(False, "--clean", help="Remove redundant Envy-managed state for this item"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply the displayed plan without confirmation"),
@@ -2271,9 +2410,19 @@ def cmd_remove(
         False, "--json", help="Emit a stable plan/result document for frontends",
     ),
 ):
-    """Ensure one software item is not effective on the selected machine."""
+    """Ensure one software item is not effective; infer or ask for its software type."""
+    if item is not None:
+        if group is not None:
+            raise typer.BadParameter("use either legacy GROUP ITEM arguments or --group, not both")
+        selected_group = group_or_item
+        selected_item = item
+    else:
+        selected_item = group_or_item
+        selected_group = group or _choose_cli_group(
+            selected_item, action="rm", json_output=json_output,
+        )
     _apply_desired_state(
-        group, item, action="rm", clean=clean, yes=yes,
+        selected_group, selected_item, action="rm", clean=clean, yes=yes,
         dry_run=dry_run, explicit_ref=None,
         json_output=json_output,
     )

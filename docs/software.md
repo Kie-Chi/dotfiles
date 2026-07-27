@@ -21,7 +21,18 @@ alias. Software is not a `config` subcommand, and there is no top-level
 | `envy software cache status` |  | Inspect the exact registry identity index |
 
 `envy sw ls --details` includes versions and canonical references. `enable` and
-`disable` take a canonical group ID and stable item ID:
+日常使用可以只提供软件名。Envy 会先从 evaluated manifest 和精确 identity
+index 判断兼容 group；唯一时自动选择，存在多个选择时在交互终端展示带人类
+标签的 chooser。脚本和高级操作可以用 `--group` 消除歧义：
+
+```bash
+envy sw add zotero
+envy sw rm zotero --clean
+envy sw add zotero --group homebrew.system.cask
+```
+
+原有的精确 `<group> <item>` 形式保持兼容。`enable` 和 `disable` 仍直接操作
+machine-local exclusion，因此要求 canonical group ID 和 stable item ID：
 
 ```bash
 envy sw add homebrew.system.cask zotero
@@ -52,8 +63,8 @@ groups accept their package name or canonical reference. `--ref` associates a
 custom stable ID with a canonical reference:
 
 ```bash
-envy sw add nix.user.package hello
-envy sw add npm.user.tool codex --ref npm:@openai/codex
+envy sw add hello --group nix.user.package
+envy sw add codex --group npm.user.tool --ref npm:@openai/codex
 ```
 
 A genuinely new managed include must be resolved before the machine file is

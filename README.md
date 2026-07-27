@@ -106,7 +106,7 @@ envy host select <machine-id>
 | `envy host diff <a> <b>` / `envy host matrix` | 比较两台 machine，或展示所有 machine 的 effective software 覆盖 |
 | `envy software` / `envy sw` | 展示当前机器的 evaluated software policy |
 | `envy sw ls --details` | 展示软件版本、引用以及 include/exclude/effective 状态 |
-| `envy sw add/rm <group> <id-or-ref>` | 预览 include/exclude 计划后，确保软件在当前机器生效或不生效；`--clean` 清理目标的冗余受管状态 |
+| `envy sw add/rm <item>` | 自动判断或交互选择软件类型，预览 include/exclude 计划后改变 desired state；也兼容原有 `<group> <item>` 精确形式 |
 | `envy sw en/dis <group> <id>` | 启用或排除一个稳定 software ID |
 | `envy sw search <query>` / `envy sw se <query>` | 并发搜索全部当前可用的软件 registry；重复查询优先复用缓存 |
 | `envy sw status` / `envy sw st` | 汇总当前机器的软件 group 和 selection 状态 |

@@ -192,6 +192,39 @@ class SoftwareCliTests(unittest.TestCase):
             self.assertIn("dry run", result.stdout)
             self.assertEqual(machine.read_text(), original)
 
+    def test_add_accepts_item_with_explicit_group_option(self):
+        cli_runner = CliRunner()
+        manifest = self._cask_manifest()
+        with tempfile.TemporaryDirectory() as tempdir:
+            machine = Path(tempdir) / "machine.nix"
+            machine.write_text("{ ... }:\n\n{\n}\n")
+            with patch.dict("os.environ", {"XDG_CACHE_HOME": tempdir}), patch.object(
+                software, "resolve_exact", return_value=self._resolved_cask()
+            ), patch.object(software, "_manifest_or_exit", return_value=manifest), patch.object(
+                software, "machine_file", return_value=machine
+            ):
+                result = cli_runner.invoke(cli, [
+                    "sw", "add", "zotero", "--group", "homebrew.system.cask", "--dry-run",
+                ])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("homebrew.system.cask", result.stdout)
+
+    def test_add_infers_unique_existing_group(self):
+        cli_runner = CliRunner()
+        manifest = self._cask_manifest(include=["zotero"], effective=["zotero"])
+        with tempfile.TemporaryDirectory() as tempdir:
+            machine = Path(tempdir) / "machine.nix"
+            machine.write_text("{ ... }:\n\n{\n}\n")
+            with patch.dict("os.environ", {"XDG_CACHE_HOME": tempdir}), patch.object(
+                software, "_manifest_or_exit", return_value=manifest
+            ), patch.object(software, "machine_file", return_value=machine):
+                result = cli_runner.invoke(cli, ["sw", "add", "zotero", "--dry-run"])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("selected compatible group", result.stdout)
+        self.assertIn("homebrew.system.cask", result.stdout)
+
     def test_add_json_dry_run_is_one_stable_frontend_document(self):
         cli_runner = CliRunner()
         manifest = self._cask_manifest()

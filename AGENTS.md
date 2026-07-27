@@ -113,7 +113,7 @@ Hybrid approach (in `setup.py`):
 | `envy config show` | Show evaluated machine scalar values and secret-set status |
 | `envy software` / `envy sw` | List the selected machine's manifest v2 software groups |
 | `envy sw ls --details` | Show structured selections, versions, and canonical references |
-| `envy sw add/rm <group> <id-or-ref>` | Preview and apply a current-machine desired-state plan; `--clean` normalizes only the target's Envy-owned state |
+| `envy sw add/rm <item>` | Infer or interactively choose a compatible group, then preview and apply desired state; precise `<group> <item>` remains supported |
 | `envy sw en/dis <group> <id>` | Enable or exclude one stable software item ID |
 | `envy sw search <query>` / `envy sw se <query>` | Search registries with isolated timeouts and manifest matching |
 | `envy sw audit` / `envy sw why <item>` | Find ambiguous machine policy or explain evaluated ownership/state |
