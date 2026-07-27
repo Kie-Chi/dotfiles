@@ -232,6 +232,7 @@
         } ''
           export HOME="$TMPDIR/home"
           mkdir -p "$HOME"
+          export PYTHONPYCACHEPREFIX="$TMPDIR/pycache"
           export PYTHONPATH="${./resources/scripts}"
           export ENVY_TEST_ROOT="${./.}"
           cd ${./.}
