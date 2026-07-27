@@ -9,8 +9,8 @@ use serde_json::Value;
 use crate::{
     app::{App, InputMode},
     model::{
-        journal_entries, mirror_rows, search_entries, text, DetailView, HistoryView, Screen,
-        SoftwareAction,
+        journal_entries, mirror_mode, mirror_target_rows, search_entries, text, DetailView,
+        HistoryView, Screen, SoftwareAction,
     },
 };
 
@@ -147,6 +147,7 @@ fn page_keys(screen: Screen) -> &'static str {
         Screen::Doctor => "Enter details",
         Screen::History => "v view  Space mark  d diff",
         Screen::Dashboard => "Enter edit  s search",
+        Screen::Mirror => "Enter source",
         _ => "r refresh",
     }
 }
@@ -158,6 +159,7 @@ fn compact_page_keys(screen: Screen) -> &'static str {
         Screen::Doctor => "↵ details",
         Screen::History => "v view  Space mark  d diff",
         Screen::Dashboard => "↵ edit  s search",
+        Screen::Mirror => "↵ source",
         _ => "r refresh",
     }
 }
@@ -181,6 +183,10 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
     let activity = if app.mutation_loading {
         format!("  {} verifying", spinner())
+    } else if app.mirror_loading {
+        format!("  {} mirror", spinner())
+    } else if app.mirror_measuring {
+        format!("  {} measuring", spinner())
     } else if app.loading() {
         if app.current_has_content() {
             format!("  {} refreshing", spinner())
@@ -836,15 +842,15 @@ fn render_journal(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_mirror(frame: &mut Frame, app: &App, area: Rect) {
-    let entries = mirror_rows(app.payload());
+    let entries = mirror_target_rows(app.payload());
     let count = entries.len();
     if count == 0 && !app.loading() {
         render_empty_state(
             frame,
             area,
-            "No mirror settings",
-            "The evaluated machine exposes no mirror endpoints.",
-            "Press r to refresh.",
+            "No mirror targets",
+            "Envy did not return any ecosystem targets for this machine.",
+            "Press r to refresh or inspect `envy mirror targets`.",
         );
         return;
     }
@@ -854,20 +860,23 @@ fn render_mirror(frame: &mut Frame, app: &App, area: Rect) {
         .skip(offset)
         .map(|entry| {
             Row::new(vec![
-                Cell::from(entry.key.clone()).style(Style::default().fg(Color::Cyan)),
-                Cell::from(entry.value.clone()),
+                Cell::from(entry.key.clone()).style(Style::default().fg(Color::Cyan).bold()),
+                Cell::from(entry.value.clone()).style(Style::default().fg(Color::White)),
             ])
         })
         .collect::<Vec<_>>();
-    let table = Table::new(rows, [Constraint::Length(32), Constraint::Min(30)])
-        .header(Row::new(["SETTING", "VALUE"]).style(Style::default().fg(Color::Cyan).bold()))
+    let mode = mirror_mode(app.payload());
+    let table = Table::new(rows, [Constraint::Length(18), Constraint::Min(30)])
+        .header(Row::new(["TARGET", "EFFECTIVE SOURCE"]).style(Style::default().fg(Color::Cyan).bold()))
         .row_highlight_style(Style::default().bg(SELECTED))
         .highlight_symbol("▸ ")
         .block(
             Block::default()
                 .title({
                     let (selected, count) = app.selection_position().unwrap_or((0, count));
-                    format!(" Mirror endpoints — {selected} / {count} ")
+                    format!(
+                        " Mirror targets — profile {mode} · {selected} / {count} · Enter choose source "
+                    )
                 })
                 .borders(Borders::ALL)
                 .border_style(Color::DarkGray),
@@ -1557,6 +1566,256 @@ fn render_setting_confirm(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
+/// Return the inclusive-start/exclusive-end source range that keeps the chosen
+/// source visible in a fixed-height mirror chooser. The chooser uses two lines
+/// plus a spacer per source, so it cannot rely on the main page's one-row table
+/// scroll state.
+fn mirror_chooser_source_window(selected: usize, count: usize, visible: usize) -> (usize, usize) {
+    if count == 0 {
+        return (0, 0);
+    }
+    let visible = visible.max(1).min(count);
+    let selected = selected.min(count - 1);
+    let start = selected
+        .saturating_sub(visible / 2)
+        .min(count.saturating_sub(visible));
+    (start, start + visible)
+}
+
+fn mirror_measurement_state(source: &crate::model::MirrorSource) -> String {
+    let http = source
+        .http_status
+        .map(|status| format!(" · HTTP {status}"))
+        .unwrap_or_default();
+    let throughput = source
+        .throughput_bps
+        .map(|value| format!(" · {value} B/s"))
+        .unwrap_or_default();
+    match source.ok {
+        Some(true) if source.measurement_stale => {
+            format!("measurement cache · stale · ok{http}{throughput}")
+        }
+        Some(false) if source.measurement_stale => {
+            format!("measurement cache · stale · failed{http}")
+        }
+        Some(true) => format!("measured · ok{http}{throughput}"),
+        Some(false) => format!("measured · failed{http}"),
+        None if source.stale => "source cache · stale".to_string(),
+        None if source.fetched_at.is_some() => "source cache".to_string(),
+        None if source.provider == "chsrc" => "chsrc · unmeasured".to_string(),
+        None => "catalog · unmeasured".to_string(),
+    }
+}
+
+fn mirror_measurement_style(source: &crate::model::MirrorSource) -> Style {
+    match source.ok {
+        Some(true) if source.measurement_stale => Style::default().fg(Color::Yellow),
+        Some(true) => Style::default().fg(Color::Green),
+        Some(false) => Style::default().fg(Color::Red),
+        None if source.stale => Style::default().fg(Color::Yellow),
+        _ => Style::default().fg(Color::DarkGray),
+    }
+}
+
+fn render_mirror_chooser(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(chooser) = &app.mirror_chooser else {
+        return;
+    };
+    let requested_height = chooser
+        .sources
+        .len()
+        .saturating_mul(3)
+        .saturating_add(13)
+        .min(u16::MAX as usize) as u16;
+    let region = centered_size(110, requested_height.min(30), area);
+    // `popup()` removes a one-cell block border plus one vertical inset on each
+    // side. Nine remaining lines belong to the static header/footer.
+    // Each source gets a summary line, a dim URL/diagnostic line, and a
+    // one-line spacer. Keeping this accounting explicit prevents the footer
+    // from being pushed out when the chooser has many discovered sources.
+    let source_capacity = (region.height.saturating_sub(4).saturating_sub(9) as usize / 3).max(1);
+    let (source_start, source_end) =
+        mirror_chooser_source_window(chooser.selected, chooser.sources.len(), source_capacity);
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("MIRROR  ", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(
+                chooser.label.clone(),
+                Style::default().fg(Color::White).bold(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Target       ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                chooser.target.clone(),
+                Style::default().fg(Color::White).bold(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Profile      ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                chooser.profile.clone(),
+                Style::default().fg(Color::Yellow).bold(),
+            ),
+        ]),
+        Line::from(if app.mirror_measuring {
+            format!(
+                "Measurement  {} running in background (r forces refresh)",
+                spinner()
+            )
+        } else {
+            "Measurement  cached result or last completed run (r re-measures)".to_string()
+        }),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Choose a source discovered by chsrc or the catalog fallback",
+            Style::default().fg(Color::Cyan).bold(),
+        )),
+        Line::from(format!(
+            "Sources      {}–{} / {} · selected {} / {}",
+            source_start.saturating_add(1),
+            source_end,
+            chooser.sources.len(),
+            chooser.selected.saturating_add(1),
+            chooser.sources.len(),
+        )),
+    ];
+    for (index, source) in chooser
+        .sources
+        .iter()
+        .enumerate()
+        .skip(source_start)
+        .take(source_end.saturating_sub(source_start))
+    {
+        let state = mirror_measurement_state(source);
+        let state_style = mirror_measurement_style(source);
+        let current = if source.current {
+            Some(format!(
+                "CURRENT {}",
+                source.selection_origin.as_deref().unwrap_or("selection")
+            ))
+        } else {
+            None
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                if index == chooser.selected {
+                    "▸ "
+                } else {
+                    "  "
+                },
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::styled(
+                format!("{:<16}", source.code),
+                if index == chooser.selected {
+                    Style::default().fg(Color::White).bg(SELECTED).bold()
+                } else {
+                    Style::default().fg(Color::Cyan).bold()
+                },
+            ),
+            Span::styled(source.label.clone(), Style::default().fg(Color::White)),
+            Span::raw("  "),
+            Span::styled(state, state_style.bold()),
+            current
+                .map(|value| {
+                    Span::styled(
+                        format!("  {value}"),
+                        Style::default().fg(Color::Magenta).bold(),
+                    )
+                })
+                .unwrap_or_else(|| Span::raw("")),
+        ]));
+        let diagnostic = source
+            .detail
+            .as_deref()
+            .map(|detail| format!(" · {detail}"))
+            .unwrap_or_default();
+        let diagnostic_style = if source.ok == Some(false) {
+            Style::default().fg(Color::Red)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        lines.push(Line::from(vec![
+            Span::styled("      ", Style::default().fg(Color::DarkGray)),
+            Span::styled(source.url.clone(), Style::default().fg(Color::Gray)),
+            Span::styled(diagnostic, diagnostic_style),
+        ]));
+        if index + 1 < source_end {
+            lines.push(Line::from(""));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "↑↓/j k select (loops) · PgUp/PgDn page · g/G ends · Enter preview · Esc cancel.",
+    ));
+    popup(frame, region, "SELECT MIRROR SOURCE", lines, 0);
+}
+
+fn render_mirror_confirm(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(pending) = &app.pending_mirror else {
+        return;
+    };
+    let plan = pending
+        .payload
+        .get("data")
+        .and_then(|data| data.get("plan"))
+        .unwrap_or(&Value::Null);
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("TARGET  ", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(
+                pending.target.clone(),
+                Style::default().fg(Color::White).bold(),
+            ),
+        ]),
+        Line::from(format!(
+            "Source  {} ({})",
+            pending.source.label, pending.source.code
+        )),
+        Line::from(format!("URL     {}", pending.source.url)),
+        Line::from(format!("Provider {}", pending.source.provider)),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Generated assignments",
+            Style::default().fg(Color::Cyan).bold(),
+        )),
+    ];
+    let mut assignments = plan
+        .get("after")
+        .and_then(Value::as_object)
+        .map(|values| {
+            values
+                .iter()
+                .map(|(key, value)| format!("{key} = {}", text(Some(value))))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    assignments.sort();
+    if assignments.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No change; this source is already selected.",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        lines.extend(assignments.into_iter().map(|assignment| {
+            Line::from(Span::styled(assignment, Style::default().fg(Color::White)))
+        }));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "This writes the selected machine file's ENVY mirror block.",
+    ));
+    lines.push(Line::from("Enter/y confirms; Esc/n cancels."));
+    popup(
+        frame,
+        centered_size(104, 20, area),
+        "CONFIRM MIRROR OVERRIDE",
+        lines,
+        0,
+    );
+}
+
 fn render_help(frame: &mut Frame, area: Rect) {
     popup(
         frame,
@@ -1599,6 +1858,13 @@ fn render_help(frame: &mut Frame, area: Rect) {
             )),
             Line::from("Doctor Enter opens details; x runs an allow-listed safe action"),
             Line::from("History v toggles Generations/Operations; Space marks, d compares"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Mirror",
+                Style::default().fg(Color::Cyan).bold(),
+            )),
+            Line::from("Enter        choose a target, then a chsrc/catalog source"),
+            Line::from("j/k          move sources; Enter previews the generated override"),
             Line::from(""),
             Line::from("Every mutation: dry-run → contract validation → explicit confirmation."),
             Line::from("Press ? or Esc to close."),
@@ -1675,6 +1941,24 @@ fn render_overlays(frame: &mut Frame, app: &mut App) {
                 ]),
                 Line::from(""),
                 Line::from("Enter or Esc keeps the change pending and returns to Envy."),
+            ],
+            0,
+        );
+    } else if app.pending_mirror.is_some() {
+        render_mirror_confirm(frame, app, area);
+    } else if app.mirror_chooser.is_some() {
+        render_mirror_chooser(frame, app, area);
+    } else if app.mirror_loading {
+        popup(
+            frame,
+            centered_size(70, 8, area),
+            "LOADING MIRROR SOURCES",
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("{} Querying Envy cache and chsrc…", spinner()),
+                    Style::default().fg(Color::Yellow).bold(),
+                )),
             ],
             0,
         );
@@ -1757,6 +2041,13 @@ mod tests {
             centered_size(94, 18, Rect::new(0, 0, 150, 60)),
             Rect::new(28, 21, 94, 18)
         );
+    }
+
+    #[test]
+    fn mirror_chooser_window_keeps_a_selected_late_source_visible() {
+        assert_eq!(mirror_chooser_source_window(0, 12, 8), (0, 8));
+        assert_eq!(mirror_chooser_source_window(7, 12, 8), (3, 11));
+        assert_eq!(mirror_chooser_source_window(11, 12, 8), (4, 12));
     }
 
     #[test]

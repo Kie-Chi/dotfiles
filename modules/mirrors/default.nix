@@ -2,7 +2,9 @@
 
 let
   catalog = import ./catalog.nix;
-  profile = catalog.${config.envy.mirrors.mode};
+  profile = (import ./resolve.nix { inherit lib; })
+    catalog.${config.envy.mirrors.mode}
+    config.envy.mirrors.overrides;
   extraSubstituters = lib.concatStringsSep " " profile.nix.extraSubstituters;
   condaConfig = {
     envs_dirs = [ "~/.mamba/envs" ];

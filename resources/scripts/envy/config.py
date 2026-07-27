@@ -59,6 +59,8 @@ from envy.utils import (
 
 MANAGED_START = "  # BEGIN ENVY MANAGED CONFIG"
 MANAGED_END = "  # END ENVY MANAGED CONFIG"
+MIRROR_MANAGED_START = "  # BEGIN ENVY MANAGED MIRROR OVERRIDES"
+MIRROR_MANAGED_END = "  # END ENVY MANAGED MIRROR OVERRIDES"
 LEGACY_SOFTWARE_OPTIONS = {
     "envy.packages.home": "envy.software.nix.packages",
     "envy.darwin.packages.system": "envy.darwin.software.nix.systemPackages",
@@ -244,6 +246,80 @@ def write_machine_nix(values: dict, machine_id: str | None = None) -> None:
 
     atomic_write_text(path, updated if updated.endswith("\n") else updated + "\n")
     set_device_machine_id(selected)
+
+
+def _mirror_managed_pattern() -> re.Pattern[str]:
+    return re.compile(
+        rf"(?ms)^{re.escape(MIRROR_MANAGED_START)}$.*?^{re.escape(MIRROR_MANAGED_END)}$"
+    )
+
+
+def read_mirror_overrides(machine_id: str | None = None) -> dict[str, str]:
+    """Read Envy-owned mirror assignments without interpreting hand policy."""
+    path = machine_config_file(machine_id)
+    if not path.exists():
+        return {}
+    text = path.read_text()
+    match = _mirror_managed_pattern().search(text)
+    if match is None:
+        return {}
+    assignments = re.compile(
+        r'^\s*(envy\.mirrors\.overrides\.[A-Za-z0-9_.-]+)\s*=\s*"((?:\\.|[^"])*)"\s*;\s*$'
+    )
+    values: dict[str, str] = {}
+    for line in match.group(0).splitlines():
+        found = assignments.match(line)
+        if found:
+            values[found.group(1)] = _unescape_nix_string(found.group(2))
+    return values
+
+
+def _render_mirror_override_block(values: dict[str, str]) -> str:
+    lines = [
+        MIRROR_MANAGED_START + "\n",
+        "  # `envy mirror` owns this block. Other machine policy stays intact.\n",
+    ]
+    for path, value in sorted(values.items()):
+        if not re.fullmatch(r"envy\.mirrors\.overrides\.[A-Za-z0-9_.-]+", path):
+            raise ValueError(f"invalid mirror override path: {path}")
+        lines.append(f'  {path} = "{_escape_nix_string(value)}";\n')
+    lines.append(MIRROR_MANAGED_END)
+    return "".join(lines)
+
+
+def write_mirror_overrides(
+    values: dict[str, str], machine_id: str | None = None,
+) -> None:
+    """Atomically replace only the Envy-generated mirror override block."""
+    selected = machine_id or current_machine_id()
+    path = machine_config_file(selected)
+    if not path.exists():
+        raise FileNotFoundError(f"machine configuration is missing: {path}")
+
+    text = path.read_text()
+    block = _render_mirror_override_block(values)
+    pattern = _mirror_managed_pattern()
+    if pattern.search(text):
+        updated = pattern.sub(block, text, count=1)
+    else:
+        anchor = f"  # END ENVY MANAGED CONFIG"
+        anchor_index = text.find(anchor)
+        if anchor_index >= 0:
+            insert_at = text.find("\n", anchor_index)
+            insert_at = len(text) if insert_at < 0 else insert_at + 1
+        else:
+            insert_at = text.rfind("\n}")
+            if insert_at < 0:
+                raise ValueError(f"cannot locate the top-level closing brace in {path}")
+            insert_at += 1
+        prefix = text[:insert_at].rstrip()
+        suffix = text[insert_at:].lstrip("\n")
+        updated = prefix + "\n\n" + block + "\n\n" + suffix
+
+    atomic_write_text(path, updated if updated.endswith("\n") else updated + "\n")
+    set_device_machine_id(selected)
+    invalidate_machine_manifest()
+
 
 def read_secrets_yaml() -> tuple[dict, bool]:
     values = {}
@@ -677,6 +753,42 @@ app = typer.Typer(
     rich_markup_mode="rich",
     no_args_is_help=True,
 )
+
+
+def complete_machine_paths(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete managed non-secret machine option paths."""
+    del ctx
+    return [
+        (field.path, field.prompt or field.group)
+        for field in MACHINE_FIELDS
+        if field.path.startswith(incomplete)
+    ]
+
+
+def complete_secret_paths(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete secret YAML paths without reading or exposing secret values."""
+    del ctx
+    return [
+        (field.yaml_path, field.prompt or field.group)
+        for field in SECRET_FIELDS
+        if field.yaml_path and field.yaml_path.startswith(incomplete)
+    ]
+
+
+def complete_machine_values(ctx, incomplete: str) -> list[tuple[str, str]]:
+    """Complete enumerated values for the machine path already selected."""
+    params = getattr(ctx, "params", {}) if ctx is not None else {}
+    path = params.get("path") if isinstance(params, dict) else None
+    field = next((item for item in MACHINE_FIELDS if item.path == path), None)
+    if field is None or not field.choices:
+        return []
+    return [
+        (choice, field.path)
+        for choice in field.choices
+        if choice.startswith(incomplete)
+    ]
+
+
 @app.command(name="check")
 def cmd_check():
     """Check device metadata, the selected machine file, and secrets without writing."""
@@ -710,8 +822,10 @@ def cmd_doctor():
 
 @app.command(name="set")
 def cmd_set(
-    path: str = typer.Argument(..., help="Machine path, for example envy.llm.steps.url"),
-    value: str = typer.Argument(..., help="Value to write"),
+    path: str = typer.Argument(
+        ..., help="Machine path, for example envy.llm.steps.url", autocompletion=complete_machine_paths,
+    ),
+    value: str = typer.Argument(..., help="Value to write", autocompletion=complete_machine_values),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Assume yes; skip interactive commit prompts"
@@ -740,7 +854,9 @@ def cmd_set(
 
 @app.command(name="secret-set")
 def cmd_secret_set(
-    yaml_path: str = typer.Argument(..., help="Secret path, for example llm/steps/apikey"),
+    yaml_path: str = typer.Argument(
+        ..., help="Secret path, for example llm/steps/apikey", autocompletion=complete_secret_paths,
+    ),
     stdin: bool = typer.Option(False, "--stdin", help="Read the secret from standard input"),
 ):
     """Set a secret without exposing it in argv or shell history."""

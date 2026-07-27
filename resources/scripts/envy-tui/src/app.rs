@@ -8,19 +8,32 @@ use serde_json::Value;
 
 use crate::{
     backend::{
-        spawn_history_diff, spawn_mutation, spawn_request, spawn_search_groups, spawn_setting,
-        spawn_software_why,
+        spawn_history_diff, spawn_mirror_measure, spawn_mirror_mutation, spawn_mirror_sources,
+        spawn_mutation, spawn_request, spawn_search_groups, spawn_setting, spawn_software_why,
     },
     model::{
         compatible_groups, count_rows, dashboard_settings, filtered_software_entries,
-        generation_number, generation_rows, result_rows, search_entries, DetailView, GroupChooser,
-        HistoryView, LoadTarget, Message, MutationIntent, MutationPreview, MutationStage,
-        PageState, Pages, PendingSetting, Screen, SettingChooser, SettingEdit, SettingRow,
-        SoftwareAction, WorkflowAction,
+        generation_number, generation_rows, mirror_measurements, mirror_mode, mirror_sources,
+        mirror_target_rows, result_rows, search_entries, DetailView, GroupChooser, HistoryView,
+        LoadTarget, Message, MirrorChooser, MirrorPreview, MirrorSource, MutationIntent,
+        MutationPreview, MutationStage, PageState, Pages, PendingSetting, Screen, SettingChooser,
+        SettingEdit, SettingRow, SoftwareAction, WorkflowAction,
     },
 };
 
 const SEARCH_CACHE_LIMIT: usize = 12;
+const CHOOSER_PAGE_STEP: isize = 8;
+
+/// Move within a non-empty selection list, wrapping at either boundary.
+/// Detail text deliberately does not use this helper: scrolling prose should
+/// remain bounded instead of jumping between its beginning and end.
+fn cycle_index(selected: usize, count: usize, delta: isize) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    let current = selected.min(count - 1) as isize;
+    (current + delta).rem_euclid(count as isize) as usize
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputMode {
@@ -76,6 +89,12 @@ pub struct App {
     pub setting_chooser: Option<SettingChooser>,
     pub setting_edit: Option<SettingEdit>,
     pub pending_setting: Option<PendingSetting>,
+    pub mirror_chooser: Option<MirrorChooser>,
+    pub pending_mirror: Option<MirrorPreview>,
+    pub mirror_loading: bool,
+    pub mirror_measuring: bool,
+    mirror_request: Option<u64>,
+    mirror_measure_request: Option<u64>,
 }
 
 impl App {
@@ -126,6 +145,12 @@ impl App {
             setting_chooser: None,
             setting_edit: None,
             pending_setting: None,
+            mirror_chooser: None,
+            pending_mirror: None,
+            mirror_loading: false,
+            mirror_measuring: false,
+            mirror_request: None,
+            mirror_measure_request: None,
         }
     }
 
@@ -331,12 +356,7 @@ impl App {
             },
             Screen::Journal => crate::model::journal_rows(self.payload()),
             Screen::Hosts => count_rows(self.payload(), "machines"),
-            Screen::Mirror => self
-                .payload()
-                .and_then(|value| value.get("settings"))
-                .and_then(Value::as_object)
-                .map(|settings| settings.len())
-                .unwrap_or(0),
+            Screen::Mirror => mirror_target_rows(self.payload()).len(),
             Screen::Config => 0,
             Screen::Dashboard => self.dashboard_settings().len(),
         }
@@ -383,8 +403,7 @@ impl App {
             self.scroll = 0;
             return;
         }
-        let selected =
-            (self.selected() as isize + delta).clamp(0, count.saturating_sub(1) as isize) as usize;
+        let selected = cycle_index(self.selected(), count, delta);
         self.set_selected(selected);
         if selected < self.scroll {
             self.scroll = selected;
@@ -741,6 +760,97 @@ impl App {
         self.load_current(true);
     }
 
+    fn begin_mirror_sources(&mut self) {
+        let Some(target) = mirror_target_rows(self.payload())
+            .get(self.mirror_selected)
+            .map(|row| row.key.clone())
+        else {
+            self.status = "No mirror target selected".to_string();
+            return;
+        };
+        self.request_id += 1;
+        let request = self.request_id;
+        self.mirror_request = Some(request);
+        self.mirror_loading = true;
+        self.status = format!("Loading {target} mirror sources");
+        spawn_mirror_sources(self.tx.clone(), request, target);
+    }
+
+    fn begin_mirror_measure(&mut self, target: String, refresh: bool) {
+        if self.mirror_measuring {
+            return;
+        }
+        self.request_id += 1;
+        let request = self.request_id;
+        self.mirror_measure_request = Some(request);
+        self.mirror_measuring = true;
+        self.status = if refresh {
+            format!("Re-measuring {target} mirror sources")
+        } else {
+            format!("Measuring {target} mirror sources in background")
+        };
+        spawn_mirror_measure(self.tx.clone(), request, target, refresh);
+    }
+
+    fn cancel_mirror_measure(&mut self) {
+        self.mirror_measure_request = None;
+        self.mirror_measuring = false;
+    }
+
+    fn begin_mirror_mutation(&mut self, source: MirrorSource) {
+        let Some(chooser) = self.mirror_chooser.take() else {
+            return;
+        };
+        self.cancel_mirror_measure();
+        self.request_id += 1;
+        let request = self.request_id;
+        self.mirror_request = Some(request);
+        self.mirror_loading = true;
+        self.status = format!("Preparing {} mirror plan", chooser.target);
+        spawn_mirror_mutation(
+            self.tx.clone(),
+            request,
+            MutationStage::Preview,
+            chooser.target,
+            source,
+        );
+    }
+
+    fn apply_pending_mirror(&mut self) {
+        let Some(preview) = self.pending_mirror.take() else {
+            return;
+        };
+        self.request_id += 1;
+        let request = self.request_id;
+        self.mirror_request = Some(request);
+        self.mirror_loading = true;
+        self.status = format!("Writing {} mirror override", preview.target);
+        spawn_mirror_mutation(
+            self.tx.clone(),
+            request,
+            MutationStage::Apply,
+            preview.target,
+            preview.source,
+        );
+    }
+
+    fn invalidate_after_mirror(&mut self) {
+        for screen in [
+            Screen::Dashboard,
+            Screen::Software,
+            Screen::Doctor,
+            Screen::Mirror,
+            Screen::Hosts,
+            Screen::Config,
+        ] {
+            self.pages.remove(&screen);
+        }
+        self.search_cache.clear();
+        self.search_order.clear();
+        self.scroll = 0;
+        self.mirror_selected = 0;
+    }
+
     pub fn take_workflow_action(&mut self) -> Option<WorkflowAction> {
         self.workflow_action.take()
     }
@@ -923,6 +1033,127 @@ impl App {
                     }
                 }
                 Message::SettingApplied { .. } => {}
+                Message::MirrorSourcesFinished {
+                    request,
+                    target,
+                    result,
+                } if self.mirror_request == Some(request) => {
+                    self.mirror_request = None;
+                    self.mirror_loading = false;
+                    match result {
+                        Ok(payload) => {
+                            let data = payload.get("data").unwrap_or(&Value::Null);
+                            let label = data
+                                .get("label")
+                                .and_then(Value::as_str)
+                                .unwrap_or(&target)
+                                .to_string();
+                            let profile = mirror_mode(Some(&payload));
+                            let sources = mirror_sources(Some(&payload));
+                            if sources.is_empty() {
+                                self.overlay_error =
+                                    Some(format!("No mirror sources are available for {target}"));
+                            } else {
+                                let selected = sources
+                                    .iter()
+                                    .position(|source| source.current)
+                                    .unwrap_or(0);
+                                self.mirror_chooser = Some(MirrorChooser {
+                                    target: target.clone(),
+                                    label,
+                                    profile,
+                                    sources,
+                                    selected,
+                                });
+                                self.begin_mirror_measure(target.clone(), false);
+                            }
+                        }
+                        Err(error) => {
+                            self.overlay_error = Some(error);
+                            self.status = format!("{target} mirror lookup failed");
+                        }
+                    }
+                }
+                Message::MirrorSourcesFinished { .. } => {}
+                Message::MirrorMeasureFinished {
+                    request,
+                    target,
+                    result,
+                } if self.mirror_measure_request == Some(request) => {
+                    self.mirror_measure_request = None;
+                    self.mirror_measuring = false;
+                    match result {
+                        Ok(payload) => {
+                            let sources = mirror_measurements(Some(&payload));
+                            if let Some(chooser) = self
+                                .mirror_chooser
+                                .as_mut()
+                                .filter(|chooser| chooser.target == target)
+                            {
+                                if !sources.is_empty() {
+                                    let selected_code = chooser
+                                        .sources
+                                        .get(chooser.selected)
+                                        .map(|source| source.code.clone());
+                                    chooser.sources = sources;
+                                    chooser.selected = selected_code
+                                        .as_deref()
+                                        .and_then(|code| {
+                                            chooser
+                                                .sources
+                                                .iter()
+                                                .position(|source| source.code == code)
+                                        })
+                                        .unwrap_or(0);
+                                    self.status =
+                                        format!("{} mirror measurements updated", chooser.target);
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // A failed measurement should not hide the usable
+                            // candidate list or turn a network condition into a
+                            // blocking TUI error.
+                            self.status = format!(
+                                "{target} measurement unavailable; source selection remains usable"
+                            );
+                        }
+                    }
+                }
+                Message::MirrorMeasureFinished { .. } => {}
+                Message::MirrorMutationFinished {
+                    request,
+                    target,
+                    source,
+                    stage,
+                    result,
+                } if self.mirror_request == Some(request) => {
+                    self.mirror_request = None;
+                    self.mirror_loading = false;
+                    match (stage, result) {
+                        (MutationStage::Preview, Ok(payload)) => {
+                            self.pending_mirror = Some(MirrorPreview {
+                                target: target.clone(),
+                                source,
+                                payload,
+                            });
+                            self.status = format!("{target} mirror plan ready");
+                        }
+                        (MutationStage::Apply, Ok(_)) => {
+                            self.pending_mirror = None;
+                            self.invalidate_after_mirror();
+                            self.load_current(true);
+                            self.status =
+                                format!("{target} mirror override saved; plan/apply when ready");
+                        }
+                        (_, Err(error)) => {
+                            self.pending_mirror = None;
+                            self.overlay_error = Some(error);
+                            self.status = format!("{target} mirror change failed");
+                        }
+                    }
+                }
+                Message::MirrorMutationFinished { .. } => {}
                 _ => {}
             }
         }
@@ -1058,23 +1289,21 @@ impl App {
             || self.overlay_error.is_some()
             || self.pending_setting.is_some()
             || self.setting_loading
+            || self.pending_mirror.is_some()
+            || self.mirror_loading
         {
             return;
         }
+        if let Some(chooser) = self.mirror_chooser.as_mut() {
+            chooser.selected = cycle_index(chooser.selected, chooser.sources.len(), direction);
+            return;
+        }
         if let Some(chooser) = self.setting_chooser.as_mut() {
-            if direction > 0 {
-                chooser.selected = (chooser.selected + 1).min(chooser.options.len() - 1);
-            } else {
-                chooser.selected = chooser.selected.saturating_sub(1);
-            }
+            chooser.selected = cycle_index(chooser.selected, chooser.options.len(), direction);
             return;
         }
         if let Some(chooser) = self.group_chooser.as_mut() {
-            if direction > 0 {
-                chooser.selected = (chooser.selected + 1).min(chooser.groups.len() - 1);
-            } else {
-                chooser.selected = chooser.selected.saturating_sub(1);
-            }
+            chooser.selected = cycle_index(chooser.selected, chooser.groups.len(), direction);
             return;
         }
         if self.detail.is_some() {
@@ -1150,13 +1379,70 @@ impl App {
             }
             return;
         }
+        if self.pending_mirror.is_some() {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char('y') if !self.mirror_loading => {
+                    self.apply_pending_mirror();
+                }
+                KeyCode::Esc | KeyCode::Char('n') if !self.mirror_loading => {
+                    self.pending_mirror = None;
+                    self.status = "Mirror change cancelled".to_string();
+                }
+                _ => {}
+            }
+            return;
+        }
+        if matches!(key.code, KeyCode::Char('r')) {
+            if let Some(target) = self
+                .mirror_chooser
+                .as_ref()
+                .map(|chooser| chooser.target.clone())
+            {
+                self.begin_mirror_measure(target, true);
+                return;
+            }
+        }
+        if let Some(chooser) = self.mirror_chooser.as_mut() {
+            match key.code {
+                KeyCode::Down | KeyCode::Char('j') => {
+                    chooser.selected = cycle_index(chooser.selected, chooser.sources.len(), 1);
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    chooser.selected = cycle_index(chooser.selected, chooser.sources.len(), -1);
+                }
+                KeyCode::PageDown => {
+                    chooser.selected =
+                        cycle_index(chooser.selected, chooser.sources.len(), CHOOSER_PAGE_STEP);
+                }
+                KeyCode::PageUp => {
+                    chooser.selected =
+                        cycle_index(chooser.selected, chooser.sources.len(), -CHOOSER_PAGE_STEP);
+                }
+                KeyCode::Home | KeyCode::Char('g') => chooser.selected = 0,
+                KeyCode::End | KeyCode::Char('G') => {
+                    chooser.selected = chooser.sources.len().saturating_sub(1);
+                }
+                KeyCode::Enter => {
+                    if let Some(source) = chooser.sources.get(chooser.selected).cloned() {
+                        self.begin_mirror_mutation(source);
+                    }
+                }
+                KeyCode::Esc => {
+                    self.mirror_chooser = None;
+                    self.cancel_mirror_measure();
+                    self.status = "Mirror source selection cancelled".to_string();
+                }
+                _ => {}
+            }
+            return;
+        }
         if let Some(chooser) = self.setting_chooser.as_mut() {
             match key.code {
                 KeyCode::Down | KeyCode::Char('j') => {
-                    chooser.selected = (chooser.selected + 1).min(chooser.options.len() - 1);
+                    chooser.selected = cycle_index(chooser.selected, chooser.options.len(), 1);
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
-                    chooser.selected = chooser.selected.saturating_sub(1);
+                    chooser.selected = cycle_index(chooser.selected, chooser.options.len(), -1);
                 }
                 KeyCode::Enter => self.confirm_setting_choice(),
                 KeyCode::Esc => self.setting_chooser = None,
@@ -1180,10 +1466,10 @@ impl App {
         if let Some(chooser) = self.group_chooser.as_mut() {
             match key.code {
                 KeyCode::Down | KeyCode::Char('j') => {
-                    chooser.selected = (chooser.selected + 1).min(chooser.groups.len() - 1);
+                    chooser.selected = cycle_index(chooser.selected, chooser.groups.len(), 1);
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
-                    chooser.selected = chooser.selected.saturating_sub(1);
+                    chooser.selected = cycle_index(chooser.selected, chooser.groups.len(), -1);
                 }
                 KeyCode::Enter => self.confirm_group(),
                 KeyCode::Esc => self.group_chooser = None,
@@ -1226,6 +1512,9 @@ impl App {
             return;
         }
         if self.mutation_loading || self.setting_loading {
+            return;
+        }
+        if self.mirror_loading {
             return;
         }
         if self.show_help {
@@ -1279,6 +1568,9 @@ impl App {
             }
             KeyCode::Enter if self.screen == Screen::Dashboard => {
                 self.begin_setting_edit();
+            }
+            KeyCode::Enter if self.screen == Screen::Mirror => {
+                self.begin_mirror_sources();
             }
             KeyCode::Enter | KeyCode::Char(' ') if self.screen == Screen::Software => {
                 self.begin_selected_mutation();
@@ -1419,6 +1711,30 @@ mod tests {
     }
 
     #[test]
+    fn table_navigation_wraps_at_both_boundaries() {
+        let mut app = app();
+        app.screen = Screen::Doctor;
+        app.visible_rows = 3;
+        app.pages.insert(
+            Screen::Doctor,
+            PageState {
+                payload: Some(
+                    json!({"results": (0..5).map(|index| json!({"name": index})).collect::<Vec<_>>() }),
+                ),
+                ..PageState::default()
+            },
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        assert_eq!(app.doctor_selected, 4);
+        assert_eq!(app.scroll, 2);
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(app.doctor_selected, 0);
+        assert_eq!(app.scroll, 0);
+    }
+
+    #[test]
     fn search_result_only_offers_compatible_manifest_groups() {
         let mut app = app();
         let entry = crate::model::SearchEntry {
@@ -1485,6 +1801,157 @@ mod tests {
             app.overlay_error.as_deref(),
             Some("Policy blocks this change: shared exclusion")
         );
+    }
+
+    #[test]
+    fn mirror_source_response_opens_target_chooser() {
+        let mut app = app();
+        app.mirror_request = Some(7);
+        app.mirror_loading = true;
+        // Keep this unit test free of a real chsrc subprocess; the dedicated
+        // measurement test below covers the asynchronous merge.
+        app.mirror_measuring = true;
+        app.tx
+            .send(Message::MirrorSourcesFinished {
+                request: 7,
+                target: "npm".into(),
+                result: Ok(json!({
+                    "schemaVersion": 1,
+                    "command": "mirror.sources",
+                    "ok": true,
+                    "data": {
+                        "target": "npm",
+                        "label": "NPM",
+                        "sources": [
+                            {
+                                "code": "huawei",
+                                "label": "Huawei Cloud",
+                                "url": "https://mirror.invalid/npm/",
+                                "provider": "catalog"
+                            },
+                            {
+                                "code": "npmmirror",
+                                "label": "npmmirror",
+                                "url": "https://registry.npmmirror.com",
+                                "provider": "chsrc",
+                                "current": true,
+                                "selectionOrigin": "profile"
+                            }
+                        ]
+                    }
+                })),
+            })
+            .unwrap();
+
+        app.receive_messages();
+
+        assert!(!app.mirror_loading);
+        assert_eq!(app.mirror_chooser.as_ref().unwrap().target, "npm");
+        assert_eq!(
+            app.mirror_chooser.as_ref().unwrap().sources[0].code,
+            "huawei"
+        );
+        assert_eq!(app.mirror_chooser.as_ref().unwrap().selected, 1);
+    }
+
+    #[test]
+    fn mirror_measurement_updates_chooser_without_hiding_current_selection() {
+        let mut app = app();
+        app.mirror_chooser = Some(MirrorChooser {
+            target: "npm".into(),
+            label: "NPM".into(),
+            profile: "china".into(),
+            sources: vec![MirrorSource {
+                code: "npmmirror".into(),
+                label: "npmmirror".into(),
+                url: "https://registry.npmmirror.com".into(),
+                provider: "catalog".into(),
+                ok: None,
+                http_status: None,
+                throughput_bps: None,
+                detail: None,
+                stale: false,
+                measurement_stale: false,
+                fetched_at: None,
+                current: true,
+                selection_origin: Some("profile".into()),
+            }],
+            selected: 0,
+        });
+        app.mirror_measure_request = Some(9);
+        app.mirror_measuring = true;
+        app.tx
+            .send(Message::MirrorMeasureFinished {
+                request: 9,
+                target: "npm".into(),
+                result: Ok(json!({
+                    "schemaVersion": 1,
+                    "command": "mirror.measure",
+                    "ok": true,
+                    "data": {"results": [{
+                        "code": "npmmirror",
+                        "label": "npmmirror",
+                        "url": "https://registry.npmmirror.com",
+                        "provider": "chsrc",
+                        "ok": true,
+                        "httpStatus": 200,
+                        "throughputBps": 1024,
+                        "current": true,
+                        "selectionOrigin": "profile"
+                    }]}
+                })),
+            })
+            .unwrap();
+
+        app.receive_messages();
+
+        let source = &app.mirror_chooser.as_ref().unwrap().sources[0];
+        assert!(!app.mirror_measuring);
+        assert!(source.current);
+        assert_eq!(source.selection_origin.as_deref(), Some("profile"));
+        assert_eq!(source.http_status, Some(200));
+        assert_eq!(source.throughput_bps, Some(1024));
+    }
+
+    #[test]
+    fn mirror_preview_response_waits_for_explicit_apply() {
+        let mut app = app();
+        app.mirror_request = Some(8);
+        app.mirror_loading = true;
+        let source = MirrorSource {
+            code: "huawei".into(),
+            label: "Huawei Cloud".into(),
+            url: "https://mirror.invalid/npm/".into(),
+            provider: "catalog".into(),
+            ok: None,
+            http_status: None,
+            throughput_bps: None,
+            detail: None,
+            stale: false,
+            measurement_stale: false,
+            fetched_at: None,
+            current: false,
+            selection_origin: None,
+        };
+        app.tx
+            .send(Message::MirrorMutationFinished {
+                request: 8,
+                target: "npm".into(),
+                source,
+                stage: MutationStage::Preview,
+                result: Ok(json!({
+                    "schemaVersion": 1,
+                    "command": "mirror.set",
+                    "ok": true,
+                    "data": {"result": "dry-run", "plan": {"target": "npm"}}
+                })),
+            })
+            .unwrap();
+
+        app.receive_messages();
+
+        assert!(!app.mirror_loading);
+        assert!(app.pending_mirror.is_some());
     }
 
     #[test]
@@ -1615,5 +2082,17 @@ mod tests {
         let chooser = app.setting_chooser.as_ref().expect("host dropdown");
         assert_eq!(chooser.key, SettingKey::Host);
         assert_eq!(chooser.options, vec!["mac".to_string(), "air".to_string()]);
+    }
+
+    #[test]
+    fn chooser_navigation_wraps_at_both_boundaries() {
+        let mut app = dashboard_app();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        assert_eq!(app.setting_chooser.as_ref().unwrap().selected, 1);
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(app.setting_chooser.as_ref().unwrap().selected, 0);
     }
 }

@@ -1,7 +1,9 @@
 { config, lib, sys, ... }:
 
 let
-  profile = (import ./catalog.nix).${config.envy.mirrors.mode};
+  profile = (import ./resolve.nix { inherit lib; })
+    (import ./catalog.nix).${config.envy.mirrors.mode}
+    config.envy.mirrors.overrides;
   sourcePath = "/etc/apt/sources.list.d/envy-mirror.sources";
   removeManagedMirrorFile = ''
     remove_envy_apt_mirror() {

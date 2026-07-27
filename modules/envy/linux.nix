@@ -8,7 +8,9 @@ let
     lib.all
       (values: builtins.length (lib.unique values) == 1)
       (builtins.attrValues (lib.groupBy (item: item.id) items));
-  mirrorProfile = (import ../mirrors/catalog.nix).${config.envy.mirrors.mode};
+  mirrorProfile = (import ../mirrors/resolve.nix { inherit lib; })
+    (import ../mirrors/catalog.nix).${config.envy.mirrors.mode}
+    config.envy.mirrors.overrides;
   commonMirrors = builtins.removeAttrs mirrorProfile [ "apt" "dockerInstallerMirror" "homebrew" "probes" ];
   selectItems = selection: lib.filter
     (item: !(builtins.elem item.id selection.exclude))
@@ -53,6 +55,7 @@ in
         "envy.linux.option" = policy.option;
         "envy.mirrors.mode" = config.envy.mirrors.mode;
       };
+      mirrorOverrides = config.envy.mirrors.overrides;
       mirrors = commonMirrors // {
         mode = config.envy.mirrors.mode;
         apt = mirrorProfile.apt;

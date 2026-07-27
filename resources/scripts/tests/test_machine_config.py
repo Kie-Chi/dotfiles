@@ -69,6 +69,56 @@ class MachineConfigTests(unittest.TestCase):
         self.assertIn('envy.vscode.mode = "local";', text)
         self.assertIn('envy.software.nix.packages.exclude = [ "okular" ];', text)
 
+    def test_mirror_block_is_independent_from_machine_config_block(self):
+        overrides = {
+            "envy.mirrors.overrides.npm.source": "chsrc:npm/npmmirror",
+            "envy.mirrors.overrides.npm.registry": "https://registry.npmmirror.com",
+        }
+        with self.machine_file_patch(), patch.object(
+            config, "current_machine_id", return_value="test-mac"
+        ), patch.object(config, "set_device_machine_id"):
+            config.write_machine_nix(self.values())
+            config.write_mirror_overrides(overrides)
+            config.set_config_value("envy.vscode.mode", "local")
+            config.write_mirror_overrides({
+                "envy.mirrors.overrides.npm.source": "chsrc:npm/huawei",
+                "envy.mirrors.overrides.npm.registry": "https://mirrors.huaweicloud.com/repository/npm/",
+            })
+
+            text = self.machine.read_text()
+            self.assertEqual(text.count(config.MIRROR_MANAGED_START), 1)
+            self.assertIn('envy.vscode.mode = "local";', text)
+            self.assertIn("chsrc:npm/huawei", text)
+            self.assertNotIn("npmmirror", text)
+            self.assertEqual(
+                config.read_mirror_overrides(),
+                {
+                    "envy.mirrors.overrides.npm.source": "chsrc:npm/huawei",
+                    "envy.mirrors.overrides.npm.registry": "https://mirrors.huaweicloud.com/repository/npm/",
+                },
+            )
+
+    def test_mirror_reader_ignores_hand_policy_outside_generated_block(self):
+        self.machine.write_text(
+            """{ ... }:
+
+{
+  envy.mirrors.overrides.npm.registry = "https://hand.example/";
+  # BEGIN ENVY MANAGED MIRROR OVERRIDES
+  # `envy mirror` owns this block. Other machine policy stays intact.
+  envy.mirrors.overrides.npm.source = "chsrc:npm/huawei";
+  # END ENVY MANAGED MIRROR OVERRIDES
+}
+"""
+        )
+        with self.machine_file_patch(), patch.object(
+            config, "current_machine_id", return_value="test-mac"
+        ):
+            self.assertEqual(
+                config.read_mirror_overrides(),
+                {"envy.mirrors.overrides.npm.source": "chsrc:npm/huawei"},
+            )
+
     def test_reader_understands_strings_and_booleans(self):
         with self.machine_file_patch(), patch.object(
             config, "current_machine_id", return_value="test-mac"

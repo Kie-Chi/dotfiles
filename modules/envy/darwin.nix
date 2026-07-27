@@ -23,7 +23,9 @@ let
   selectStrings = selection: lib.subtractLists selection.exclude (unique selection.include);
   policy = config.envy.darwin;
   softwarePolicy = policy.software;
-  mirrorProfile = (import ../mirrors/catalog.nix).${config.envy.mirrors.mode};
+  mirrorProfile = (import ../mirrors/resolve.nix { inherit lib; })
+    (import ../mirrors/catalog.nix).${config.envy.mirrors.mode}
+    config.envy.mirrors.overrides;
   commonMirrors = builtins.removeAttrs mirrorProfile [ "apt" "dockerInstallerMirror" "homebrew" "probes" ];
   systemPackages = selectPackages softwarePolicy.nix.systemPackages;
   fontPackages = selectPackages softwarePolicy.nix.fonts;
@@ -87,6 +89,7 @@ in
         "envy.vscode.mode" = config.envy.vscode.mode;
         "envy.mirrors.mode" = config.envy.mirrors.mode;
       };
+      mirrorOverrides = config.envy.mirrors.overrides;
       mirrors = commonMirrors // {
         mode = config.envy.mirrors.mode;
         homebrew = mirrorProfile.homebrew;

@@ -244,6 +244,39 @@ pub struct GroupChooser {
     pub selected: usize,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MirrorSource {
+    pub code: String,
+    pub label: String,
+    pub url: String,
+    pub provider: String,
+    pub ok: Option<bool>,
+    pub http_status: Option<u16>,
+    pub throughput_bps: Option<u64>,
+    pub detail: Option<String>,
+    pub stale: bool,
+    pub measurement_stale: bool,
+    pub fetched_at: Option<u64>,
+    pub current: bool,
+    pub selection_origin: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct MirrorChooser {
+    pub target: String,
+    pub label: String,
+    pub profile: String,
+    pub sources: Vec<MirrorSource>,
+    pub selected: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct MirrorPreview {
+    pub target: String,
+    pub source: MirrorSource,
+    pub payload: Value,
+}
+
 /// A Dashboard-editable setting: either the active host or one managed config field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettingKey {
@@ -344,6 +377,23 @@ pub enum Message {
     SettingApplied {
         request: u64,
         key: SettingKey,
+        result: Result<Value, String>,
+    },
+    MirrorSourcesFinished {
+        request: u64,
+        target: String,
+        result: Result<Value, String>,
+    },
+    MirrorMeasureFinished {
+        request: u64,
+        target: String,
+        result: Result<Value, String>,
+    },
+    MirrorMutationFinished {
+        request: u64,
+        target: String,
+        source: MirrorSource,
+        stage: MutationStage,
         result: Result<Value, String>,
     },
 }
@@ -619,6 +669,116 @@ pub fn mirror_rows(payload: Option<&Value>) -> Vec<KeyValueRow> {
         .unwrap_or_default()
 }
 
+pub fn mirror_target_rows(payload: Option<&Value>) -> Vec<KeyValueRow> {
+    payload
+        .and_then(|value| value.get("data"))
+        .and_then(|value| value.get("targets"))
+        .and_then(Value::as_array)
+        .map(|targets| {
+            targets
+                .iter()
+                .map(|target| KeyValueRow {
+                    key: text(target.get("id")),
+                    value: match (
+                        target.get("selectedSource").and_then(Value::as_str),
+                        target.get("selectionOrigin").and_then(Value::as_str),
+                    ) {
+                        (Some(source), Some(origin)) if !source.is_empty() => {
+                            format!("{} · ● {} ({origin})", text(target.get("label")), source)
+                        }
+                        _ => text(target.get("label")),
+                    },
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn mirror_mode(payload: Option<&Value>) -> String {
+    payload
+        .and_then(|value| value.get("data"))
+        .and_then(|value| value.get("mode"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn mirror_source_values(values: Option<&Vec<Value>>) -> Vec<MirrorSource> {
+    values
+        .map(|sources| {
+            sources
+                .iter()
+                .filter_map(|source| {
+                    Some(MirrorSource {
+                        code: source.get("code")?.as_str()?.to_string(),
+                        label: source
+                            .get("label")
+                            .and_then(Value::as_str)
+                            .unwrap_or("—")
+                            .to_string(),
+                        url: source
+                            .get("url")
+                            .and_then(Value::as_str)
+                            .unwrap_or("—")
+                            .to_string(),
+                        provider: source
+                            .get("provider")
+                            .and_then(Value::as_str)
+                            .unwrap_or("catalog")
+                            .to_string(),
+                        ok: source.get("ok").and_then(Value::as_bool),
+                        http_status: source
+                            .get("httpStatus")
+                            .and_then(Value::as_u64)
+                            .and_then(|value| u16::try_from(value).ok()),
+                        throughput_bps: source.get("throughputBps").and_then(Value::as_u64),
+                        detail: source
+                            .get("detail")
+                            .and_then(Value::as_str)
+                            .filter(|value| !value.trim().is_empty())
+                            .map(str::to_string),
+                        stale: source
+                            .get("stale")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        measurement_stale: source
+                            .get("measurementStale")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        fetched_at: source.get("fetchedAt").and_then(Value::as_u64),
+                        current: source
+                            .get("current")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        selection_origin: source
+                            .get("selectionOrigin")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn mirror_sources(payload: Option<&Value>) -> Vec<MirrorSource> {
+    mirror_source_values(
+        payload
+            .and_then(|value| value.get("data"))
+            .and_then(|value| value.get("sources"))
+            .and_then(Value::as_array),
+    )
+}
+
+pub fn mirror_measurements(payload: Option<&Value>) -> Vec<MirrorSource> {
+    mirror_source_values(
+        payload
+            .and_then(|value| value.get("data"))
+            .and_then(|value| value.get("results"))
+            .and_then(Value::as_array),
+    )
+}
+
 /// Build the Dashboard's editable settings list from the cached host list and
 /// config payloads. Row 0 is the active host; the rest are managed config fields
 /// (`fields[]` from `config show --json`), where a non-empty `choices` marks an
@@ -762,6 +922,33 @@ mod tests {
         assert!(rows
             .iter()
             .any(|row| row.key == "mode" && row.value == "china"));
+    }
+
+    #[test]
+    fn mirror_targets_and_measurements_expose_profile_and_current_source() {
+        let targets = json!({"data": {
+            "mode": "china",
+            "targets": [{
+                "id": "npm", "label": "NPM", "selectedSource": "huawei",
+                "selectionOrigin": "override"
+            }]
+        }});
+        let measurements = json!({"data": {"results": [{
+            "code": "huawei", "label": "Huawei Cloud", "url": "https://mirror.invalid/npm/",
+            "provider": "chsrc", "ok": true, "throughputBps": 2048,
+            "current": true, "selectionOrigin": "override"
+        }]}});
+
+        assert_eq!(mirror_mode(Some(&targets)), "china");
+        assert_eq!(
+            mirror_target_rows(Some(&targets))[0].value,
+            "NPM · ● huawei (override)"
+        );
+        let mut sources = mirror_measurements(Some(&measurements));
+        let source = sources.pop().unwrap();
+        assert!(source.current);
+        assert_eq!(source.selection_origin.as_deref(), Some("override"));
+        assert_eq!(source.throughput_bps, Some(2048));
     }
 
     #[test]

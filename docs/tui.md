@@ -30,6 +30,8 @@ envy host status --json
 envy host matrix --json
 envy history --json
 envy plan --json
+envy mirror targets --json
+envy mirror sources npm --json
 ```
 
 Software desired-state mutations use the frontend envelope from
@@ -110,6 +112,33 @@ Doctor, or keep-pending actions. Long workflows temporarily suspend the alternat
 screen, inherit the real terminal for sudo and complete command output, then
 return to the TUI and refresh affected views.
 
+The Mirror page is a two-level chooser. Its first table is grouped by ecosystem
+target (`npm`, `rust`, `python`, `go`) and shows the configured `china` or
+`upstream` profile plus each target's selected source. `profile` means the
+profile fallback is selected; `override` means an Envy-generated machine override
+is selected. Press `Enter` to load candidate sources from Envy's cache, `chsrc`,
+or the catalog fallback. The chooser marks the current effective source with
+`CURRENT profile` or `CURRENT override`.
+
+After candidates appear, the TUI starts `envy mirror measure TARGET --json` in
+the background. The TUI uses the default `chsrc` provider; the CLI also supports
+`envy mirror measure TARGET --provider curl --refresh --json` for URL-level curl
+measurements. It first reuses Envy's cached provider-specific measurement and only
+runs a new measurement when that cache is expired; all-failed results are still
+shown and cached briefly. The chooser remains usable while measurement runs;
+press `r` there to force a fresh measurement. `j`/`k` (and the mouse wheel)
+select a source. Its own viewport keeps the selected source visible even when a
+target has many candidates; `PageUp`/`PageDown` page through the loop and
+`g`/`G` jump to its ends. `source cache` only describes cached candidate
+discovery, not a speed-test result. Completed measurements explicitly show
+`ok`/`failed`, HTTP status, throughput, and any chsrc diagnostic (for example
+`HTTP 000 / no response`). Envy then performs `mirror set TARGET SOURCE --dry-run --json`,
+shows the generated endpoint assignments, and writes them only after a second
+`Enter`/`y` through `--yes --json`. The TUI never runs `chsrc set` and never
+edits a machine file directly. A successful write invalidates the affected
+Dashboard, Mirror, Software, Doctor, Hosts, and Config snapshots; apply remains
+an explicit `envy plan` / `envy apply` workflow.
+
 The interactive inspection workflows are:
 
 - Software `/` filters the already loaded policy locally across group, item,
@@ -137,10 +166,12 @@ The interactive inspection workflows are:
 
 Navigation is consistent across lists: arrows or `j`/`k` move one row,
 `PageUp`/`PageDown` move one viewport, and `Home`/`End` or `g`/`G` jump to the
-first or last row. The title shows the selected position and total row count,
-and scrolling is clamped so a selection cannot disappear beyond an empty
-viewport. The mouse wheel moves lists and chooser selections as well as detail
-content.
+first or last row. List and chooser navigation wraps at both boundaries: moving
+up from the first item selects the last, and moving down from the last selects
+the first. The title shows the selected position and total row count, and
+scrolling is clamped so a selection cannot disappear beyond an empty viewport.
+The mouse wheel follows the same loop for lists and choosers; detail text stays
+bounded because it is content scrolling rather than item selection.
 
 `Esc` is reserved for cancelling the current interaction, clearing a filter or
 mark, or closing a dialog; it does not unexpectedly exit from a normal page.

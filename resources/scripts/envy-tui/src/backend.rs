@@ -3,8 +3,8 @@ use std::{env, path::Path, process::Command, sync::mpsc::Sender, thread};
 use serde_json::{json, Value};
 
 use crate::model::{
-    LoadTarget, Message, MutationIntent, MutationStage, Screen, SearchEntry, SettingKey,
-    SoftwareAction,
+    LoadTarget, Message, MirrorSource, MutationIntent, MutationStage, Screen, SearchEntry,
+    SettingKey, SoftwareAction,
 };
 
 pub fn envy_binary() -> String {
@@ -45,12 +45,125 @@ fn load_target(target: &LoadTarget) -> Result<Value, String> {
         LoadTarget::Screen(Screen::History) => run_json(&["history", "--json"]),
         LoadTarget::Screen(Screen::Journal) => run_json(&["log", "--json", "--limit", "200"]),
         LoadTarget::Screen(Screen::Hosts) => run_json(&["host", "list", "--json"]),
-        LoadTarget::Screen(Screen::Mirror) => run_json(&["mirror", "status", "--json"]),
+        LoadTarget::Screen(Screen::Mirror) => run_json(&["mirror", "targets", "--json"]),
         LoadTarget::Screen(Screen::Config) => run_json(&["config", "show", "--json"]),
         LoadTarget::Screen(Screen::Search) => {
             Ok(json!({"query": "", "results": [], "providers": []}))
         }
     }
+}
+
+pub fn spawn_mirror_sources(tx: Sender<Message>, request: u64, target: String) {
+    thread::spawn(move || {
+        let result = run_json(&["mirror", "sources", &target, "--json"])
+            .and_then(|payload| envelope_result(payload, "mirror source lookup failed"));
+        let _ = tx.send(Message::MirrorSourcesFinished {
+            request,
+            target,
+            result,
+        });
+    });
+}
+
+pub fn spawn_mirror_measure(tx: Sender<Message>, request: u64, target: String, refresh: bool) {
+    thread::spawn(move || {
+        let mut args = vec!["mirror", "measure", target.as_str()];
+        if refresh {
+            args.push("--refresh");
+        }
+        args.push("--json");
+        // `mirror measure` intentionally exits non-zero when every endpoint
+        // fails, but still returns a valid JSON report the UI can render.
+        let result = run_json(&args).and_then(|payload| {
+            let payload = envelope_result(payload, "mirror measurement failed")?;
+            if payload.get("command").and_then(Value::as_str) != Some("mirror.measure") {
+                Err("mirror measurement command does not match the request".to_string())
+            } else {
+                Ok(payload)
+            }
+        });
+        let _ = tx.send(Message::MirrorMeasureFinished {
+            request,
+            target,
+            result,
+        });
+    });
+}
+
+fn mirror_mutation_args(stage: MutationStage, target: &str, source: &str) -> Vec<String> {
+    let mut args = vec![
+        "mirror".to_string(),
+        "set".to_string(),
+        target.to_string(),
+        source.to_string(),
+    ];
+    match stage {
+        MutationStage::Preview => args.push("--dry-run".to_string()),
+        MutationStage::Apply => args.push("--yes".to_string()),
+    }
+    args.push("--json".to_string());
+    args
+}
+
+fn validate_mirror_response(
+    stage: MutationStage,
+    target: &str,
+    source: &MirrorSource,
+    payload: Value,
+) -> Result<Value, String> {
+    let payload = envelope_result(payload, "mirror mutation failed")?;
+    if payload.get("schemaVersion").and_then(Value::as_u64) != Some(1) {
+        return Err("unsupported mirror mutation schema".to_string());
+    }
+    if payload.get("command").and_then(Value::as_str) != Some("mirror.set") {
+        return Err("mirror mutation command does not match the request".to_string());
+    }
+    let data = payload.get("data").unwrap_or(&Value::Null);
+    let plan = data.get("plan").unwrap_or(&Value::Null);
+    if plan.get("target").and_then(Value::as_str) != Some(target)
+        || plan
+            .get("source")
+            .and_then(|value| value.get("code"))
+            .and_then(Value::as_str)
+            != Some(source.code.as_str())
+        || plan
+            .get("source")
+            .and_then(|value| value.get("url"))
+            .and_then(Value::as_str)
+            != Some(source.url.as_str())
+    {
+        return Err("mirror mutation plan does not match the selected source".to_string());
+    }
+    let expected = match stage {
+        MutationStage::Preview => "dry-run",
+        MutationStage::Apply => "applied",
+    };
+    if data.get("result").and_then(Value::as_str) != Some(expected) {
+        return Err("mirror mutation returned an unexpected result".to_string());
+    }
+    Ok(payload)
+}
+
+pub fn spawn_mirror_mutation(
+    tx: Sender<Message>,
+    request: u64,
+    stage: MutationStage,
+    target: String,
+    source: MirrorSource,
+) {
+    thread::spawn(move || {
+        let args = mirror_mutation_args(stage, &target, &source.code);
+        let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let result = run_json(&refs)
+            .and_then(|payload| validate_mirror_response(stage, &target, &source, payload));
+        let _ = tx.send(Message::MirrorMutationFinished {
+            request,
+            target,
+            source,
+            stage,
+            result,
+        });
+    });
 }
 
 pub fn spawn_request(tx: Sender<Message>, request: u64, target: LoadTarget) {

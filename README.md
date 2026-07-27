@@ -98,6 +98,7 @@ envy host select <machine-id>
 | `envy history` / `envy history diff <a> <b>` | 查看 generations 或比较两个 generation 的 closure |
 | `envy tui` | 启动 Rust/Ratatui 全屏 frontend；通过 JSON 调用现有 Envy backend |
 | `envy rollback <n> --dry-run` | 在激活旧 generation 前预览 closure 差异 |
+| `envy mirror measure <target> --provider chsrc|curl` | 使用指定测速 provider 测量候选镜像；默认 `chsrc` |
 | `envy update` | 更新全部 flake inputs、检查全部 machines，并在 Darwin 更新 Homebrew metadata |
 | `envy update inputs [name]` | 更新全部或指定 flake input；验证失败自动恢复 `flake.lock` |
 | `envy clean --older-than 30d` | 经确认后只清理指定期限以前的 generations |
@@ -115,6 +116,10 @@ envy host select <machine-id>
 | `envy sw cache status` | 查看供 search/add 共用的精确 registry identity index |
 | `envy mirror status` | 展示当前 machine 求值后生效的镜像端点 |
 | `envy mirror probe` | 只读探测镜像 HTTP 状态与延迟 |
+| `envy mirror targets` / `envy mirror sources <target>` | 按 npm/rust/python/go target 列出可选镜像源；结果来自 Envy cache、chsrc 或 catalog fallback |
+| `envy mirror measure <target> [--provider chsrc|curl]` | 使用 provider 专属 cache 运行/读取测速；curl 测量生态代表性资源，`--refresh` 强制重测 |
+| `envy mirror set <target> <source>` / `reset <target>` | dry-run 后把选择写入当前 machine 的 generated override block；不调用 `chsrc set` |
+| `envy mirror cache status/clean` | 查看或清理候选源与测速 cache |
 | `envy habit list/show/set/check/repair` | 管理跨平台个人交互习惯的 machine policy，并检查或重新应用对应实现 |
 | `envy doctor` | 检查本平台配置、应用、状态与登录信息；TCC 仅在 Darwin 加载 |
 | `envy doctor system` | 检查运行依赖、apply runner、Git 状态与中断残留 |
@@ -129,7 +134,7 @@ evaluated manifest、精确 identity index，或完成一次对应 provider 的�
 会补全真实 generation，`host diff` 与 `host matrix --group` 则补全跨平台 machine
 和 canonical group。按 Tab 只做本地只读查询，不会访问 registry 或求值所有 machines。
 `config show`、`host list/status`、`software list/status/audit/why`、
-`mirror status/probe` 与 `doctor` 的只读视图支持 `--json`。
+`mirror status/probe/targets/sources/measure` 与 `doctor` 的只读视图支持 `--json`。
 `sw add/rm --json` 则输出稳定的 `software.<action>` envelope，包含完整计划和
 应用结果；JSON mutation 必须显式传入 `--yes`，方便未来 TUI 分两步渲染预览与确认。
 TUI 边界和两阶段 mutation 协议见 [docs/tui.md](docs/tui.md)。

@@ -137,6 +137,16 @@ in
       description = "Network mirror policy used by bootstrap and managed package ecosystems.";
     };
 
+    mirrors.overrides = mkOption {
+      type = types.attrs;
+      default = { };
+      description = ''
+        Envy-generated per-ecosystem mirror overrides. Values are written by
+        `envy mirror set` into the selected machine's managed mirror block;
+        they take precedence over the selected mirror profile.
+      '';
+    };
+
     habits = {
       terminalScratchpad.gesture = mkOption {
         type = types.enum [ "F2" "F3" "F4" "F5" "F6" "F7" "F8" "F9" "F10" "F12" ];

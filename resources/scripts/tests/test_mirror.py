@@ -1,8 +1,26 @@
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from envy.mirror import mirror_entries, probe_endpoint, probe_specs
+from envy.mirror import (
+    MirrorCache,
+    _measure_with_curl,
+    _measure_with_chsrc,
+    _parse_speed,
+    _parse_chsrc_sources,
+    _curl_probe_urls,
+    _source_overrides,
+    annotate_current_selection,
+    complete_measurement_providers,
+    complete_mirror_sources,
+    complete_mirror_targets,
+    current_selection,
+    mirror_entries,
+    probe_endpoint,
+    probe_specs,
+)
 
 
 class MirrorTests(unittest.TestCase):
@@ -59,6 +77,178 @@ class MirrorTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.status, "000")
         self.assertEqual(result.detail, "timeout")
+
+    @patch("envy.mirror._run_chsrc")
+    def test_chsrc_source_table_parser_accepts_english_rows(self, run):
+        run.return_value = (
+            "Available Sources:\n"
+            "npmmirror  https://registry.npmmirror.com  npmmirror\n"
+            "huawei  https://mirrors.huaweicloud.com/repository/npm/  Huawei Cloud\n"
+            "Available Features:\n",
+            "",
+            0,
+        )
+
+        values = _parse_chsrc_sources("npm")
+
+        self.assertEqual([value["code"] for value in values], ["npmmirror", "huawei"])
+        self.assertEqual(values[1]["provider"], "chsrc")
+        self.assertEqual(values[1]["url"], "https://mirrors.huaweicloud.com/repository/npm/")
+
+    @patch("envy.mirror._run_chsrc")
+    def test_chsrc_source_table_keeps_long_url_out_of_the_label(self, run):
+        run.return_value = (
+            "Available Sources:\n"
+            "huawei  Huawei Cloud  https://mirrors.huaweicloud.com/repository/pypi/simple 华为开源镜像站\n"
+            "Available Features:\n",
+            "",
+            0,
+        )
+
+        values = _parse_chsrc_sources("python")
+
+        self.assertEqual(values[0]["code"], "huawei")
+        self.assertEqual(values[0]["label"], "华为开源镜像站")
+        self.assertEqual(
+            values[0]["url"],
+            "https://mirrors.huaweicloud.com/repository/pypi/simple",
+        )
+
+    @patch("envy.mirror._run_chsrc")
+    def test_measurement_does_not_trust_chsrc_recommendation_when_all_http_zero(self, run):
+        sources = [{"code": "upstream", "label": "Upstream", "url": "https://registry.npmjs.org/"}]
+        run.return_value = (
+            "1. upstream (https://registry.npmjs.org/) HTTP code 000 0 Byte/s\n"
+            "最快镜像站: 上游默认源\n",
+            "",
+            0,
+        )
+
+        values = _measure_with_chsrc("npm", sources)
+
+        self.assertEqual(values[0]["httpStatus"], 0)
+        self.assertFalse(values[0]["ok"])
+        self.assertEqual(values[0]["detail"], "chsrc reported HTTP 000 / no response")
+
+    def test_speed_parser_accepts_chsrc_byte_units(self):
+        self.assertEqual(_parse_speed("17.23 MByte/s"), 17.23 * 1024 ** 2)
+        self.assertEqual(_parse_speed("36.52 MB/s"), 36.52 * 1024 ** 2)
+        self.assertEqual(_parse_speed("512 KByte/s"), 512 * 1024)
+
+    @patch("envy.mirror._run_chsrc")
+    def test_successful_measurement_without_http_suffix_uses_throughput(self, run):
+        sources = [{"code": "npmmirror", "label": "npmmirror", "url": "https://registry.npmmirror.com"}]
+        run.return_value = (
+            "- npmmirror (阿里云赞助) [精准测速] ... 36.52 MByte/s\n"
+            "最快镜像站: npmmirror (阿里云赞助)\n"
+            "镜像源地址: https://registry.npmmirror.com\n",
+            "",
+            0,
+        )
+
+        values = _measure_with_chsrc("npm", sources)
+
+        self.assertTrue(values[0]["ok"])
+        self.assertIsNone(values[0]["httpStatus"])
+        self.assertEqual(values[0]["throughputBps"], round(36.52 * 1024 ** 2))
+
+    @patch("envy.mirror.shutil.which", return_value="/usr/bin/curl")
+    @patch("envy.mirror.subprocess.run")
+    def test_curl_provider_parses_http_and_speed_download(self, run, which):
+        run.return_value = subprocess.CompletedProcess([], 0, "200\t1234.5", "")
+        source = {
+            "code": "npmmirror",
+            "label": "npmmirror",
+            "url": "https://registry.npmmirror.com",
+        }
+
+        values = _measure_with_curl([source])
+
+        self.assertTrue(values[0]["ok"])
+        self.assertEqual(values[0]["measurementProvider"], "curl")
+        self.assertEqual(values[0]["httpStatus"], 200)
+        self.assertEqual(values[0]["throughputBps"], 1234)
+        args = run.call_args.args[0]
+        self.assertIn("--write-out", args)
+        self.assertIn("--location", args)
+        self.assertEqual(args[-1], source["url"])
+
+    @patch("envy.mirror.shutil.which", return_value="/usr/bin/curl")
+    @patch("envy.mirror.subprocess.run")
+    def test_curl_provider_uses_representative_target_resource(self, run, which):
+        run.return_value = subprocess.CompletedProcess([], 0, "206\t2048", "")
+        source = {
+            "code": "npmmirror",
+            "label": "npmmirror",
+            "url": "https://registry.npmmirror.com",
+        }
+
+        values = _measure_with_curl([source], target="npm")
+
+        probe = "https://registry.npmmirror.com/@tensorflow/tfjs/-/tfjs-4.22.0.tgz"
+        self.assertTrue(values[0]["ok"])
+        self.assertEqual(values[0]["measurementUrl"], probe)
+        args = run.call_args.args[0]
+        self.assertIn("--range", args)
+        self.assertEqual(args[-1], probe)
+        self.assertEqual(_curl_probe_urls(source, "npm"), [probe])
+
+    def test_mirror_completion_is_static_and_target_aware(self):
+        self.assertEqual(complete_mirror_targets(None, "n"), [("npm", "NPM")])
+        self.assertEqual(
+            complete_measurement_providers(None, "c"),
+            [("chsrc", "Use chsrc's ecosystem-aware source measurement"),
+             ("curl", "Measure each source URL with curl")],
+        )
+
+    def test_source_overrides_include_generated_identity_and_target_fields(self):
+        npm = _source_overrides("npm", {
+            "code": "huawei",
+            "url": "https://mirrors.huaweicloud.com/repository/npm/",
+        })
+        rust = _source_overrides("rust", {
+            "code": "rsproxycn",
+            "url": "https://rsproxy.cn/index/",
+        })
+
+        self.assertEqual(npm["envy.mirrors.overrides.npm.source"], "chsrc:npm/huawei")
+        self.assertEqual(npm["envy.mirrors.overrides.npm.registry"], "https://mirrors.huaweicloud.com/repository/npm/")
+        self.assertEqual(rust["envy.mirrors.overrides.rust.cargoIndex"], "sparse+https://rsproxy.cn/index/")
+        self.assertEqual(rust["envy.mirrors.overrides.rust.distServer"], "https://rsproxy.cn")
+        self.assertEqual(rust["envy.mirrors.overrides.rust.updateRoot"], "https://rsproxy.cn/rustup")
+
+    def test_cache_expires_entries_by_table_ttl(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = MirrorCache(Path(directory) / "index.sqlite3")
+            cache.put("sources", "npm", [{"code": "huawei", "url": "https://example/"}], ttl=0)
+            self.assertEqual(cache.get("sources", "npm"), [])
+            self.assertEqual(cache.get("sources", "npm", allow_stale=True)[0]["stale"], True)
+
+    def test_profile_and_machine_override_are_exposed_as_current_selection(self):
+        profile = current_selection("npm", mode="china", overrides={})
+        override = current_selection(
+            "npm",
+            mode="china",
+            overrides={"envy.mirrors.overrides.npm.source": "chsrc:npm/huawei"},
+        )
+        sources, selection = annotate_current_selection(
+            "npm",
+            [
+                {"code": "npmmirror", "url": "https://registry.npmmirror.com"},
+                {"code": "huawei", "url": "https://mirror.invalid/npm/"},
+            ],
+            mode="china",
+            overrides={"envy.mirrors.overrides.npm.source": "chsrc:npm/huawei"},
+        )
+
+        self.assertEqual(profile["source"], "npmmirror")
+        self.assertEqual(profile["origin"], "profile")
+        self.assertEqual(override["source"], "huawei")
+        self.assertEqual(override["origin"], "override")
+        self.assertEqual(selection["profile"], "china")
+        self.assertFalse(sources[0]["current"])
+        self.assertTrue(sources[1]["current"])
+        self.assertEqual(sources[1]["selectionOrigin"], "override")
 
 
 if __name__ == "__main__":
