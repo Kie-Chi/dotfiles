@@ -1,11 +1,13 @@
 """Shared logging helpers for envy commands."""
 
 import os
+from datetime import datetime
 from typing import Any
 
 from rich.console import Console
 
 console = Console()
+diagnostic_console = Console(stderr=True)
 
 
 def is_debug() -> bool:
@@ -48,4 +50,14 @@ def hint(message: str) -> None:
 
 def debug(scope: str, message: str, **values: Any) -> None:
     if is_debug():
-        console.print(f"[dim]DBG {scope}: {message}{_format_kv(values)}[/dim]")
+        timestamp = datetime.now().astimezone().strftime("%H:%M:%S.%f")[:-3]
+        diagnostic_console.print(
+            f"[dim]DBG {timestamp} {scope}: {message}{_format_kv(values)}[/dim]"
+        )
+
+
+def activity(scope: str, message: str, **values: Any) -> None:
+    """Render non-structured long-task feedback without polluting JSON stdout."""
+    diagnostic_console.print(
+        f"[yellow]…[/yellow] {scope}: {message}{_format_kv(values)}"
+    )

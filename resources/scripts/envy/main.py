@@ -19,7 +19,7 @@ from envy.workflows.plan import plan_configuration
 from envy.workflows.generations import app as history_app
 from envy.workflows import system as system_workflow
 from envy.workflows import git as git_workflow
-from envy.utils import DOTFILES_DIR, PLATFORM
+from envy.utils import DOTFILES_DIR, PLATFORM, current_machine_id
 
 
 # ==========================================
@@ -79,6 +79,11 @@ def main_callback(
     if debug:
         os.environ["ENVY_DEBUG"] = "1"
     _check_schema_api()
+    log.debug(
+        "envy", "diagnostics enabled", platform=PLATFORM,
+        machine=current_machine_id(), repository=str(DOTFILES_DIR),
+        python=os.sys.version.split()[0], pid=os.getpid(),
+    )
 
 
 # ==========================================

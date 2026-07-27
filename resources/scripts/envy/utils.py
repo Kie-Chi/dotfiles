@@ -224,6 +224,7 @@ def run_cmd(
     check: bool = True,
     cwd: Path | None = None,
     capture: bool = True,
+    activity: str | None = None,
 ) -> str | None:
     """Run subprocess command. capture=True returns stdout as string; capture=False streams live."""
     env = os.environ.copy()
@@ -239,6 +240,7 @@ def run_cmd(
         check=check,
         env=env,
         cwd=effective_cwd,
+        activity=activity,
     )
     return result.stdout.strip() if capture and result.stdout else ("" if capture else None)
 
@@ -289,7 +291,8 @@ def backup_sensitive_file(filepath: Path) -> Optional[Path]:
 
 
 def esudo(
-    *args: str, capture: bool = False, cwd: Path | None = None
+    *args: str, capture: bool = False, cwd: Path | None = None,
+    activity: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """sudo with automatic password injection from sops.
     capture=False: stream output live (default, for long-running commands).
@@ -304,13 +307,17 @@ def esudo(
             capture=capture,
             check=False,
             cwd=effective_cwd,
+            activity=activity,
         )
         if result.returncode == 0:
             if capture and result.stdout:
                 print(result.stdout)
             return result
         # Fall through to interactive sudo
-    return run_process(["sudo", *args], cwd=effective_cwd, capture=capture, check=True)
+    return run_process(
+        ["sudo", *args], cwd=effective_cwd, capture=capture, check=True,
+        activity=activity,
+    )
 
 # ==========================================
 # APPLY ROUTING
@@ -320,12 +327,12 @@ def esudo(
 def run_hm(*args: str) -> None:
     """Run home-manager or fallback to nix run. Output streams live to terminal."""
     if _command_exists("home-manager"):
-        run_cmd(["home-manager", *args], capture=False)
+        run_cmd(["home-manager", *args], capture=False, activity="Home Manager activation")
     else:
         log.warn("hm", "'home-manager' not found, using repository-locked fallback")
         run_cmd([
             "nix", "run", "--inputs-from", "path:.", "home-manager", "--", *args,
-        ], capture=False)
+        ], capture=False, activity="Home Manager activation")
 
 
 def run_darwin_switch() -> None:
@@ -341,7 +348,10 @@ def run_darwin_switch() -> None:
             "nix", "run", "--inputs-from", "path:.", "darwin", "--", "switch",
             "--flake", flake_target(), "--impure",
         ]
-    esudo("--preserve-env=HOME", *command, capture=False)
+    esudo(
+        "--preserve-env=HOME", *command, capture=False,
+        activity="nix-darwin build and activation",
+    )
     log.ok("darwin", "system successfully updated")
 
 

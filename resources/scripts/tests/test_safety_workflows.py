@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 from envy import config, git_safety, main, sops_format, utils
 from envy.doctor.checks import config as doctor_config
 from envy.keys import recovery as key_recovery
-from envy.process import CommandError, run_process
+from envy.process import CommandError, command_display, run_process
 from envy.transaction import FileTransaction
 from envy.workflows import check as check_workflow
 from envy.workflows import update as update_workflow
@@ -158,6 +158,15 @@ sops:
         with self.assertRaises(CommandError) as raised:
             run_process(["/bin/sh", "-c", "exit 23"], capture=True)
         self.assertEqual(raised.exception.returncode, 23)
+
+    def test_command_diagnostics_redact_secret_options_and_url_queries(self):
+        rendered = command_display([
+            "curl", "--api-key", "secret-value",
+            "https://example.test/path?token=secret",
+        ])
+        self.assertNotIn("secret-value", rendered)
+        self.assertNotIn("token=secret", rendered)
+        self.assertIn("<redacted>", rendered)
 
     def test_esudo_interactive_fallback_failure_propagates(self):
         first = subprocess.CompletedProcess(["sudo"], 1, "", "bad password")

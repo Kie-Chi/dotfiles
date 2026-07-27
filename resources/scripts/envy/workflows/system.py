@@ -171,12 +171,12 @@ def clean_generations(*, yes: bool, older_than: str | None, brew: bool) -> None:
     log.step("nix", "cleaning up old generations", policy=policy)
     if PLATFORM == "darwin":
         esudo("-H", *command, capture=False)
-        run_process(command, check=True)
-        run_process(["nix-store", "--optimise"], check=True)
+        run_process(command, check=True, activity="system Nix garbage collection")
+        run_process(["nix-store", "--optimise"], check=True, activity="Nix store optimisation")
         if brew:
-            run_process(["brew", "cleanup"], check=True)
+            run_process(["brew", "cleanup"], check=True, activity="Homebrew cleanup")
     else:
-        run_process(command, check=True)
+        run_process(command, check=True, activity="Nix garbage collection")
     log.ok("nix", "cleanup complete")
 
 

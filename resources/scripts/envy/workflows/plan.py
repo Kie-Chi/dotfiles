@@ -23,6 +23,7 @@ def plan_configuration(*, json_output: bool = False) -> None:
     result = run_process(
         ["nix", "build", "--no-link", "--print-out-paths", "--impure", attr],
         cwd=DOTFILES_DIR, capture=True, check=False,
+        activity=f"build plan for {machine}",
     )
     if result.returncode != 0:
         detail = (result.stderr or "plan build failed").strip().splitlines()[-1]

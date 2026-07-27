@@ -17,7 +17,10 @@ def update_inputs(input_name: str | None = None, *, validate: bool = True) -> No
     log.step("update", "updating flake input" if input_name else "updating all flake inputs",
              input=input_name or "all")
     with FileTransaction([lock_file]) as transaction:
-        run_process(command, cwd=DOTFILES_DIR, check=True)
+        run_process(
+            command, cwd=DOTFILES_DIR, check=True,
+            activity="flake input update",
+        )
         if validate:
             check_or_exit(all_machines=True)
         transaction.commit()
@@ -26,5 +29,5 @@ def update_inputs(input_name: str | None = None, *, validate: bool = True) -> No
 
 def update_homebrew() -> None:
     log.step("update", "updating Homebrew metadata")
-    run_process(["brew", "update"], check=True)
+    run_process(["brew", "update"], check=True, activity="Homebrew metadata update")
     log.ok("update", "Homebrew metadata updated")

@@ -11,6 +11,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterator
 
+from envy import log
+from envy.process import run_process
 from envy.utils import DOTFILES_DIR, current_machine_id, machine_manifest_attr, platform_name
 
 
@@ -83,6 +85,7 @@ def _untracked_digest(raw_paths: bytes) -> str | None:
 
 def _repository_fingerprint(machine_id: str) -> str | None:
     """Return a content fingerprint for every repository layer Nix can see."""
+    started = time.monotonic()
     head = _command_bytes(["git", "rev-parse", "--verify", "HEAD"])
     index = _command_bytes(["git", "ls-files", "--stage", "-z"])
     worktree = _command_bytes([
@@ -93,6 +96,10 @@ def _repository_fingerprint(machine_id: str) -> str | None:
     untracked = _command_bytes(["git", "ls-files", "--others", "--exclude-standard", "-z"])
     nix_version = _command_bytes(["nix", "--version"])
     if None in (head, index, worktree, untracked, nix_version):
+        log.debug(
+            "eval", "repository fingerprint unavailable",
+            machine=machine_id, elapsed=f"{time.monotonic() - started:.3f}s",
+        )
         return None
 
     untracked_hash = _untracked_digest(untracked)
@@ -111,7 +118,12 @@ def _repository_fingerprint(machine_id: str) -> str | None:
         "nix": nix_version.decode(errors="replace").strip(),
     }
     encoded = json.dumps(inputs, sort_keys=True, separators=(",", ":")).encode()
-    return _digest(encoded)
+    fingerprint = _digest(encoded)
+    log.debug(
+        "eval", "repository fingerprint ready", machine=machine_id,
+        fingerprint=fingerprint[:12], elapsed=f"{time.monotonic() - started:.3f}s",
+    )
+    return fingerprint
 
 
 def _read_cache(machine_id: str, fingerprint: str) -> dict[str, Any] | None:
@@ -166,20 +178,33 @@ def _write_cache(machine_id: str, fingerprint: str, manifest: dict[str, Any]) ->
 
 def _evaluate_machine_manifest(machine_id: str) -> dict[str, Any] | None:
     attr = machine_manifest_attr(machine_id)
-    try:
-        result = subprocess.run(
-            ["nix", "eval", "--impure", attr, "--json"],
-            cwd=str(DOTFILES_DIR), capture_output=True, text=True,
-            timeout=30, check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    started = time.monotonic()
+    log.debug("eval", "Nix manifest evaluation started", machine=machine_id, attr=attr)
+    result = run_process(
+        ["nix", "eval", "--impure", attr, "--json"],
+        cwd=DOTFILES_DIR, capture=True, timeout=30, check=False,
+        activity=f"evaluate machine {machine_id}",
+    )
     if result.returncode != 0:
+        detail = (result.stderr or "").strip().splitlines()[-1:]
+        log.debug(
+            "eval", "Nix manifest evaluation failed", machine=machine_id,
+            exit_code=result.returncode, detail=detail[0][:300] if detail else "",
+            elapsed=f"{time.monotonic() - started:.3f}s",
+        )
         return None
     try:
         value = json.loads(result.stdout)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        log.debug(
+            "eval", "Nix manifest JSON invalid", machine=machine_id,
+            reason=str(exc), elapsed=f"{time.monotonic() - started:.3f}s",
+        )
         return None
+    log.debug(
+        "eval", "Nix manifest evaluation completed", machine=machine_id,
+        elapsed=f"{time.monotonic() - started:.3f}s",
+    )
     return value if isinstance(value, dict) else None
 
 
@@ -189,7 +214,17 @@ def _load_machine_manifest(*, read_cache: bool, write_cache: bool) -> dict[str, 
     if read_cache and fingerprint is not None:
         cached = _read_cache(machine_id, fingerprint)
         if cached is not None:
+            log.debug(
+                "eval", "manifest cache hit", machine=machine_id,
+                cache=str(_cache_path(machine_id)), fingerprint=fingerprint[:12],
+            )
             return cached
+
+    log.debug(
+        "eval", "manifest cache miss", machine=machine_id,
+        cache=str(_cache_path(machine_id)),
+        fingerprint=fingerprint[:12] if fingerprint else "unavailable",
+    )
 
     manifest = _evaluate_machine_manifest(machine_id)
     if manifest is None or not write_cache or fingerprint is None:
@@ -199,6 +234,10 @@ def _load_machine_manifest(*, read_cache: bool, write_cache: bool) -> dict[str, 
     # Nix was running. A later invocation will evaluate the new snapshot.
     if _repository_fingerprint(machine_id) == fingerprint:
         _write_cache(machine_id, fingerprint, manifest)
+        log.debug(
+            "eval", "manifest cache updated", machine=machine_id,
+            cache=str(_cache_path(machine_id)), fingerprint=fingerprint[:12],
+        )
     return manifest
 
 

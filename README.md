@@ -132,6 +132,11 @@ evaluated manifest、精确 identity index，或完成一次对应 provider 的�
 应用结果；JSON mutation 必须显式传入 `--yes`，方便未来 TUI 分两步渲染预览与确认。
 TUI 边界和两阶段 mutation 协议见 [docs/tui.md](docs/tui.md)。
 
+所有耗时的前台外部命令会在安静超过数秒后显示任务名称、已耗时和 Ctrl-C
+取消提示。`envy --debug <command>` 进一步输出安全遮罩后的命令起止、耗时、
+退出码、manifest cache 命中情况和 Nix 求值阶段；diagnostic 写入 stderr，
+不会破坏 `--json` stdout。
+
 `envy push` 和 `envy sync` 默认要求当前分支为 `master`。`--branch` 只是显式操作临时分支。
 共享变更 push 前建议运行 `envy check --all`；push 会同时检查 worktree、index 和 outgoing commits，拒绝任何明文 `secrets/secrets.yaml`。
 
