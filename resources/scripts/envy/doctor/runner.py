@@ -122,6 +122,30 @@ def render(results: list[CheckResult]) -> None:
         for result in hints:
             log.console.print(f"[dim]- {result.section}/{result.name}: {result.hint}[/dim]")
 
+    actions: list[tuple[str, str]] = []
+    for result in results:
+        action = result.action
+        if not isinstance(action, dict):
+            continue
+        kind = action.get("kind")
+        label = f"{result.section}/{result.name}"
+        if kind == "run" and isinstance(action.get("argv"), list):
+            argv = [str(part) for part in action["argv"]]
+            if argv == ["envy", "apply"]:
+                actions.append((label, "envy apply"))
+        elif kind == "open-app" and isinstance(action.get("name"), str):
+            actions.append((label, f"open {action['name']}"))
+        elif kind == "open-settings":
+            actions.append((label, "open macOS Privacy & Security settings"))
+    if actions:
+        log.console.print("[bold]Suggested actions[/bold]")
+        grouped: dict[str, list[str]] = {}
+        for label, action in actions:
+            grouped.setdefault(action, []).append(label)
+        for action, labels in grouped.items():
+            source = labels[0] if len(labels) == 1 else f"{len(labels)} checks"
+            log.console.print(f"[dim]- {action}  ({source})[/dim]")
+
     errors = sum(1 for result in results if result.failed)
     warnings = sum(1 for result in results if result.warned)
     if errors:

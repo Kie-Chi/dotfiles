@@ -4,7 +4,8 @@ mod model;
 mod ui;
 
 use std::{
-    io::{self, Stdout},
+    io::{self, Stdout, Write},
+    process::Command,
     sync::mpsc,
     time::Duration,
 };
@@ -18,9 +19,49 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use model::WorkflowAction;
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(80);
+
+fn run_workflow(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    action: &WorkflowAction,
+) -> io::Result<bool> {
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        DisableBracketedPaste,
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )?;
+    terminal.show_cursor()?;
+
+    println!("\n== {} ==\n", action.title());
+    let (program, args) = action.command(backend::envy_binary());
+    let result = Command::new(program).args(args).status();
+    let success = result.as_ref().is_ok_and(|status| status.success());
+    if let Err(error) = &result {
+        eprintln!("Could not start Envy workflow: {error}");
+    }
+    println!(
+        "\nWorkflow {}. Press Enter to return to the Envy TUI.",
+        if success { "completed" } else { "failed" }
+    );
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    enable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableBracketedPaste
+    )?;
+    terminal.clear()?;
+    Ok(success)
+}
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
     let (tx, rx) = mpsc::channel();
@@ -43,6 +84,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> 
             }
         }
         app.receive_messages();
+        if let Some(action) = app.take_workflow_action() {
+            let success = run_workflow(terminal, &action)?;
+            app.workflow_finished(&action, success);
+        }
     }
     Ok(())
 }

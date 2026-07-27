@@ -884,10 +884,17 @@ fn doctor_detail_lines(result: &Value) -> Vec<Line<'static>> {
     lines.extend(json_lines(result.get("details")));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Action (not executed)",
+        "Suggested action",
         Style::default().fg(Color::Cyan).bold(),
     )));
     lines.extend(json_lines(result.get("action")));
+    if result.get("action").is_some_and(|value| !value.is_null()) {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Press x to run an allow-listed action; Envy will return here afterward.",
+            Style::default().fg(Color::Yellow),
+        )));
+    }
     lines
 }
 
@@ -1247,7 +1254,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
                 "Doctor / History",
                 Style::default().fg(Color::Cyan).bold(),
             )),
-            Line::from("Doctor Enter opens all check details; actions stay read-only"),
+            Line::from("Doctor Enter opens details; x runs an allow-listed safe action"),
             Line::from("History Space marks one generation; d compares another"),
             Line::from(""),
             Line::from("Every mutation: dry-run → contract validation → explicit confirmation."),
@@ -1269,6 +1276,62 @@ fn render_overlays(frame: &mut Frame, app: &mut App) {
                 Line::from(Span::styled(error.clone(), Style::default().fg(Color::Red))),
                 Line::from(""),
                 Line::from("Enter or Esc closes this message; cached data remains available."),
+            ],
+            0,
+        );
+    } else if let Some(action) = &app.workflow_confirmation {
+        popup(
+            frame,
+            centered_size(72, 12, area),
+            "CONFIRM SUGGESTED ACTION",
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    action.title(),
+                    Style::default().fg(Color::Yellow).bold(),
+                )),
+                Line::from(""),
+                Line::from(format!("Command  {}", action.display_command())),
+                Line::from(""),
+                Line::from("The TUI will pause and show the complete command output."),
+                Line::from(""),
+                Line::from("Enter/y confirms; Esc/n cancels."),
+            ],
+            0,
+        );
+    } else if let Some(item) = &app.post_mutation {
+        popup(
+            frame,
+            centered_size(78, 14, area),
+            "SOFTWARE POLICY SAVED",
+            vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(item.clone(), Style::default().fg(Color::Green).bold()),
+                    Span::raw(" was saved to the selected machine policy."),
+                ]),
+                Line::from(""),
+                Line::from("Choose the next step; the policy remains pending until applied."),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(
+                        " p ",
+                        Style::default().fg(Color::Black).bg(Color::Cyan).bold(),
+                    ),
+                    Span::raw(" Preview     "),
+                    Span::styled(
+                        " a ",
+                        Style::default().fg(Color::Black).bg(Color::Green).bold(),
+                    ),
+                    Span::raw(" Apply     "),
+                    Span::styled(
+                        " d ",
+                        Style::default().fg(Color::Black).bg(Color::Yellow).bold(),
+                    ),
+                    Span::raw(" Doctor"),
+                ]),
+                Line::from(""),
+                Line::from("Enter or Esc keeps the change pending and returns to Envy."),
             ],
             0,
         );

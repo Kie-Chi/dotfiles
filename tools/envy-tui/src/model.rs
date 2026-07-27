@@ -76,6 +76,56 @@ pub enum SoftwareAction {
     Remove,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WorkflowAction {
+    Plan,
+    Apply,
+    Doctor,
+    OpenApp(String),
+    OpenSettings(String),
+}
+
+impl WorkflowAction {
+    pub fn title(&self) -> String {
+        match self {
+            Self::Plan => "Preview configuration".to_string(),
+            Self::Apply => "Apply configuration".to_string(),
+            Self::Doctor => "Verify with doctor".to_string(),
+            Self::OpenApp(name) => format!("Open {name}"),
+            Self::OpenSettings(_) => "Open System Settings".to_string(),
+        }
+    }
+
+    pub fn command(&self, envy: String) -> (String, Vec<String>) {
+        match self {
+            Self::Plan => (envy, vec!["plan".to_string()]),
+            Self::Apply => (envy, vec!["apply".to_string()]),
+            Self::Doctor => (envy, vec!["doctor".to_string()]),
+            Self::OpenApp(name) => ("open".to_string(), vec!["-a".to_string(), name.clone()]),
+            Self::OpenSettings(target) => (
+                "open".to_string(),
+                vec![match target.as_str() {
+                    "privacy-full-disk-access" => {
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+                            .to_string()
+                    }
+                    _ => "x-apple.systempreferences:com.apple.preference.security".to_string(),
+                }],
+            ),
+        }
+    }
+
+    pub fn display_command(&self) -> String {
+        match self {
+            Self::Plan => "envy plan".to_string(),
+            Self::Apply => "envy apply".to_string(),
+            Self::Doctor => "envy doctor".to_string(),
+            Self::OpenApp(name) => format!("open -a {name:?}"),
+            Self::OpenSettings(_) => "open macOS Privacy & Security settings".to_string(),
+        }
+    }
+}
+
 impl SoftwareAction {
     pub fn command(self) -> &'static str {
         match self {

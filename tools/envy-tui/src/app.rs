@@ -13,7 +13,7 @@ use crate::{
     model::{
         compatible_groups, filtered_software_entries, generation_number, generation_rows,
         result_rows, search_entries, DetailView, GroupChooser, LoadTarget, Message, MutationIntent,
-        MutationPreview, MutationStage, PageState, Pages, Screen, SoftwareAction,
+        MutationPreview, MutationStage, PageState, Pages, Screen, SoftwareAction, WorkflowAction,
     },
 };
 
@@ -58,6 +58,9 @@ pub struct App {
     pub detail_scroll_max: usize,
     group_request: Option<u64>,
     pub group_chooser: Option<GroupChooser>,
+    pub post_mutation: Option<String>,
+    pub workflow_confirmation: Option<WorkflowAction>,
+    workflow_action: Option<WorkflowAction>,
 }
 
 impl App {
@@ -94,6 +97,9 @@ impl App {
             detail_scroll_max: 0,
             group_request: None,
             group_chooser: None,
+            post_mutation: None,
+            workflow_confirmation: None,
+            workflow_action: None,
         }
     }
 
@@ -540,6 +546,40 @@ impl App {
         self.scroll = 0;
     }
 
+    pub fn take_workflow_action(&mut self) -> Option<WorkflowAction> {
+        self.workflow_action.take()
+    }
+
+    pub fn workflow_finished(&mut self, action: &WorkflowAction, success: bool) {
+        self.invalidate_after_mutation();
+        self.load_current(true);
+        self.status = if success {
+            format!("{} completed; refreshing data", action.title())
+        } else {
+            format!("{} failed; inspect the command output", action.title())
+        };
+    }
+
+    fn doctor_workflow(result: &Value) -> Option<WorkflowAction> {
+        let action = result.get("action")?;
+        match action.get("kind").and_then(Value::as_str)? {
+            "run" => {
+                let argv = action.get("argv")?.as_array()?;
+                let values = argv.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+                (values == ["envy", "apply"]).then_some(WorkflowAction::Apply)
+            }
+            "open-app" if cfg!(target_os = "macos") => action
+                .get("name")
+                .and_then(Value::as_str)
+                .map(|name| WorkflowAction::OpenApp(name.to_string())),
+            "open-settings" if cfg!(target_os = "macos") => action
+                .get("target")
+                .and_then(Value::as_str)
+                .map(|target| WorkflowAction::OpenSettings(target.to_string())),
+            _ => None,
+        }
+    }
+
     pub fn receive_messages(&mut self) {
         while let Ok(message) = self.rx.try_recv() {
             match message {
@@ -616,6 +656,7 @@ impl App {
                             self.pending_mutation = None;
                             self.invalidate_after_mutation();
                             self.load_current(true);
+                            self.post_mutation = Some(intent.item.clone());
                             self.status = format!("{description}; refreshing data");
                         }
                         (_, Err(error)) => {
@@ -801,6 +842,41 @@ impl App {
             }
             return;
         }
+        if self.post_mutation.is_some() {
+            match key.code {
+                KeyCode::Char('p') => {
+                    self.post_mutation = None;
+                    self.workflow_action = Some(WorkflowAction::Plan);
+                }
+                KeyCode::Char('a') => {
+                    self.post_mutation = None;
+                    self.workflow_action = Some(WorkflowAction::Apply);
+                }
+                KeyCode::Char('d') => {
+                    self.post_mutation = None;
+                    self.workflow_action = Some(WorkflowAction::Doctor);
+                }
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.post_mutation = None;
+                    self.status = "Software change saved for later application".to_string();
+                }
+                _ => {}
+            }
+            return;
+        }
+        if self.workflow_confirmation.is_some() {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    self.workflow_action = self.workflow_confirmation.take();
+                }
+                KeyCode::Esc | KeyCode::Char('n') => {
+                    self.workflow_confirmation = None;
+                    self.status = "Suggested action cancelled".to_string();
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.pending_mutation.is_some() {
             match key.code {
                 KeyCode::Enter | KeyCode::Char('y') if !self.mutation_loading => {
@@ -830,6 +906,18 @@ impl App {
         }
         if self.detail.is_some() {
             match key.code {
+                KeyCode::Char('x') => {
+                    let action = match self.detail.as_ref() {
+                        Some(DetailView::Doctor(result)) => Self::doctor_workflow(result),
+                        _ => None,
+                    };
+                    if let Some(action) = action {
+                        self.detail = None;
+                        self.workflow_confirmation = Some(action);
+                    } else {
+                        self.status = "This detail has no safe executable action".to_string();
+                    }
+                }
                 KeyCode::Down | KeyCode::Char('j') => {
                     self.detail_scroll = self
                         .detail_scroll
@@ -1015,6 +1103,17 @@ mod tests {
         assert!(!app.pages.contains_key(&Screen::Software));
         assert!(!app.pages.contains_key(&Screen::Doctor));
         assert!(app.search_cache.is_empty());
+    }
+
+    #[test]
+    fn saved_policy_offers_a_follow_up_workflow() {
+        let mut app = app();
+        app.post_mutation = Some("firefox".into());
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+
+        assert!(app.post_mutation.is_none());
+        assert_eq!(app.take_workflow_action(), Some(WorkflowAction::Plan));
     }
 
     #[test]

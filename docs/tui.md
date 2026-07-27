@@ -105,6 +105,10 @@ and applies it only after a second `Enter`/`y` confirmation through
 `--yes --json`. It never edits a machine file itself. Successful mutations
 invalidate Dashboard, Software, Doctor, and search caches before reloading the
 Software page; policy blocks are displayed without discarding the cached view.
+After a successful policy write, a follow-up overlay offers Preview, Apply,
+Doctor, or keep-pending actions. Long workflows temporarily suspend the alternate
+screen, inherit the real terminal for sudo and complete command output, then
+return to the TUI and refresh affected views.
 
 The interactive inspection workflows are:
 
@@ -121,8 +125,9 @@ The interactive inspection workflows are:
   always shown in an in-page input, remains available while providers are
   loading, accepts bracketed paste, and can be reset with `Ctrl-U`.
 - Doctor `Enter`/`i` shows the complete section, status, result, hint, structured
-  details, and proposed action. The action is displayed only and is never run
-  by the TUI.
+  details, and proposed action. Pressing `x` may run only the allow-listed
+  `envy apply`, macOS `open-app`, or `open-settings` actions after a second
+  confirmation; arbitrary doctor payload commands are never executed.
 - History `Space` marks a generation and `d`/`Enter` compares it with the
   selected generation. Without a mark, the selected generation is compared
   with the current one. The dialog includes both generation identities and the
