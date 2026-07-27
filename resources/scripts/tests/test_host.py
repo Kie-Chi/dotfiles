@@ -1,8 +1,12 @@
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import typer
+from rich.console import Console
 from typer.main import get_command
 
 from envy import host
@@ -156,6 +160,43 @@ class HostInitTests(unittest.TestCase):
             diff["software"]["rightOnly"],
             [{"group": "nix.user.package", "item": "bat"}],
         )
+
+
+    def test_select_json_emits_structured_result(self):
+        self.machines.mkdir(parents=True)
+        machine = self.machines / "work-macbook.nix"
+        machine.write_text("{ ... }: { }\n")
+        output = io.StringIO()
+        console = Console(file=output, force_terminal=False, width=220)
+        with patch.object(host, "machine_file", return_value=machine), patch.object(
+            host, "set_device_machine_id"
+        ) as select, patch.object(
+            host, "flake_target", return_value="path:.#work-macbook"
+        ), patch.object(host, "platform_name", return_value="darwin"), patch.object(
+            host.log, "console", console
+        ):
+            host.cmd_select("work-macbook", json_output=True, yes=True)
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["command"], "host.select")
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["data"]["machine"], "work-macbook")
+        select.assert_called_once_with("work-macbook")
+
+    def test_select_json_missing_machine_errors_without_writing(self):
+        missing = self.machines / "ghost.nix"
+        output = io.StringIO()
+        console = Console(file=output, force_terminal=False, width=220)
+        with patch.object(host, "machine_file", return_value=missing), patch.object(
+            host, "set_device_machine_id"
+        ) as select, patch.object(host.log, "console", console):
+            with self.assertRaises(typer.Exit):
+                host.cmd_select("ghost", json_output=True)
+
+        payload = json.loads(output.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "invalid-machine")
+        select.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from rich.table import Table
 
 from envy import log
 from envy.evaluation import invalidate_machine_manifest, machine_manifest, manifest_settings
+from envy.jsonio import emit, emit_error
 from envy.schemas.config import (
     FieldDef,
     LEGACY_CONFIG_PATHS,
@@ -637,12 +638,13 @@ def refine_all(*, write: bool = True, strict: bool = False, include_secrets: boo
     return report
 
 
-def set_config_value(path: str, value: str) -> None:
+def set_config_value(path: str, value: str, *, quiet: bool = False) -> None:
     values = read_machine_nix()
     valid_paths = {f.path for f in MACHINE_FIELDS}
     if path not in valid_paths:
-        log.error("machine", "unknown managed machine field", field=path)
-        log.hint("Edit the machine file directly for custom policy.")
+        if not quiet:
+            log.error("machine", "unknown managed machine field", field=path)
+            log.hint("Edit the machine file directly for custom policy.")
         raise typer.BadParameter(f"unknown managed machine field: {path}")
     legacy_values = read_legacy_config_nix()
     for field in MACHINE_FIELDS:
@@ -656,7 +658,8 @@ def set_config_value(path: str, value: str) -> None:
     if validation.errors:
         raise typer.BadParameter(f"invalid value for {path}")
     write_machine_nix(values)
-    log.ok("machine", "machine value updated", field=path, machine=current_machine_id())
+    if not quiet:
+        log.ok("machine", "machine value updated", field=path, machine=current_machine_id())
 
 
 def set_secret_value(yaml_path: str, value: str) -> None:
@@ -709,13 +712,30 @@ def cmd_doctor():
 def cmd_set(
     path: str = typer.Argument(..., help="Machine path, for example envy.llm.steps.url"),
     value: str = typer.Argument(..., help="Value to write"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Assume yes; skip interactive commit prompts"
+    ),
 ):
     """Set a managed non-secret value in the selected machine file."""
-    set_config_value(path, value)
+    try:
+        set_config_value(path, value, quiet=json_output)
+    except typer.BadParameter as exc:
+        if json_output:
+            emit_error("config.set", str(exc), code="invalid-value")
+            raise typer.Exit(code=1) from exc
+        raise
     offer_mutation_commit(
         [machine_config_file()],
         f"chore(config): update {current_machine_id()} machine values",
+        quiet=json_output or yes,
     )
+    if json_output:
+        emit("config.set", data={
+            "path": path,
+            "value": value,
+            "machine": current_machine_id(),
+        })
 
 
 @app.command(name="secret-set")
@@ -763,6 +783,14 @@ def cmd_show(
             field.path: config_values.get(field.path, "")
             for field in MACHINE_FIELDS
         },
+        "fields": [
+            {
+                "path": field.path,
+                "value": config_values.get(field.path, ""),
+                "choices": list(field.choices),
+            }
+            for field in MACHINE_FIELDS
+        ],
         "secrets": {
             field.yaml_path: bool(secret_values.get(field.path, ""))
             for field in SECRET_FIELDS

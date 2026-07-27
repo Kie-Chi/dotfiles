@@ -9,6 +9,7 @@ import typer
 from rich.table import Table
 
 from envy import log
+from envy.jsonio import emit, emit_error
 from envy.mutation import offer_mutation_commit
 from envy.process import run_process
 from envy.secure_io import atomic_write_bytes, atomic_write_text
@@ -344,14 +345,39 @@ def cmd_select(
         ..., help="Existing machine ID to select locally",
         autocompletion=complete_machine_ids,
     ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Assume yes; select without interactive prompts"
+    ),
 ):
     """Select which versioned machine file local envy commands operate on."""
-    selected = validate_machine_id(machine_id)
+    try:
+        selected = validate_machine_id(machine_id)
+    except typer.BadParameter as exc:
+        if json_output:
+            emit_error("host.select", str(exc), code="invalid-machine")
+            raise typer.Exit(code=1) from exc
+        raise
     path = machine_file(selected)
     if not path.exists():
-        log.error("host", "machine configuration is missing", path=str(path))
+        if json_output:
+            emit_error(
+                "host.select",
+                f"machine configuration is missing: {path}",
+                code="invalid-machine",
+            )
+        else:
+            log.error("host", "machine configuration is missing", path=str(path))
         raise typer.Exit(code=1)
     set_device_machine_id(selected)
+    if json_output:
+        emit("host.select", data={
+            "machine": selected,
+            "platform": platform_name(),
+            "metadata": str(DEVICE_LABEL_FILE),
+            "flakeTarget": flake_target(),
+        })
+        return
     log.ok("host", "machine selected locally", machine=selected, metadata=str(DEVICE_LABEL_FILE))
 
 
