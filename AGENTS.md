@@ -54,8 +54,8 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `docs/install.md` | Remote bootstrap, pinned release, custom target, and existing-checkout behavior. |
 | `docs/mirrors.md` | Two-stage bootstrap/declarative mirror policy, endpoint scope, probes, and ownership boundaries. |
 | `docs/software.md` | Manifest v2 schema, software commands, provider behavior, and ownership boundaries. |
-| `setup.sh` | Thin launcher: install Nix → enter devShell → exec setup.py. |
-| `requires.sh` | Installs Nix if missing. Nothing else — devShell provides all tools. |
+| `setup.sh` | Thin launcher: install Nix → run the minimal setup flake app → exec setup.py. |
+| `requires.sh` | Installs Nix if missing. Nothing else — the setup flake app provides runtime tools. |
 
 ### Module structure
 
@@ -107,7 +107,7 @@ Hybrid approach (in `setup.py`):
 | Command | Purpose |
 |---|---|
 | `bash install.sh` | Clone/reuse the configured checkout and hand off to setup; intended to work as a raw GitHub bootstrap. |
-| `bash setup.sh` | Run setup TUI (auto-enters devShell) |
+| `bash setup.sh` | Run setup TUI through the minimal setup runtime; it does not require Cargo/Rustc |
 | `envy config check` | Check `.device-label`, the selected machine file, and secrets.yaml without writing |
 | `envy config refine` | Migrate/refine device metadata, the machine managed block, and secret paths before apply |
 | `envy config show` | Show evaluated machine scalar values and secret-set status |

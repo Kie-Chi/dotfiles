@@ -9,7 +9,7 @@
 - macOS 或 Linux，具有 Bash、Git 和网络连接
 - 使用远程命令时需要 `curl`；已下载脚本可以直接用 Bash 执行
 - 运行交互式 setup 时需要真实终端。无 TTY 的 CI 环境应使用 `--no-setup`
-- 首次安装 Nix 可能要求 `sudo`。`setup.sh` 通过 `requires.sh` 使用 Determinate Nix Installer，然后进入本仓库的 devShell
+- 首次安装 Nix 可能要求 `sudo`。`setup.sh` 通过 `requires.sh` 使用 Determinate Nix Installer，然后运行最小化的 setup flake app；Cargo/Rustc 仅属于开发 devShell
 
 ## Remote Bootstrap
 
@@ -90,11 +90,11 @@ bash install.sh
 完整流程是：
 
 ```text
-install.sh -> clone/reuse checkout -> setup.sh -> Nix devShell -> setup.py
+install.sh -> clone/reuse checkout -> setup.sh -> nix run path:.#setup -> setup.py
 ```
 
 - `install.sh` 只负责 repository bootstrap 和终端交接。
-- `setup.sh` 只负责准备 Nix/devShell 并启动 setup。
+- `setup.sh` 只负责准备 Nix 和最小 setup runtime 并启动 setup；不会为了首次配置下载 Rust 开发工具链。
 - `setup.py` 创建或选择 host、编辑 machine 配置和 software exclusions，并管理 sops secrets。
 - setup 的列表、输入和变更摘要会遮罩 secret，只显示是否为空，不打印 secret 原文。
 

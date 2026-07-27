@@ -4,6 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+export ENVY_DOTFILES="$ROOT"
 export PYTHONPATH="$ROOT/resources/scripts:${PYTHONPATH:-}"
 
 # The polished frontend is a separate Rust binary. Prefer an installed
@@ -23,9 +24,8 @@ fi
 # Check Python + required modules
 if ! python3 -c "import typer, rich, yaml" 2>/dev/null; then
   if command -v nix >/dev/null 2>&1; then
-    exec nix develop "$ROOT" --command env \
-      PYTHONPATH="$ROOT/resources/scripts:${PYTHONPATH:-}" \
-      python3 -m envy "$@"
+    echo "[INFO] Preparing the minimal Envy runtime..." >&2
+    exec nix run "path:$ROOT#envy" -- "$@"
   else
     echo "error: Python dependencies missing (typer, rich, pyyaml)." >&2
     echo "Install nix or: pip install typer rich pyyaml" >&2

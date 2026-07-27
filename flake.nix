@@ -21,7 +21,7 @@
     };
   };
 
-  outputs = { nixpkgs, home-manager, darwin, nixgl, sops-nix, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, darwin, nixgl, sops-nix, ... }@inputs:
     let
       lib = nixpkgs.lib;
       darwinSystem = "aarch64-darwin";
@@ -172,6 +172,52 @@
         '';
       };
 
+      mkEnvyPython = system:
+        nixpkgs.legacyPackages.${system}.python3.withPackages (ps: [
+          ps.typer
+          ps.rich
+          ps.prompt-toolkit
+          ps.pyyaml
+        ]);
+
+      mkEnvyRuntime = system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          python = mkEnvyPython system;
+        in pkgs.writeShellApplication {
+          name = "envy";
+          runtimeInputs = [ python ] ++ (with pkgs; [
+            gitMinimal
+            sops
+            age
+            ssh-to-age
+            curl
+          ]);
+          text = ''
+            export PYTHONPATH="${./resources/scripts}:''${PYTHONPATH:-}"
+            exec python3 -m envy "$@"
+          '';
+        };
+
+      mkEnvySetupRuntime = system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          python = mkEnvyPython system;
+        in pkgs.writeShellApplication {
+          name = "envy-setup";
+          runtimeInputs = [ python ] ++ (with pkgs; [
+            gitMinimal
+            sops
+            age
+            ssh-to-age
+            curl
+          ]);
+          text = ''
+            export PYTHONPATH="${./resources/scripts}:''${PYTHONPATH:-}"
+            exec python3 ${./setup.py} "$@"
+          '';
+        };
+
       mkEnvyPythonCheck = system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
@@ -278,6 +324,30 @@
     in
     {
       inherit darwinConfigurations homeConfigurations;
+
+      packages.aarch64-darwin.envy = mkEnvyRuntime "aarch64-darwin";
+      packages.aarch64-darwin.setup = mkEnvySetupRuntime "aarch64-darwin";
+      packages.aarch64-darwin.default = self.packages.aarch64-darwin.envy;
+      apps.aarch64-darwin.envy = {
+        type = "app";
+        program = lib.getExe self.packages.aarch64-darwin.envy;
+      };
+      apps.aarch64-darwin.setup = {
+        type = "app";
+        program = lib.getExe self.packages.aarch64-darwin.setup;
+      };
+
+      packages.x86_64-linux.envy = mkEnvyRuntime "x86_64-linux";
+      packages.x86_64-linux.setup = mkEnvySetupRuntime "x86_64-linux";
+      packages.x86_64-linux.default = self.packages.x86_64-linux.envy;
+      apps.x86_64-linux.envy = {
+        type = "app";
+        program = lib.getExe self.packages.x86_64-linux.envy;
+      };
+      apps.x86_64-linux.setup = {
+        type = "app";
+        program = lib.getExe self.packages.x86_64-linux.setup;
+      };
 
       devShells.aarch64-darwin.default = mkDevShell "aarch64-darwin";
       devShells.x86_64-linux.default = mkDevShell "x86_64-linux";

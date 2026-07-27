@@ -41,16 +41,19 @@ if ! command -v nix >/dev/null 2>&1; then
 fi
 
 # ==========================================
-# STEP 2: Enter devShell and run setup.py
+# STEP 2: Enter the minimal setup runtime
 # ==========================================
 
-if [ "${ENVY_DEV_SHELL:-0}" = "1" ]; then
-    # Already in devShell, just run setup.py
-    echo "[DEBUG] Already in Nix dev shell"
+if [ "${ENVY_DEV_SHELL:-0}" = "1" ] \
+    || { python3 -c 'import typer, rich, prompt_toolkit, yaml' 2>/dev/null \
+        && command -v sops >/dev/null 2>&1 \
+        && command -v age >/dev/null 2>&1 \
+        && command -v ssh-to-age >/dev/null 2>&1; }; then
+    # Applied Envy packages and the development shell already provide runtime dependencies.
+    echo "[INFO] Using the available Envy setup runtime..."
     export PYTHONPATH="$BASE_DIR/resources/scripts:${PYTHONPATH:-}"
     exec python3 "$BASE_DIR/setup.py"
 else
-    # Enter nix develop and re-exec
-    echo "[INFO] Entering Nix dev shell for setup environment..."
-    exec nix develop "path:$BASE_DIR" --command bash "$BASE_DIR/setup.sh"
+    echo "[INFO] Preparing the Envy setup runtime (the Rust toolchain is not required)..."
+    exec nix run "path:$BASE_DIR#setup"
 fi
