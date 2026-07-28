@@ -6,6 +6,9 @@ from unittest.mock import patch
 
 from envy.mirror import (
     MirrorCache,
+    CHSRC_MEASURE_TIMEOUT,
+    _format_throughput,
+    _run_chsrc,
     _measure_with_curl,
     _measure_with_chsrc,
     _parse_speed,
@@ -135,6 +138,49 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(_parse_speed("36.52 MB/s"), 36.52 * 1024 ** 2)
         self.assertEqual(_parse_speed("512 KByte/s"), 512 * 1024)
 
+    def test_throughput_formatter_uses_megabytes_per_second(self):
+        self.assertEqual(_format_throughput(round(4.85 * 1024 ** 2)), "4.85 MB/s")
+        self.assertEqual(_format_throughput(round(80.49 * 1024)), "0.08 MB/s")
+        self.assertEqual(_format_throughput(0), "-")
+
+    @patch("envy.mirror.shutil.which", return_value="/usr/bin/chsrc")
+    @patch("envy.mirror.subprocess.run")
+    def test_chsrc_timeout_preserves_partial_output(self, run, which):
+        run.side_effect = subprocess.TimeoutExpired(
+            cmd=["/usr/bin/chsrc", "measure", "python"],
+            timeout=5,
+            output=b"- mirror [precise] ... 4.20 MByte/s\n",
+        )
+
+        stdout, stderr, code = _run_chsrc(
+            ["measure", "-no-color", "python"],
+            timeout=5,
+        )
+
+        which.assert_called_once_with("chsrc")
+        self.assertIn("4.20 MByte/s", stdout)
+        self.assertEqual(code, 124)
+        self.assertIn("timed out after 5s", stderr)
+
+    @patch("envy.mirror._run_chsrc")
+    def test_partial_chsrc_timeout_keeps_completed_measurements(self, run):
+        sources = [
+            {"code": "upstream", "label": "Upstream", "url": "https://pypi.org/simple"},
+            {"code": "bfsu", "label": "BFSU", "url": "https://mirrors.bfsu.edu.cn/pypi/web/simple"},
+        ]
+        run.return_value = (
+            "^ Upstream (https://pypi.org/simple) [precise] ... 2.40 MByte/s\n",
+            "chsrc timed out after 180s",
+            124,
+        )
+
+        values = _measure_with_chsrc("python", sources)
+
+        self.assertTrue(values[0]["ok"])
+        self.assertGreater(values[0]["throughputBps"], 0)
+        self.assertFalse(values[1]["ok"])
+        self.assertIn("timed out after 180s", values[1]["detail"])
+
     @patch("envy.mirror._run_chsrc")
     def test_successful_measurement_without_http_suffix_uses_throughput(self, run):
         sources = [{"code": "npmmirror", "label": "npmmirror", "url": "https://registry.npmmirror.com"}]
@@ -147,6 +193,10 @@ class MirrorTests(unittest.TestCase):
         )
 
         values = _measure_with_chsrc("npm", sources)
+        run.assert_called_once_with(
+            ["measure", "-no-color", "npm"],
+            timeout=CHSRC_MEASURE_TIMEOUT,
+        )
 
         self.assertTrue(values[0]["ok"])
         self.assertIsNone(values[0]["httpStatus"])

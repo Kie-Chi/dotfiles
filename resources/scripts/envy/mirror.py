@@ -42,6 +42,7 @@ MEASUREMENT_TTL = 6 * 60 * 60
 NEGATIVE_MEASUREMENT_TTL = 5 * 60
 STALE_MAX_AGE = 7 * 24 * 60 * 60
 CHSRC_TIMEOUT = 75
+CHSRC_MEASURE_TIMEOUT = 180
 CURL_TIMEOUT = 30
 CURL_CONNECT_TIMEOUT = 10
 # Keep the request bounded while still downloading a representative artifact.
@@ -52,7 +53,7 @@ CURL_SAMPLE_BYTES = 2 * 1024 * 1024
 # Bump when chsrc's human-readable measurement format handling changes. This
 # lets an upgraded envY ignore a short-lived negative cache written by an older
 # parser without requiring the user to remember `--refresh`.
-MEASUREMENT_PARSER_VERSION = 2
+MEASUREMENT_PARSER_VERSION = 3
 
 MEASUREMENT_PROVIDERS: dict[str, str] = {
     "chsrc": "Use chsrc's ecosystem-aware source measurement",
@@ -300,6 +301,12 @@ class MirrorCache:
             return False
 
 
+def _subprocess_text(value: str | bytes | None) -> str:
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value or ""
+
+
 def _run_chsrc(args: list[str], timeout: int = CHSRC_TIMEOUT) -> tuple[str, str, int] | None:
     binary = shutil.which("chsrc")
     if binary is None:
@@ -308,7 +315,14 @@ def _run_chsrc(args: list[str], timeout: int = CHSRC_TIMEOUT) -> tuple[str, str,
         result = subprocess.run(
             [binary, *args], capture_output=True, text=True, timeout=timeout, check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired as exc:
+        stdout = _subprocess_text(exc.stdout)
+        error = _subprocess_text(exc.stderr).strip()
+        detail = f"chsrc timed out after {timeout}s"
+        if error:
+            detail = f"{detail}: {error}"
+        return stdout, detail, 124
+    except OSError:
         return None
     return result.stdout, result.stderr, result.returncode
 
@@ -481,6 +495,12 @@ def _parse_speed(value: str) -> float:
     return float(match.group(1)) * scale.get(match.group(2).casefold(), 1)
 
 
+def _format_throughput(throughput_bps: int) -> str:
+    if throughput_bps <= 0:
+        return "-"
+    return f"{throughput_bps / (1024 ** 2):.2f} MB/s"
+
+
 def complete_measurement_providers(ctx, incomplete: str) -> list[tuple[str, str]]:
     """Complete the supported mirror measurement backends without I/O."""
     del ctx
@@ -492,7 +512,10 @@ def complete_measurement_providers(ctx, incomplete: str) -> list[tuple[str, str]
 
 
 def _measure_with_chsrc(target: str, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result = _run_chsrc(["measure", "-no-color", TARGET_SPECS[target]["chsrc"]])
+    result = _run_chsrc(
+        ["measure", "-no-color", TARGET_SPECS[target]["chsrc"]],
+        timeout=CHSRC_MEASURE_TIMEOUT,
+    )
     by_url = {str(source.get("url")): source for source in sources}
     by_label = {
         str(source.get("label")): source
@@ -549,6 +572,11 @@ def _measure_with_chsrc(target: str, sources: list[dict[str, Any]]) -> list[dict
                 "measurementParserVersion": MEASUREMENT_PARSER_VERSION,
             }
         if measured:
+            missing_detail = (
+                stderr.strip()[:300]
+                if code != 0 and stderr
+                else "chsrc did not report this source"
+            )
             return [
                 measured.get(
                     str(source.get("code")),
@@ -557,7 +585,7 @@ def _measure_with_chsrc(target: str, sources: list[dict[str, Any]]) -> list[dict
                         "httpStatus": 0,
                         "throughputBps": 0,
                         "ok": False,
-                        "detail": "chsrc did not report this source",
+                        "detail": missing_detail,
                         "measurementProvider": "chsrc",
                         "measurementParserVersion": MEASUREMENT_PARSER_VERSION,
                     },
@@ -1110,13 +1138,13 @@ def cmd_measure(
         table.add_row(
             "OK" if value.get("ok") else "FAIL",
             str(value.get("code", "")),
-            f"{throughput} B/s" if throughput else "-",
+            _format_throughput(throughput),
             str(http_status) if http_status is not None else "-",
             str(value.get("measurementUrl") or value.get("url", "")),
         )
     log.console.print(table)
     if cache_hit:
-        log.hint("Cached result; use --refresh to run curl again")
+        log.hint(f"Cached result; use --refresh to run {provider} again")
     if values and not successful:
         raise typer.Exit(code=1)
 

@@ -100,6 +100,9 @@ envy mirror cache status --json
 相同的 TensorFlow tarball，Go 使用固定 module 元数据，Python 使用 `pip` 的 simple
 索引，Rust 使用 crates API/下载 artifact；因此不会把一个很小的 registry 根响应
 当成吞吐量。结果中的 `measurementUrl`（表格里的 `Probe URL`）是实际测速地址。
+终端表格统一把吞吐量格式化为 `MB/s`；JSON 仍保留原始 `throughputBps` 字节计数。
+chsrc 的目标级精准测速最多允许 180 秒；若仍然超时，envY 会保留已经完成的部分结果，
+并把尚未完成的源明确标为超时。
 envY 永远不会在 activation 或 TUI 选择时调用 `chsrc set`。测速结果按 provider 隔离后写入 envY 自己的 SQLite cache：
 `~/.cache/envy/mirrors/index-v1.sqlite3`（目录 0700，文件 0600）。候选源 cache
 默认 30 天，成功测速 6 小时；全为 HTTP 000/无吞吐量的失败结果只缓存 5 分钟，避免
