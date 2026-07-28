@@ -38,7 +38,7 @@ pub fn run_json(args: &[&str]) -> Result<Value, String> {
 
 fn load_target(target: &LoadTarget) -> Result<Value, String> {
     match target {
-        LoadTarget::Screen(Screen::Dashboard) => run_json(&["status", "--json"]),
+        LoadTarget::Screen(Screen::Home) => run_json(&["status", "--json"]),
         LoadTarget::Screen(Screen::Software) => run_json(&["sw", "ls", "--details", "--json"]),
         LoadTarget::Search(query) => run_json(&["sw", "search", query, "--json"]),
         LoadTarget::Screen(Screen::Doctor) => run_json(&["doctor", "--json"]),
@@ -305,7 +305,7 @@ pub fn spawn_history_diff(tx: Sender<Message>, request: u64, before: u64, after:
     });
 }
 
-/// Apply an inline Dashboard setting through the unified, non-interactive CLI:
+/// Apply a Configure/Settings value through the unified, non-interactive CLI:
 /// `host select … --json --yes` or `config set … --json --yes`.
 pub fn spawn_setting(tx: Sender<Message>, request: u64, key: SettingKey, value: String) {
     thread::spawn(move || {

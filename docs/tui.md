@@ -85,27 +85,35 @@ meaningful for scripts and the TUI.
 
 ## Current implementation
 
-The first frontend now lives in `resources/scripts/envy-tui/` and is implemented with
-Rust/Ratatui and Crossterm. It currently provides Dashboard, Software, Search,
-Doctor, and History screens with background command execution, keyboard
-navigation, loading/error states, scrolling, and a help overlay. Each page is
-loaded only on first visit and then kept in memory for the lifetime of the TUI;
-switching tabs does not launch another backend process. Search results are
-cached independently for the 12 most recent submitted queries.
+The frontend lives in `resources/scripts/envy-tui/` and is implemented with
+Rust/Ratatui and Crossterm. Its stable top-level sections are **Home**,
+**Configure**, and **Activity**. Home presents status and recommendations;
+Configure contains Software, Search, Mirrors, and Settings; Activity contains
+Health, Generations, and Operations. The leaf views execute background commands
+and provide keyboard navigation, loading/error states, scrolling, and a help
+overlay. Each data view is loaded only on first visit and then kept in memory
+for the lifetime of the TUI; changing sections or sub-views does not launch
+another backend process. Search results are cached independently for the 12
+most recent submitted queries.
+
+Use `1`–`3`, `Tab`, or the left/right arrows to select a top-level section.
+Use `v` to cycle the current section's sub-views; Home has no sub-views. `/`
+remains reserved for the Search screen and Software's local filter, while `s`
+opens Configure / Search from anywhere.
 
 Pressing `r` explicitly refreshes the active page. When cached content exists,
 the TUI keeps rendering it with a `refreshing` indicator instead of replacing
-the entire view with a loading screen. Dashboard uses one `envy status --json`
-process so machine, Git, generation, software, and Doctor data come from one
-coherent manifest snapshot. Loading also seeds the Doctor page cache because
-the dashboard response already contains the complete doctor payload.
+the entire view with a loading screen. Home uses one `envy status --json`
+process so machine, Git, generation, software, and Health data come from one
+coherent manifest snapshot. Loading also seeds the Health page cache because
+the Home response already contains the complete doctor payload.
 
 The Software page supports guarded availability changes. Move the selected row
 with `j`/`k` or the arrow keys and press `Enter`/`Space`. The TUI first calls
 `envy sw add/rm ... --dry-run --json`, renders the verified include/exclude plan,
 and applies it only after a second `Enter`/`y` confirmation through
 `--yes --json`. It never edits a machine file itself. Successful mutations
-invalidate Dashboard, Software, Doctor, and search caches before reloading the
+invalidate Home, Software, Health, and search caches before reloading the
 Software page; policy blocks are displayed without discarding the cached view.
 After a successful policy write, a follow-up overlay offers Preview, Apply,
 Doctor, or keep-pending actions. Long workflows temporarily suspend the alternate
@@ -136,7 +144,7 @@ discovery, not a speed-test result. Completed measurements explicitly show
 shows the generated endpoint assignments, and writes them only after a second
 `Enter`/`y` through `--yes --json`. The TUI never runs `chsrc set` and never
 edits a machine file directly. A successful write invalidates the affected
-Dashboard, Mirror, Software, Doctor, Hosts, and Config snapshots; apply remains
+Home, Mirror, Software, Health, Hosts, and Config snapshots; apply remains
 an explicit `envy plan` / `envy apply` workflow.
 
 The interactive inspection workflows are:
@@ -157,8 +165,8 @@ The interactive inspection workflows are:
   details, and proposed action. Pressing `x` may run only the allow-listed
   `envy apply`, macOS `open-app`, or `open-settings` actions after a second
   confirmation; arbitrary doctor payload commands are never executed.
-- History `Space` marks a generation and `d`/`Enter` compares it with the
-  selected generation. Without a mark, the selected generation is compared
+- In Activity / Generations, `Space` marks a generation and `d`/`Enter`
+  compares it with the selected generation. Without a mark, the selected generation is compared
   with the current one. The dialog includes both generation identities and the
   complete closure diff; long detail dialogs scroll with `j`/`k`, the arrows,
   or the mouse wheel and show the current scroll position. Dialog controls stay
@@ -177,8 +185,8 @@ bounded because it is content scrolling rather than item selection.
 mark, or closing a dialog; it does not unexpectedly exit from a normal page.
 Press `q` to quit. The footer adapts to terminal width, keeping `? help` and
 `q quit` visible in narrow terminals while exposing richer page-specific hints
-when space permits. Search, Software, Doctor, and History also render explicit
-loading and empty states instead of an ambiguous blank table.
+when space permits. Search, Software, Health, and Activity data views also
+render explicit loading and empty states instead of an ambiguous blank table.
 
 The Rust source is separated by responsibility: `main.rs` owns only terminal
 lifecycle, `app.rs` owns interaction state, `backend.rs` owns JSON subprocess

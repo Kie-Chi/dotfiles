@@ -12,12 +12,12 @@ use crate::{
         spawn_mutation, spawn_request, spawn_search_groups, spawn_setting, spawn_software_why,
     },
     model::{
-        compatible_groups, count_rows, dashboard_settings, filtered_software_entries,
-        generation_number, generation_rows, mirror_measurements, mirror_mode, mirror_sources,
-        mirror_target_rows, result_rows, search_entries, DetailView, GroupChooser, HistoryView,
+        compatible_groups, count_rows, filtered_software_entries, generation_number,
+        generation_rows, mirror_measurements, mirror_mode, mirror_sources, mirror_target_rows,
+        result_rows, search_entries, settings_rows, DetailView, GroupChooser, HistoryView,
         LoadTarget, Message, MirrorChooser, MirrorPreview, MirrorSource, MutationIntent,
-        MutationPreview, MutationStage, PageState, Pages, PendingSetting, Screen, SettingChooser,
-        SettingEdit, SettingRow, SoftwareAction, WorkflowAction,
+        MutationPreview, MutationStage, NavigationSection, PageState, Pages, PendingSetting,
+        Screen, SettingChooser, SettingEdit, SettingRow, SoftwareAction, WorkflowAction,
     },
 };
 
@@ -45,6 +45,8 @@ pub enum InputMode {
 
 pub struct App {
     pub screen: Screen,
+    configure_screen: Screen,
+    activity_screen: Screen,
     pub pages: Pages,
     pub search_cache: HashMap<String, PageState>,
     search_order: VecDeque<String>,
@@ -62,8 +64,7 @@ pub struct App {
     pub journal_selected: usize,
     pub hosts_selected: usize,
     pub mirror_selected: usize,
-    pub config_selected: usize,
-    pub dashboard_selected: usize,
+    pub settings_selected: usize,
     pub history_view: HistoryView,
     pub history_marked: Option<u64>,
     request_id: u64,
@@ -100,11 +101,13 @@ pub struct App {
 impl App {
     pub fn new(tx: Sender<Message>, rx: Receiver<Message>) -> Self {
         Self {
-            screen: Screen::Dashboard,
+            screen: Screen::Home,
+            configure_screen: Screen::Software,
+            activity_screen: Screen::History,
             pages: HashMap::new(),
             search_cache: HashMap::new(),
             search_order: VecDeque::new(),
-            status: "Loading dashboard".to_string(),
+            status: "Loading home".to_string(),
             query: String::new(),
             submitted_query: String::new(),
             software_filter: String::new(),
@@ -118,8 +121,7 @@ impl App {
             journal_selected: 0,
             hosts_selected: 0,
             mirror_selected: 0,
-            config_selected: 0,
-            dashboard_selected: 0,
+            settings_selected: 0,
             history_view: HistoryView::default(),
             history_marked: None,
             request_id: 0,
@@ -238,7 +240,7 @@ impl App {
             .unwrap_or(true);
         if !should_start {
             self.sync_status();
-            self.ensure_dashboard_dependencies();
+            self.ensure_config_dependencies();
             return;
         }
         self.request_id += 1;
@@ -258,17 +260,16 @@ impl App {
             format!("Loading {}", target.title().to_lowercase())
         };
         spawn_request(self.tx.clone(), request, target);
-        self.ensure_dashboard_dependencies();
+        self.ensure_config_dependencies();
     }
 
-    /// The Dashboard edits host and config inline, so it needs the host list and
-    /// config payloads cached alongside its own status snapshot.
-    fn ensure_dashboard_dependencies(&mut self) {
-        if self.screen != Screen::Dashboard {
+    /// The Settings sub-view edits host and config together. Config is the
+    /// active leaf payload; Hosts is loaded alongside it for its selector.
+    fn ensure_config_dependencies(&mut self) {
+        if self.screen != Screen::Config {
             return;
         }
         self.ensure_loaded(Screen::Hosts);
-        self.ensure_loaded(Screen::Config);
     }
 
     /// Start a background load for an off-tab screen if it has no cached payload,
@@ -319,22 +320,81 @@ impl App {
 
     fn set_screen(&mut self, screen: Screen) {
         self.screen = screen;
+        match screen.section() {
+            NavigationSection::Configure if screen != Screen::Hosts => {
+                self.configure_screen = screen;
+            }
+            NavigationSection::Activity if screen != Screen::Journal => {
+                self.activity_screen = screen;
+            }
+            _ => {}
+        }
         self.scroll = 0;
         self.input_mode = InputMode::Normal;
         self.load_current(false);
     }
 
-    fn next_screen(&mut self, delta: isize) {
-        let count = Screen::ALL.len() as isize;
-        let next = (self.screen.index() as isize + delta).rem_euclid(count) as usize;
-        self.set_screen(Screen::ALL[next]);
+    fn set_section(&mut self, section: NavigationSection) {
+        let screen = match section {
+            NavigationSection::Home => Screen::Home,
+            NavigationSection::Configure => self.configure_screen,
+            NavigationSection::Activity => self.activity_screen,
+        };
+        self.set_screen(screen);
+    }
+
+    fn next_section(&mut self, delta: isize) {
+        let count = NavigationSection::ALL.len() as isize;
+        let next = (self.screen.section().index() as isize + delta).rem_euclid(count) as usize;
+        self.set_section(NavigationSection::ALL[next]);
+    }
+
+    fn next_subpage(&mut self) {
+        match self.screen.section() {
+            NavigationSection::Home => {
+                self.status = "Home has no secondary views".to_string();
+            }
+            NavigationSection::Configure => {
+                const VIEWS: [Screen; 4] = [
+                    Screen::Software,
+                    Screen::Search,
+                    Screen::Mirror,
+                    Screen::Config,
+                ];
+                let current = VIEWS
+                    .iter()
+                    .position(|view| *view == self.configure_screen)
+                    .unwrap_or(0);
+                let next = (current + 1) % VIEWS.len();
+                self.set_screen(VIEWS[next]);
+            }
+            NavigationSection::Activity => {
+                let current = match (self.activity_screen, self.history_view) {
+                    (Screen::History, HistoryView::Generations) => 1,
+                    (Screen::History, HistoryView::Operations) => 2,
+                    _ => 0,
+                };
+                let next = (current + 1) % 3;
+                match next {
+                    0 => self.set_screen(Screen::Doctor),
+                    1 => {
+                        self.history_view = HistoryView::Generations;
+                        self.set_screen(Screen::History);
+                    }
+                    _ => {
+                        self.history_view = HistoryView::Operations;
+                        self.set_screen(Screen::History);
+                    }
+                }
+            }
+        }
     }
 
     pub fn software_entries(&self) -> Vec<crate::model::SoftwareEntry> {
         filtered_software_entries(self.payload(), &self.software_filter)
     }
 
-    pub fn dashboard_settings(&self) -> Vec<SettingRow> {
+    pub fn settings_rows(&self) -> Vec<SettingRow> {
         let hosts = self
             .pages
             .get(&Screen::Hosts)
@@ -343,7 +403,7 @@ impl App {
             .pages
             .get(&Screen::Config)
             .and_then(|state| state.payload.as_ref());
-        dashboard_settings(hosts, config)
+        settings_rows(hosts, config)
     }
 
     pub fn row_count(&self) -> usize {
@@ -357,8 +417,8 @@ impl App {
             Screen::Journal => crate::model::journal_rows(self.payload()),
             Screen::Hosts => count_rows(self.payload(), "machines"),
             Screen::Mirror => mirror_target_rows(self.payload()).len(),
-            Screen::Config => 0,
-            Screen::Dashboard => self.dashboard_settings().len(),
+            Screen::Config => self.settings_rows().len(),
+            Screen::Home => 0,
         }
     }
 
@@ -374,8 +434,8 @@ impl App {
             Screen::Journal => self.journal_selected,
             Screen::Hosts => self.hosts_selected,
             Screen::Mirror => self.mirror_selected,
-            Screen::Config => self.config_selected,
-            Screen::Dashboard => self.dashboard_selected,
+            Screen::Config => self.settings_selected,
+            Screen::Home => 0,
         }
     }
 
@@ -391,8 +451,8 @@ impl App {
             Screen::Journal => self.journal_selected = value,
             Screen::Hosts => self.hosts_selected = value,
             Screen::Mirror => self.mirror_selected = value,
-            Screen::Config => self.config_selected = value,
-            Screen::Dashboard => self.dashboard_selected = value,
+            Screen::Config => self.settings_selected = value,
+            Screen::Home => {}
         }
     }
 
@@ -658,7 +718,7 @@ impl App {
     }
 
     fn invalidate_after_mutation(&mut self) {
-        for screen in [Screen::Dashboard, Screen::Software, Screen::Doctor] {
+        for screen in [Screen::Home, Screen::Software, Screen::Doctor] {
             self.pages.remove(&screen);
         }
         self.search_cache.clear();
@@ -666,11 +726,11 @@ impl App {
         self.scroll = 0;
     }
 
-    /// Begin editing the selected Dashboard setting: enumerated fields open a
-    /// dropdown, freeform fields open a text input pre-filled with the value.
+    /// Begin editing the selected Settings row: enumerated fields open a
+    /// dropdown; freeform fields open a text input pre-filled with the value.
     fn begin_setting_edit(&mut self) {
-        let settings = self.dashboard_settings();
-        let Some(row) = settings.get(self.dashboard_selected).cloned() else {
+        let settings = self.settings_rows();
+        let Some(row) = settings.get(self.settings_selected).cloned() else {
             self.status = "No setting selected".to_string();
             return;
         };
@@ -752,9 +812,9 @@ impl App {
     }
 
     /// Host/config edits change the selected machine file, so drop and reload the
-    /// Dashboard's own snapshot plus the host list and config payloads it renders.
+    /// Home snapshot plus the Configure/Settings payloads that reflect it.
     fn refresh_after_setting(&mut self) {
-        for screen in [Screen::Dashboard, Screen::Hosts, Screen::Config] {
+        for screen in [Screen::Home, Screen::Hosts, Screen::Config] {
             self.pages.remove(&screen);
         }
         self.load_current(true);
@@ -836,7 +896,7 @@ impl App {
 
     fn invalidate_after_mirror(&mut self) {
         for screen in [
-            Screen::Dashboard,
+            Screen::Home,
             Screen::Software,
             Screen::Doctor,
             Screen::Mirror,
@@ -894,7 +954,7 @@ impl App {
                     payload,
                 } => {
                     let is_current = self.current_target().as_ref() == Some(&target);
-                    let dashboard_doctor = (target == LoadTarget::Screen(Screen::Dashboard))
+                    let home_doctor = (target == LoadTarget::Screen(Screen::Home))
                         .then(|| payload.get("doctor").cloned())
                         .flatten();
                     let accepted = self
@@ -908,7 +968,7 @@ impl App {
                         })
                         .is_some();
                     if accepted {
-                        if let Some(doctor) = dashboard_doctor {
+                        if let Some(doctor) = home_doctor {
                             let state = self.pages.entry(Screen::Doctor).or_default();
                             if !state.loading {
                                 state.payload = Some(doctor);
@@ -1544,8 +1604,9 @@ impl App {
             }
             KeyCode::Char('?') => self.show_help = true,
             KeyCode::Char('r') => self.load_current(true),
-            KeyCode::Tab | KeyCode::Right => self.next_screen(1),
-            KeyCode::BackTab | KeyCode::Left => self.next_screen(-1),
+            KeyCode::Tab | KeyCode::Right => self.next_section(1),
+            KeyCode::BackTab | KeyCode::Left => self.next_section(-1),
+            KeyCode::Char('v') => self.next_subpage(),
             KeyCode::Char('/') if self.screen == Screen::Software => {
                 self.input_mode = InputMode::SoftwareFilter;
                 self.status = "Type to filter locally; Enter keeps it, Esc exits input".to_string();
@@ -1555,18 +1616,15 @@ impl App {
                 self.status = "Type a query and press Enter".to_string();
             }
             KeyCode::Char('/') | KeyCode::Char('s') => {
-                self.screen = Screen::Search;
-                self.scroll = 0;
+                self.set_screen(Screen::Search);
                 self.input_mode = InputMode::Search;
                 self.sync_status();
             }
-            KeyCode::Char(character) if ('1'..='9').contains(&character) => {
+            KeyCode::Char(character) if ('1'..='3').contains(&character) => {
                 let index = character as usize - '1' as usize;
-                if index < Screen::ALL.len() {
-                    self.set_screen(Screen::ALL[index]);
-                }
+                self.set_section(NavigationSection::ALL[index]);
             }
-            KeyCode::Enter if self.screen == Screen::Dashboard => {
+            KeyCode::Enter if self.screen == Screen::Config => {
                 self.begin_setting_edit();
             }
             KeyCode::Enter if self.screen == Screen::Mirror => {
@@ -1583,13 +1641,6 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char('i') if self.screen == Screen::Doctor => {
                 self.open_doctor_detail();
-            }
-            KeyCode::Char('v') if self.screen == Screen::History => {
-                self.history_view = self.history_view.toggled();
-                self.history_marked = None;
-                self.scroll = 0;
-                self.load_current(false);
-                self.status = format!("Viewing {}", self.history_view.label());
             }
             KeyCode::Char(' ')
                 if self.screen == Screen::History
@@ -1670,23 +1721,66 @@ mod tests {
     }
 
     #[test]
-    fn history_view_toggles_between_generations_and_operations() {
+    fn activity_subview_v_cycles_health_generations_and_operations() {
         let mut app = app();
         app.screen = Screen::History;
+        app.activity_screen = Screen::History;
         assert_eq!(app.history_view, HistoryView::Generations);
+
         app.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
         assert_eq!(app.history_view, HistoryView::Operations);
+
         app.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        assert_eq!(app.screen, Screen::Doctor);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        assert_eq!(app.screen, Screen::History);
         assert_eq!(app.history_view, HistoryView::Generations);
     }
 
     #[test]
-    fn tab_bar_drops_journal_hosts_and_config() {
-        assert_eq!(Screen::ALL.len(), 6);
-        assert!(!Screen::ALL.contains(&Screen::Journal));
-        assert!(!Screen::ALL.contains(&Screen::Hosts));
-        assert!(!Screen::ALL.contains(&Screen::Config));
-        assert_eq!(Screen::ALL[5], Screen::Mirror);
+    fn top_level_navigation_has_three_sections() {
+        assert_eq!(
+            NavigationSection::ALL,
+            [
+                NavigationSection::Home,
+                NavigationSection::Configure,
+                NavigationSection::Activity,
+            ]
+        );
+        assert_eq!(Screen::Home.section(), NavigationSection::Home);
+        assert_eq!(Screen::Config.section(), NavigationSection::Configure);
+        assert_eq!(Screen::History.section(), NavigationSection::Activity);
+    }
+
+    #[test]
+    fn section_navigation_preserves_the_last_leaf_view() {
+        let mut app = app();
+        app.set_screen(Screen::Config);
+        app.set_section(NavigationSection::Activity);
+        assert_eq!(app.screen, Screen::History);
+        app.set_section(NavigationSection::Configure);
+        assert_eq!(app.screen, Screen::Config);
+    }
+
+    #[test]
+    fn home_does_not_preload_configure_settings() {
+        let mut app = app();
+        app.load_current(false);
+
+        assert!(app.pages.contains_key(&Screen::Home));
+        assert!(!app.pages.contains_key(&Screen::Hosts));
+        assert!(!app.pages.contains_key(&Screen::Config));
+    }
+
+    #[test]
+    fn search_is_a_configure_subview() {
+        let mut app = app();
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+
+        assert_eq!(app.screen, Screen::Search);
+        assert_eq!(app.screen.section(), NavigationSection::Configure);
+        assert_eq!(app.input_mode, InputMode::Search);
     }
 
     #[test]
@@ -2016,7 +2110,7 @@ mod tests {
         assert_eq!(app.query, "visual studio code");
     }
 
-    fn dashboard_app() -> App {
+    fn settings_app() -> App {
         let mut app = app();
         app.pages.insert(
             Screen::Hosts,
@@ -2041,13 +2135,13 @@ mod tests {
                 ..PageState::default()
             },
         );
-        app.screen = Screen::Dashboard;
+        app.screen = Screen::Config;
         app
     }
 
     #[test]
-    fn dashboard_enumerated_setting_opens_a_dropdown_and_confirms() {
-        let mut app = dashboard_app();
+    fn settings_enumerated_value_opens_a_dropdown_and_confirms() {
+        let mut app = settings_app();
         // Row 0 is host; move to the enumerated mirror field (row 1).
         app.visible_rows = 10;
         app.move_selection(1);
@@ -2066,8 +2160,8 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_freeform_setting_uses_text_input() {
-        let mut app = dashboard_app();
+    fn settings_freeform_value_uses_text_input() {
+        let mut app = settings_app();
         app.visible_rows = 10;
         app.move_selection(2); // envy.user.name (freeform)
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -2077,7 +2171,7 @@ mod tests {
 
     #[test]
     fn host_row_dropdown_lists_machines() {
-        let mut app = dashboard_app();
+        let mut app = settings_app();
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let chooser = app.setting_chooser.as_ref().expect("host dropdown");
         assert_eq!(chooser.key, SettingKey::Host);
@@ -2086,7 +2180,7 @@ mod tests {
 
     #[test]
     fn chooser_navigation_wraps_at_both_boundaries() {
-        let mut app = dashboard_app();
+        let mut app = settings_app();
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
         app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));

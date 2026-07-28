@@ -2,9 +2,39 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
+/// The persistent navigation level. Leaf screens keep their own backend data
+/// routes, while this enum defines the small, stable top-level information
+/// architecture shown in the header.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NavigationSection {
+    Home,
+    Configure,
+    Activity,
+}
+
+impl NavigationSection {
+    pub const ALL: [Self; 3] = [Self::Home, Self::Configure, Self::Activity];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Home => "Home",
+            Self::Configure => "Configure",
+            Self::Activity => "Activity",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            Self::Home => 0,
+            Self::Configure => 1,
+            Self::Activity => 2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
-    Dashboard,
+    Home,
     Software,
     Search,
     Doctor,
@@ -16,22 +46,22 @@ pub enum Screen {
 }
 
 impl Screen {
-    /// Top-level tabs, in bar order. Journal, Hosts, and Config are intentionally
-    /// absent: Journal is a sub-view of History, and Hosts/Config are edited inline
-    /// on the Dashboard. They remain enum variants so their backend commands,
-    /// cached `PageState`, and selection indices keep working off-tab.
-    pub const ALL: [Self; 6] = [
-        Self::Dashboard,
-        Self::Software,
-        Self::Search,
-        Self::Doctor,
-        Self::History,
-        Self::Mirror,
-    ];
+    /// Map a leaf/data view to the stable top-level section that contains it.
+    /// Hosts and Config intentionally remain leaf screens so existing backend
+    /// requests and cache identities stay unchanged.
+    pub fn section(self) -> NavigationSection {
+        match self {
+            Self::Home => NavigationSection::Home,
+            Self::Software | Self::Search | Self::Hosts | Self::Mirror | Self::Config => {
+                NavigationSection::Configure
+            }
+            Self::Doctor | Self::History | Self::Journal => NavigationSection::Activity,
+        }
+    }
 
     pub fn title(self) -> &'static str {
         match self {
-            Self::Dashboard => "Dashboard",
+            Self::Home => "Home",
             Self::Software => "Software",
             Self::Search => "Search",
             Self::Doctor => "Doctor",
@@ -42,13 +72,9 @@ impl Screen {
             Self::Config => "Config",
         }
     }
-
-    pub fn index(self) -> usize {
-        Self::ALL.iter().position(|item| *item == self).unwrap_or(0)
-    }
 }
 
-/// The two time-ordered views merged under the History tab.
+/// The two time-ordered Activity data views rendered through the History leaf.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum HistoryView {
     #[default]
@@ -57,25 +83,11 @@ pub enum HistoryView {
 }
 
 impl HistoryView {
-    pub fn toggled(self) -> Self {
-        match self {
-            Self::Generations => Self::Operations,
-            Self::Operations => Self::Generations,
-        }
-    }
-
     /// The backing screen whose command and cached payload feed this view.
     pub fn screen(self) -> Screen {
         match self {
             Self::Generations => Screen::History,
             Self::Operations => Screen::Journal,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Generations => "Generations",
-            Self::Operations => "Operations",
         }
     }
 }
@@ -277,7 +289,7 @@ pub struct MirrorPreview {
     pub payload: Value,
 }
 
-/// A Dashboard-editable setting: either the active host or one managed config field.
+/// A Configure/Settings value: either the active host or one managed config field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettingKey {
     Host,
@@ -779,11 +791,11 @@ pub fn mirror_measurements(payload: Option<&Value>) -> Vec<MirrorSource> {
     )
 }
 
-/// Build the Dashboard's editable settings list from the cached host list and
+/// Build the Configure/Settings list from the cached host list and
 /// config payloads. Row 0 is the active host; the rest are managed config fields
 /// (`fields[]` from `config show --json`), where a non-empty `choices` marks an
 /// enumerated field that should render as a dropdown.
-pub fn dashboard_settings(hosts: Option<&Value>, config: Option<&Value>) -> Vec<SettingRow> {
+pub fn settings_rows(hosts: Option<&Value>, config: Option<&Value>) -> Vec<SettingRow> {
     let mut rows = Vec::new();
     let current_host = config
         .and_then(|value| value.get("device"))
@@ -952,7 +964,7 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_settings_expose_host_and_config_editability() {
+    fn settings_rows_expose_host_and_config_editability() {
         let hosts = json!({"machines": [
             {"platform": "darwin", "machineId": "mac", "current": true, "file": "hosts/darwin/mac.nix"},
             {"platform": "linux", "machineId": "box", "current": false, "file": "hosts/linux/box.nix"}
@@ -964,7 +976,7 @@ mod tests {
                 {"path": "envy.user.name", "value": "chi", "choices": []}
             ]
         });
-        let rows = dashboard_settings(Some(&hosts), Some(&config));
+        let rows = settings_rows(Some(&hosts), Some(&config));
         assert_eq!(rows[0].key, SettingKey::Host);
         assert_eq!(rows[0].value, "mac");
         assert_eq!(rows[0].choices, vec!["mac".to_string(), "box".to_string()]);

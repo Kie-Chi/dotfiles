@@ -10,7 +10,7 @@ use crate::{
     app::{App, InputMode},
     model::{
         journal_entries, mirror_mode, mirror_target_rows, search_entries, text, DetailView,
-        HistoryView, Screen, SoftwareAction,
+        HistoryView, NavigationSection, Screen, SoftwareAction,
     },
 };
 
@@ -106,18 +106,18 @@ fn render_empty_state(frame: &mut Frame, area: Rect, title: &str, message: &str,
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
-    let titles = Screen::ALL
+    let titles = NavigationSection::ALL
         .iter()
         .enumerate()
-        .map(|(index, screen)| {
+        .map(|(index, section)| {
             Line::from(vec![
                 Span::styled(
                     format!(" {} ", index + 1),
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
-                    screen.title(),
-                    if *screen == app.screen {
+                    section.title(),
+                    if *section == app.screen.section() {
                         Style::default().fg(Color::Black).bg(Color::Cyan).bold()
                     } else {
                         Style::default().fg(Color::Gray)
@@ -128,7 +128,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         .collect::<Vec<_>>();
     frame.render_widget(
         Tabs::new(titles)
-            .select(app.screen.index())
+            .select(app.screen.section().index())
             .divider("│")
             .block(
                 Block::default()
@@ -146,7 +146,8 @@ fn page_keys(screen: Screen) -> &'static str {
         Screen::Search => "Enter add  / query",
         Screen::Doctor => "Enter details",
         Screen::History => "v view  Space mark  d diff",
-        Screen::Dashboard => "Enter edit  s search",
+        Screen::Home => "2 Configure  3 Activity",
+        Screen::Config => "Enter edit host / setting",
         Screen::Mirror => "Enter source",
         _ => "r refresh",
     }
@@ -158,7 +159,8 @@ fn compact_page_keys(screen: Screen) -> &'static str {
         Screen::Search => "↵ add  / query",
         Screen::Doctor => "↵ details",
         Screen::History => "v view  Space mark  d diff",
-        Screen::Dashboard => "↵ edit  s search",
+        Screen::Home => "2 Configure  3 Activity",
+        Screen::Config => "↵ edit setting",
         Screen::Mirror => "↵ source",
         _ => "r refresh",
     }
@@ -198,12 +200,12 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
     let hints = if area.width >= 118 {
         format!(
-            "{}  │  ↑↓ select  Tab page  r refresh  ? help  q quit",
+            "{}  │  ↑↓ select  Tab section  v view  r refresh  ? help  q quit",
             page_keys(app.screen)
         )
     } else if area.width >= 78 {
         format!(
-            "{}  │  Tab page  ? help  q quit",
+            "{}  │  Tab section  v view  ? help  q quit",
             compact_page_keys(app.screen)
         )
     } else {
@@ -233,7 +235,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn render_dashboard(frame: &mut Frame, app: &App, area: Rect) {
+fn render_home(frame: &mut Frame, app: &App, area: Rect) {
     let payload = app.payload().unwrap_or(&Value::Null);
     let config = payload.get("config").unwrap_or(&Value::Null);
     let software = payload.get("software").unwrap_or(&Value::Null);
@@ -317,12 +319,16 @@ fn render_dashboard(frame: &mut Frame, app: &App, area: Rect) {
                 .unwrap_or("The selected machine is healthy")
         )),
         Line::from(""),
-        Line::from("  Every write uses dry-run + explicit confirmation"),
+        Line::from(Span::styled(
+            "Next",
+            Style::default().fg(Color::Cyan).bold(),
+        )),
+        Line::from("  2 Configure  software, mirrors, and system settings"),
+        Line::from("  3 Activity   health details and operation history"),
+        Line::from(""),
+        Line::from("  Setup and repair guidance appears here when attention is needed."),
     ];
-    let panes =
-        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
-    let summary_area = panes[0];
-    let settings_area = panes[1];
+    let summary_area = area;
     if summary_area.width >= 88 {
         let columns = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(summary_area);
@@ -334,11 +340,10 @@ fn render_dashboard(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(card(Paragraph::new(left)), rows[0]);
         frame.render_widget(card(Paragraph::new(right)), rows[1]);
     }
-    render_dashboard_settings(frame, app, settings_area);
 }
 
-fn render_dashboard_settings(frame: &mut Frame, app: &App, area: Rect) {
-    let settings = app.dashboard_settings();
+fn render_settings(frame: &mut Frame, app: &App, area: Rect) {
+    let settings = app.settings_rows();
     let count = settings.len();
     if count == 0 {
         frame.render_widget(
@@ -393,7 +398,7 @@ fn render_dashboard_settings(frame: &mut Frame, app: &App, area: Rect) {
             .borders(Borders::ALL)
             .border_style(Color::DarkGray),
     );
-    let mut state = selected_state(app.dashboard_selected, offset, count == 0);
+    let mut state = selected_state(app.settings_selected, offset, count == 0);
     frame.render_stateful_widget(table, area, &mut state);
 }
 
@@ -670,34 +675,10 @@ fn render_doctor(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_history(frame: &mut Frame, app: &App, area: Rect) {
-    let sections = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
-    render_history_tabs(frame, app, sections[0]);
     match app.history_view {
-        HistoryView::Generations => render_generations(frame, app, sections[1]),
-        HistoryView::Operations => render_journal(frame, app, sections[1]),
+        HistoryView::Generations => render_generations(frame, app, area),
+        HistoryView::Operations => render_journal(frame, app, area),
     }
-}
-
-fn render_history_tabs(frame: &mut Frame, app: &App, area: Rect) {
-    let tab = |view: HistoryView| {
-        Span::styled(
-            format!(" {} ", view.label()),
-            if view == app.history_view {
-                Style::default().fg(Color::Black).bg(Color::Cyan).bold()
-            } else {
-                Style::default().fg(Color::Gray)
-            },
-        )
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            tab(HistoryView::Generations),
-            Span::raw(" "),
-            tab(HistoryView::Operations),
-            Span::styled("   v switch view", Style::default().fg(Color::DarkGray)),
-        ])),
-        area,
-    );
 }
 
 fn render_generations(frame: &mut Frame, app: &App, area: Rect) {
@@ -885,7 +866,63 @@ fn render_mirror(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
+fn render_section_navigation(frame: &mut Frame, app: &App, area: Rect) {
+    let (title, labels, selected) = match app.screen.section() {
+        NavigationSection::Home => return,
+        NavigationSection::Configure => {
+            let selected = match app.screen {
+                Screen::Software => 0,
+                Screen::Search => 1,
+                Screen::Mirror => 2,
+                Screen::Config => 3,
+                _ => 0,
+            };
+            (
+                "Configure",
+                ["Software", "Search", "Mirrors", "Settings"].as_slice(),
+                selected,
+            )
+        }
+        NavigationSection::Activity => {
+            let selected = match (app.screen, app.history_view) {
+                (Screen::History, HistoryView::Generations) => 1,
+                (Screen::History, HistoryView::Operations) | (Screen::Journal, _) => 2,
+                _ => 0,
+            };
+            (
+                "Activity",
+                ["Health", "Generations", "Operations"].as_slice(),
+                selected,
+            )
+        }
+    };
+    let tabs = labels
+        .iter()
+        .map(|label| Line::from(Span::styled(*label, Style::default().fg(Color::Gray))))
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Tabs::new(tabs)
+            .select(selected)
+            .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan).bold())
+            .divider(" │ ")
+            .block(
+                Block::default()
+                    .title(format!(" {title} · v switch view "))
+                    .borders(Borders::BOTTOM)
+                    .border_style(Color::DarkGray),
+            ),
+        area,
+    );
+}
+
 fn render_body(frame: &mut Frame, app: &App, area: Rect) {
+    let content_area = if app.screen.section() == NavigationSection::Home {
+        area
+    } else {
+        let sections = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(area);
+        render_section_navigation(frame, app, sections[0]);
+        sections[1]
+    };
     if let Some(error) = app.current_error().filter(|_| !app.current_has_content()) {
         frame.render_widget(
             Paragraph::new(vec![
@@ -905,28 +942,29 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
                     .borders(Borders::ALL)
                     .border_style(Color::Red),
             ),
-            area,
+            content_area,
         );
         return;
     }
     match app.screen {
-        Screen::Dashboard => render_dashboard(frame, app, area),
-        Screen::Software => render_software(frame, app, area),
-        Screen::Search => render_search(frame, app, area),
-        Screen::Doctor => render_doctor(frame, app, area),
-        Screen::History => render_history(frame, app, area),
-        Screen::Mirror => render_mirror(frame, app, area),
-        // Journal, Hosts, and Config are not top-level tabs; their data surfaces
-        // inside History (Journal) and the Dashboard (Hosts/Config).
-        Screen::Journal | Screen::Hosts | Screen::Config => {}
+        Screen::Home => render_home(frame, app, content_area),
+        Screen::Software => render_software(frame, app, content_area),
+        Screen::Search => render_search(frame, app, content_area),
+        Screen::Doctor => render_doctor(frame, app, content_area),
+        Screen::History => render_history(frame, app, content_area),
+        Screen::Mirror => render_mirror(frame, app, content_area),
+        Screen::Config => render_settings(frame, app, content_area),
+        // Journal and Hosts remain backend leafs: Journal renders through the
+        // History/Operations view and Hosts feeds the Settings host selector.
+        Screen::Journal | Screen::Hosts => {}
     }
     if app.loading() && !app.current_has_content() && app.screen != Screen::Search {
-        frame.render_widget(Clear, area);
+        frame.render_widget(Clear, content_area);
         frame.render_widget(
             Paragraph::new(format!("  {} Loading complete envY data…", spinner()))
                 .style(Style::default().fg(Color::Yellow))
                 .block(Block::default().borders(Borders::ALL)),
-            area,
+            content_area,
         );
     }
 }
@@ -1823,52 +1861,44 @@ fn render_mirror_confirm(frame: &mut Frame, app: &App, area: Rect) {
 fn render_help(frame: &mut Frame, area: Rect) {
     popup(
         frame,
-        centered_size(80, 29, area),
+        centered_size(80, 34, area),
         "KEYBOARD",
         vec![
-            Line::from("1..6        jump to a page"),
-            Line::from("Tab / ←→    switch pages"),
+            Line::from("1..3        jump to Home / Configure / Activity"),
+            Line::from("Tab / ←→    switch top-level sections"),
+            Line::from("v           cycle the current section's sub-view"),
             Line::from("↑↓ / j k    select rows; detail dialogs scroll"),
             Line::from("PgUp/PgDn   move by one viewport; g/G first/last"),
-            Line::from("s           search from any page"),
-            Line::from("r           refresh current page"),
+            Line::from("s           open Configure / Search from anywhere"),
+            Line::from("r           refresh the current data view"),
             Line::from("Esc         cancel or clear context; q quits"),
             Line::from(""),
             Line::from(Span::styled(
-                "Dashboard",
+                "Home",
                 Style::default().fg(Color::Cyan).bold(),
             )),
-            Line::from("Enter        edit host / config value (dropdown or text)"),
+            Line::from("Status, recommendations, and setup / repair guidance"),
             Line::from(""),
             Line::from(Span::styled(
-                "Software",
+                "Configure",
                 Style::default().fg(Color::Cyan).bold(),
             )),
+            Line::from("Software / Search / Mirrors / Settings are secondary views"),
+            Line::from("Settings Enter edits host or a config value"),
             Line::from("Enter/Space  preview availability toggle"),
             Line::from("w / i        explain selected software policy"),
             Line::from("/            local text filter (no backend request)"),
             Line::from("Ctrl-U       clear the current filter or query"),
-            Line::from(""),
-            Line::from(Span::styled(
-                "Search",
-                Style::default().fg(Color::Cyan).bold(),
-            )),
-            Line::from("/            edit registry query"),
             Line::from("Enter / a    choose group, then preview add"),
+            Line::from("Mirror Enter  choose a target, then a chsrc/catalog source"),
             Line::from(""),
             Line::from(Span::styled(
-                "Doctor / History",
+                "Activity",
                 Style::default().fg(Color::Cyan).bold(),
             )),
-            Line::from("Doctor Enter opens details; x runs an allow-listed safe action"),
-            Line::from("History v toggles Generations/Operations; Space marks, d compares"),
-            Line::from(""),
-            Line::from(Span::styled(
-                "Mirror",
-                Style::default().fg(Color::Cyan).bold(),
-            )),
-            Line::from("Enter        choose a target, then a chsrc/catalog source"),
-            Line::from("j/k          move sources; Enter previews the generated override"),
+            Line::from("Health / Generations / Operations are secondary views"),
+            Line::from("Health Enter opens details; x runs an allow-listed safe action"),
+            Line::from("v cycles Activity views; Space marks generations, d compares"),
             Line::from(""),
             Line::from("Every mutation: dry-run → contract validation → explicit confirmation."),
             Line::from("Press ? or Esc to close."),
@@ -2055,6 +2085,22 @@ mod tests {
     }
 
     #[test]
+    fn configure_subview_keeps_three_top_level_sections_visible() {
+        let mut app = test_app();
+        app.screen = Screen::Mirror;
+        let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Home"));
+        assert!(text.contains("Configure"));
+        assert!(text.contains("Activity"));
+        assert!(text.contains("Software"));
+        assert!(text.contains("Mirrors"));
+        assert!(text.contains("Settings"));
+    }
+
+    #[test]
     fn mirror_throughput_is_displayed_in_megabytes_per_second() {
         assert_eq!(format_throughput(0), "0.00 MB/s");
         assert_eq!(format_throughput(1024 * 1024), "1.00 MB/s");
@@ -2093,11 +2139,11 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_renders_editable_settings() {
+    fn configure_settings_renders_editable_values() {
         let mut app = test_app();
-        app.screen = Screen::Dashboard;
+        app.screen = Screen::Config;
         app.pages.insert(
-            Screen::Dashboard,
+            Screen::Home,
             crate::model::PageState {
                 payload: Some(json!({"config": {"device": {"machineId": "mac"}}})),
                 ..Default::default()
