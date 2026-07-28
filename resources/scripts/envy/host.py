@@ -15,7 +15,7 @@ from envy.process import run_process
 from envy.secure_io import atomic_write_bytes, atomic_write_text
 from envy.utils import (
     DEVICE_LABEL_FILE,
-    DOTFILES_DIR,
+    ENVY_ROOT,
     current_machine_id,
     flake_target,
     machine_build_attr,
@@ -25,7 +25,7 @@ from envy.utils import (
 )
 
 
-HOSTS_DIR = DOTFILES_DIR / "hosts"
+HOSTS_DIR = ENVY_ROOT / "hosts"
 MACHINES_DIR = machine_config_dir()
 DEFAULT_MACHINE = HOSTS_DIR / "default.nix"
 MACHINE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -146,7 +146,7 @@ def evaluate_machine_manifest(platform: str, machine_id: str) -> dict:
         raise ValueError(f"unsupported machine platform: {platform}")
     result = run_process(
         ["nix", "eval", "--impure", attr, "--json"],
-        cwd=DOTFILES_DIR, capture=True, check=False, timeout=60,
+        cwd=ENVY_ROOT, capture=True, check=False, timeout=60,
     )
     if result.returncode != 0:
         detail = (result.stderr or "manifest evaluation failed").strip().splitlines()[-1]
@@ -402,7 +402,7 @@ def cmd_status(
     table.add_row("Flake target", flake_target())
     branch_result = run_process(
         ["git", "branch", "--show-current"],
-        cwd=DOTFILES_DIR, capture=True, check=False,
+        cwd=ENVY_ROOT, capture=True, check=False,
     )
     branch = (branch_result.stdout or "").strip()
     if json_output:
@@ -548,7 +548,7 @@ def cmd_check(
     log.step("host", "evaluating machine configuration", machine=selected)
     result = run_process(
         ["nix", "eval", "--impure", attr, "--raw"],
-        cwd=DOTFILES_DIR, check=False,
+        cwd=ENVY_ROOT, check=False,
     )
     if result.returncode != 0:
         raise typer.Exit(code=result.returncode)

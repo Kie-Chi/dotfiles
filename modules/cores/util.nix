@@ -44,7 +44,7 @@ let
     ]);
     text = ''
       bundled="${scriptsSrc}"
-      repo="''${ENVY_DOTFILES:-}"
+      repo="''${ENVY_ROOT:-''${ENVY_DOTFILES:-''${DOTFILES_DIR:-}}}"
       if [ -z "$repo" ]; then
         repo=${lib.escapeShellArg config.envy.repository.path}
       fi
@@ -73,7 +73,7 @@ let
     src = ../../resources/scripts/envy-tui;
     cargoLock.lockFile = ../../resources/scripts/envy-tui/Cargo.lock;
     meta = {
-      description = "Ratatui frontend for the Envy dotfiles manager";
+      description = "Ratatui frontend for the envY configuration manager";
       mainProgram = "envy-tui";
     };
   };

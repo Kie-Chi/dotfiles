@@ -15,7 +15,7 @@ from envy.evaluation import machine_manifest, manifest_settings, manifest_softwa
 from envy.process import run_process
 from envy.schemas.config import MACHINE_FIELDS, SECRET_FIELDS
 from envy.utils import (
-    DOTFILES_DIR,
+    ENVY_ROOT,
     current_machine_id,
     platform_name,
     read_device_metadata,
@@ -82,24 +82,24 @@ def _software_snapshot(manifest: dict[str, Any] | None) -> dict[str, Any]:
 def _git_snapshot() -> dict[str, Any]:
     branch_result = run_process(
         ["git", "branch", "--show-current"],
-        cwd=DOTFILES_DIR, capture=True, check=False,
+        cwd=ENVY_ROOT, capture=True, check=False,
     )
     status_result = run_process(
         ["git", "status", "--porcelain=v1"],
-        cwd=DOTFILES_DIR, capture=True, check=False,
+        cwd=ENVY_ROOT, capture=True, check=False,
     )
     branch = (branch_result.stdout or "").strip() or None
     changes = [line for line in (status_result.stdout or "").splitlines() if line]
     upstream_result = run_process(
         ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
-        cwd=DOTFILES_DIR, capture=True, check=False,
+        cwd=ENVY_ROOT, capture=True, check=False,
     )
     upstream = (upstream_result.stdout or "").strip() or None
     ahead = behind = None
     if upstream:
         counts = run_process(
             ["git", "rev-list", "--left-right", "--count", f"{upstream}...HEAD"],
-            cwd=DOTFILES_DIR, capture=True, check=False,
+            cwd=ENVY_ROOT, capture=True, check=False,
         )
         parts = (counts.stdout or "").split()
         if counts.returncode == 0 and len(parts) == 2 and all(part.isdigit() for part in parts):
@@ -166,7 +166,7 @@ def _recommendations(payload: dict[str, Any]) -> list[dict[str, str]]:
         recommendations.append({
             "label": "Bootstrap configuration",
             "command": "envy bootstrap",
-            "reason": "no active Envy generation was detected",
+            "reason": "no active envY generation was detected",
         })
     if doctor["warn"] and not doctor["error"]:
         recommendations.append({
@@ -240,7 +240,7 @@ def render(payload: dict[str, Any]) -> None:
         "Doctor",
         f"{doctor['ok']} OK · {doctor['warn']} warnings · {doctor['error']} errors",
     )
-    log.console.print(Panel(table, title="Envy status", border_style="cyan"))
+    log.console.print(Panel(table, title="envY status", border_style="cyan"))
 
     log.console.print("[bold]Recommended next actions[/bold]")
     for index, recommendation in enumerate(payload["recommendations"], start=1):

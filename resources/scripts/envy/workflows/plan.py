@@ -11,7 +11,7 @@ from rich.table import Table
 
 from envy import log
 from envy.process import run_process
-from envy.utils import DOTFILES_DIR, current_machine_id, machine_build_attr, platform_name
+from envy.utils import ENVY_ROOT, current_machine_id, machine_build_attr, platform_name
 from envy.workflows.generations import closure_diff, current_generation
 
 
@@ -22,7 +22,7 @@ def plan_configuration(*, json_output: bool = False) -> None:
         log.step("plan", "building selected machine without activation", machine=machine)
     result = run_process(
         ["nix", "build", "--no-link", "--print-out-paths", "--impure", attr],
-        cwd=DOTFILES_DIR, capture=True, check=False,
+        cwd=ENVY_ROOT, capture=True, check=False,
         activity=f"build plan for {machine}",
     )
     if result.returncode != 0:
@@ -62,7 +62,7 @@ def plan_configuration(*, json_output: bool = False) -> None:
     if json_output:
         log.console.print_json(json.dumps(payload, ensure_ascii=False))
         return
-    table = Table(title=f"Envy plan - {machine}")
+    table = Table(title=f"envY plan - {machine}")
     table.add_column("Field")
     table.add_column("Value")
     table.add_row("Current", str(current.target) if current is not None else "<unknown>")

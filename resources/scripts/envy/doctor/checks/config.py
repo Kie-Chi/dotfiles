@@ -1,4 +1,4 @@
-"""Dotfiles machine policy and sops checks."""
+"""envY machine policy and sops checks."""
 
 from pathlib import Path
 
@@ -32,7 +32,7 @@ from envy.utils import (
     AGE_KEY_FILE,
     AGE_KEY_DIR,
     DEVICE_LABEL_FILE,
-    DOTFILES_DIR,
+    ENVY_ROOT,
     SECRETS_FILE,
     device_metadata_is_toml,
     is_sops_encrypted,
@@ -150,7 +150,7 @@ def _check_source() -> list[CheckResult]:
     results.append(info(SECTION_DOCTOR, "envy source", source["source_dir"]))
 
     if source["in_nix_store"]:
-        repo_source = DOTFILES_DIR / "resources" / "scripts" / "envy"
+        repo_source = ENVY_ROOT / "resources" / "scripts" / "envy"
         if repo_source.exists():
             results.append(warn(
                 SECTION_DOCTOR,

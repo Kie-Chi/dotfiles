@@ -6,7 +6,7 @@ from envy import log
 from envy.journal import record_operation
 from envy.process import run_process
 from envy.transaction import FileTransaction
-from envy.utils import DOTFILES_DIR
+from envy.utils import ENVY_ROOT
 from envy.workflows.check import check_or_exit
 
 
@@ -15,7 +15,7 @@ from envy.workflows.check import check_or_exit
     detail=lambda input_name=None, **_: {"input": input_name or "all"},
 )
 def update_inputs(input_name: str | None = None, *, validate: bool = True) -> None:
-    lock_file = DOTFILES_DIR / "flake.lock"
+    lock_file = ENVY_ROOT / "flake.lock"
     command = ["nix", "flake", "update"]
     if input_name:
         command.append(input_name)
@@ -23,7 +23,7 @@ def update_inputs(input_name: str | None = None, *, validate: bool = True) -> No
              input=input_name or "all")
     with FileTransaction([lock_file]) as transaction:
         run_process(
-            command, cwd=DOTFILES_DIR, check=True,
+            command, cwd=ENVY_ROOT, check=True,
             activity="flake input update",
         )
         if validate:

@@ -109,7 +109,7 @@ class GitImpactTests(unittest.TestCase):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("{ ... }: {}\n")
-            with patch.object(git_workflow, "DOTFILES_DIR", root):
+            with patch.object(git_workflow, "ENVY_ROOT", root):
                 affected, shared = git_workflow.affected_machines([
                     "modules/cores/base.nix",
                 ])
@@ -257,7 +257,7 @@ class GitImpactTests(unittest.TestCase):
 
         run.assert_called_once_with(
             ["git", "push", "-u", "backup", "master"],
-            cwd=git_workflow.DOTFILES_DIR,
+            cwd=git_workflow.ENVY_ROOT,
             check=False,
         )
 

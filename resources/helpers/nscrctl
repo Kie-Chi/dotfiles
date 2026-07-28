@@ -131,14 +131,14 @@ ui_confirm() {
     fi
 }
 
-# Get DOTFILES_DIR
-if [ -z "$DOTFILES_DIR" ]; then
-    ui_error "DOTFILES_DIR environment variable is not set"
+# Get ENVY_ROOT
+if [ -z "$ENVY_ROOT" ]; then
+    ui_error "ENVY_ROOT environment variable is not set"
     exit 1
 fi
 
-NIRI_FILE="$DOTFILES_DIR/modules/desktops/linux/niri.nix"
-BACKUP_FILE="$DOTFILES_DIR/modules/desktops/linux/niri.nix.back.scrctl"
+NIRI_FILE="$ENVY_ROOT/modules/desktops/linux/niri.nix"
+BACKUP_FILE="$ENVY_ROOT/modules/desktops/linux/niri.nix.back.scrctl"
 
 if [ ! -f "$NIRI_FILE" ]; then
     ui_error "niri.nix not found at $NIRI_FILE"

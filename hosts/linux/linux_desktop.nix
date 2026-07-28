@@ -11,7 +11,7 @@
   envy.user.home = "/home/chi";
 
   # --- ENV CONFIG ---
-  envy.repository.path = "/home/chi/.dotfiles";
+  envy.repository.path = "/home/chi/.envy";
 
   # --- GIT CONFIG ---
   envy.git.name = "Kie-Chi";

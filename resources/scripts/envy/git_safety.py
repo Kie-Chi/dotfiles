@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from envy.sops_format import content_is_sops_encrypted
-from envy.utils import DOTFILES_DIR, SECRETS_FILE, is_sops_encrypted
+from envy.utils import ENVY_ROOT, SECRETS_FILE, is_sops_encrypted
 
 
 SECRET_PATH = "secrets/secrets.yaml"
@@ -30,7 +30,7 @@ def assert_worktree_secret_encrypted(path: Path | None = None) -> None:
 
 
 def _git_file(revision: str, *, repository: Path | None = None) -> tuple[bool, str]:
-    root = repository or DOTFILES_DIR
+    root = repository or ENVY_ROOT
     object_name = f":{SECRET_PATH}" if revision == ":" else f"{revision}:{SECRET_PATH}"
     result = subprocess.run(
         ["git", "show", object_name],
@@ -82,7 +82,7 @@ def assert_outgoing_secrets_encrypted(
 def assert_git_secret_safety(
     *, outgoing_commits: Iterable[str] = (), repository: Path | None = None,
 ) -> None:
-    root = repository or DOTFILES_DIR
+    root = repository or ENVY_ROOT
     assert_worktree_secret_encrypted(root / SECRET_PATH)
     assert_index_secret_encrypted(repository=root)
     assert_head_secret_encrypted(repository=root)

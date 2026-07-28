@@ -5,7 +5,7 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRES_SCRIPT="$BASE_DIR/requires.sh"
 MIRROR_ENV_SCRIPT="$BASE_DIR/resources/scripts/mirror-env.sh"
-export ENVY_DOTFILES="$BASE_DIR"
+export ENVY_ROOT="$BASE_DIR"
 
 # Bootstrap-time mirrors make the first nix develop usable before a machine
 # module has been evaluated and applied.
@@ -49,11 +49,11 @@ if [ "${ENVY_DEV_SHELL:-0}" = "1" ] \
         && command -v sops >/dev/null 2>&1 \
         && command -v age >/dev/null 2>&1 \
         && command -v ssh-to-age >/dev/null 2>&1; }; then
-    # Applied Envy packages and the development shell already provide runtime dependencies.
-    echo "[INFO] Using the available Envy setup runtime..."
+    # Applied envY packages and the development shell already provide runtime dependencies.
+    echo "[INFO] Using the available envY setup runtime..."
     export PYTHONPATH="$BASE_DIR/resources/scripts:${PYTHONPATH:-}"
     exec python3 "$BASE_DIR/setup.py"
 else
-    echo "[INFO] Preparing the Envy setup runtime (the Rust toolchain is not required)..."
+    echo "[INFO] Preparing the envY setup runtime (the Rust toolchain is not required)..."
     exec nix run "path:$BASE_DIR#setup"
 fi

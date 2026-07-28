@@ -69,7 +69,7 @@ class SafetyWorkflowTests(unittest.TestCase):
             commit = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True
             ).stdout.strip()
-            with patch.object(git_safety, "DOTFILES_DIR", root):
+            with patch.object(git_safety, "ENVY_ROOT", root):
                 with self.assertRaises(git_safety.SecretSafetyError):
                     git_safety.assert_outgoing_secrets_encrypted([commit])
 
@@ -81,7 +81,7 @@ class SafetyWorkflowTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             secret.write_text("token: plaintext\n")
             subprocess.run(["git", "add", "secrets/secrets.yaml"], cwd=root, check=True)
-            with patch.object(git_safety, "DOTFILES_DIR", root):
+            with patch.object(git_safety, "ENVY_ROOT", root):
                 with self.assertRaises(git_safety.SecretSafetyError):
                     git_safety.assert_index_secret_encrypted()
 
@@ -98,7 +98,7 @@ class SafetyWorkflowTests(unittest.TestCase):
             subprocess.run(["git", "commit", "-qm", "secret"], cwd=root, check=True)
             secret.unlink()
             subprocess.run(["git", "add", "-u"], cwd=root, check=True)
-            with patch.object(git_safety, "DOTFILES_DIR", root):
+            with patch.object(git_safety, "ENVY_ROOT", root):
                 with self.assertRaises(git_safety.SecretSafetyError):
                     git_safety.assert_index_secret_encrypted()
 
@@ -197,7 +197,7 @@ sops:
                 lock.write_text("new\n")
                 return subprocess.CompletedProcess(args[0], 0, "", "")
 
-            with patch.object(update_workflow, "DOTFILES_DIR", root), patch.object(
+            with patch.object(update_workflow, "ENVY_ROOT", root), patch.object(
                 update_workflow, "run_process", side_effect=mutate
             ), patch.object(update_workflow, "check_or_exit", side_effect=typer.Exit(1)):
                 with self.assertRaises(typer.Exit):
@@ -238,7 +238,7 @@ sops:
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("{}\n")
-            with patch.object(check_workflow, "DOTFILES_DIR", root):
+            with patch.object(check_workflow, "ENVY_ROOT", root):
                 self.assertEqual(
                     check_workflow.select_entries(all_machines=True),
                     [("darwin", "mac"), ("linux", "pc")],

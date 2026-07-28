@@ -14,7 +14,7 @@ from envy.host import current_machine_file, initialize_machine, require_current_
 from envy.journal import record_operation
 from envy.process import run_process
 from envy.utils import (
-    DOTFILES_DIR,
+    ENVY_ROOT,
     PLATFORM,
     SETUP_SCRIPT,
     SYSTEM_PROFILE,
@@ -163,8 +163,8 @@ def rollback_linux(target: str | None = None) -> None:
 
 def open_editor() -> None:
     editor = os.environ.get("EDITOR", "vim")
-    log.step("editor", f"opening dotfiles in $EDITOR ({editor})")
-    run_process([editor, str(DOTFILES_DIR)], check=True)
+    log.step("editor", f"opening envY repository in $EDITOR ({editor})")
+    run_process([editor, str(ENVY_ROOT)], check=True)
 
 
 @record_operation(

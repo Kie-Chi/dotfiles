@@ -20,10 +20,10 @@ class InstallScriptTests(unittest.TestCase):
         setup.write_text(
             "#!/usr/bin/env bash\n"
             "set -eu\n"
-            ". \"$ENVY_DOTFILES/resources/scripts/mirror-env.sh\"\n"
-            "printf '%s\\n' \"${ENVY_DOTFILES:?}\" > \"$ENVY_DOTFILES/setup-ran\"\n"
-            "printf '%s\\n' \"${ENVY_MIRROR:?}\" > \"$ENVY_DOTFILES/setup-mirror\"\n"
-            "printf '%s\\n' \"${NIX_CONFIG:-}\" > \"$ENVY_DOTFILES/setup-nix-config\"\n"
+            ". \"$ENVY_ROOT/resources/scripts/mirror-env.sh\"\n"
+            "printf '%s\\n' \"${ENVY_ROOT:?}\" > \"$ENVY_ROOT/setup-ran\"\n"
+            "printf '%s\\n' \"${ENVY_MIRROR:?}\" > \"$ENVY_ROOT/setup-mirror\"\n"
+            "printf '%s\\n' \"${NIX_CONFIG:-}\" > \"$ENVY_ROOT/setup-nix-config\"\n"
         )
         setup.chmod(0o755)
         mirror_script = self.source / "resources" / "scripts" / "mirror-env.sh"
@@ -34,7 +34,7 @@ class InstallScriptTests(unittest.TestCase):
         self._git(self.source, "add", "setup.sh", "resources/scripts/mirror-env.sh")
         self._git(
             self.source,
-            "-c", "user.name=Envy Test",
+            "-c", "user.name=envY Test",
             "-c", "user.email=envy@example.invalid",
             "commit", "-qm", "fixture",
         )
@@ -130,6 +130,20 @@ class InstallScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--mirror MODE", result.stdout)
         self.assertIn("ENVY_MIRROR", result.stdout)
+        self.assertIn("ENVY_ROOT", result.stdout)
+        self.assertIn("$HOME/.envy", result.stdout)
+
+    def test_deprecated_checkout_environment_alias_is_still_accepted(self):
+        for variable in ("ENVY_DOTFILES", "DOTFILES_DIR"):
+            with self.subTest(variable=variable):
+                target = self.root / f"legacy-{variable.lower()}-checkout"
+
+                result = self._install(
+                    target, "--no-setup", root_variable=variable
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue((target / ".git").is_dir())
 
     def test_bootstrap_mirror_environment_is_idempotent(self):
         script = ROOT / "resources" / "scripts" / "mirror-env.sh"
@@ -168,9 +182,11 @@ class InstallScriptTests(unittest.TestCase):
         target: Path,
         *extra: str,
         stdin=None,
+        root_variable: str = "ENVY_ROOT",
     ) -> subprocess.CompletedProcess:
         environment = dict(os.environ)
         for name in (
+            "ENVY_ROOT", "ENVY_DOTFILES", "DOTFILES_DIR",
             "ENVY_MIRROR", "ENVY_MIRROR_ENV_APPLIED", "NIX_CONFIG",
             "npm_config_registry", "UV_DEFAULT_INDEX", "GOPROXY",
             "RUSTUP_DIST_SERVER", "RUSTUP_UPDATE_ROOT",
@@ -181,7 +197,7 @@ class InstallScriptTests(unittest.TestCase):
         environment.update({
             "ENVY_REPOSITORY_URL": str(self.source),
             "ENVY_BRANCH": "master",
-            "ENVY_DOTFILES": str(target),
+            root_variable: str(target),
         })
         return subprocess.run(
             ["bash", str(INSTALL_SCRIPT), *extra],

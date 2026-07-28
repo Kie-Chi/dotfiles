@@ -36,18 +36,22 @@ LEGACY_USER_CONFIG = HOME_DIR / ".config" / "dotfiles" / "config.nix"
 LEGACY_SYSTEM_CONFIG = Path("/etc/dotfiles/config.nix")
 
 
-def _resolve_dotfiles_dir() -> Path:
-    env = os.environ.get("ENVY_DOTFILES") or os.environ.get("DOTFILES_DIR")
+def _resolve_envy_root() -> Path:
+    env = (
+        os.environ.get("ENVY_ROOT")
+        or os.environ.get("ENVY_DOTFILES")
+        or os.environ.get("DOTFILES_DIR")
+    )
     if env:
         return Path(env)
     source_checkout = Path(__file__).resolve().parents[3]
     if (source_checkout / "flake.nix").exists():
         return source_checkout
-    return HOME_DIR / ".dotfiles"
+    return HOME_DIR / ".envy"
 
 
-DOTFILES_DIR = _resolve_dotfiles_dir()
-HOSTS_DIR = DOTFILES_DIR / "hosts"
+ENVY_ROOT = _resolve_envy_root()
+HOSTS_DIR = ENVY_ROOT / "hosts"
 
 # Platform-specific age key directory:
 #   Linux: ~/.config/sops/age
@@ -58,12 +62,12 @@ AGE_KEY_DIR = (
     else HOME_DIR / ".config" / "sops" / "age"
 )
 AGE_KEY_FILE = AGE_KEY_DIR / "keys.txt"
-SOPS_YAML = DOTFILES_DIR / ".sops.yaml"
-SECRETS_DIR = DOTFILES_DIR / "secrets"
+SOPS_YAML = ENVY_ROOT / ".sops.yaml"
+SECRETS_DIR = ENVY_ROOT / "secrets"
 SECRETS_FILE = SECRETS_DIR / "secrets.yaml"
 RECOVERY_KEY_FILE = SECRETS_DIR / "recovery-key.age"
-DEVICE_LABEL_FILE = DOTFILES_DIR / ".device-label"
-SETUP_SCRIPT = DOTFILES_DIR / "setup.sh"
+DEVICE_LABEL_FILE = ENVY_ROOT / ".device-label"
+SETUP_SCRIPT = ENVY_ROOT / "setup.sh"
 
 
 def state_dir() -> Path:
@@ -162,7 +166,7 @@ def current_machine_id() -> str:
             except OSError:
                 pass
 
-        for config_path in (LEGACY_USER_CONFIG, DOTFILES_DIR / "config.nix", LEGACY_SYSTEM_CONFIG):
+        for config_path in (LEGACY_USER_CONFIG, ENVY_ROOT / "config.nix", LEGACY_SYSTEM_CONFIG):
             if not config_path.exists():
                 continue
             try:
@@ -243,7 +247,7 @@ def run_cmd(
     if AGE_KEY_FILE.exists():
         env["SOPS_AGE_KEY_FILE"] = str(AGE_KEY_FILE)
 
-    effective_cwd = str(cwd or DOTFILES_DIR)
+    effective_cwd = str(cwd or ENVY_ROOT)
 
     result = run_process(
         cmd,
@@ -309,7 +313,7 @@ def esudo(
     """sudo with automatic password injection from sops.
     capture=False: stream output live (default, for long-running commands).
     capture=True:  capture output for return-value inspection."""
-    effective_cwd = str(cwd or DOTFILES_DIR)
+    effective_cwd = str(cwd or ENVY_ROOT)
     passwd = _get_sudo_passwd()
     if passwd:
         # Try password-based sudo first

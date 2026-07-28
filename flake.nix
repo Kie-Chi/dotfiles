@@ -132,7 +132,7 @@
             imports = [ ./hosts/default.nix ];
             envy.user.name = user;
             envy.user.home = userHome;
-            envy.repository.path = get [ "dotfiles" "path" ] "${userHome}/.dotfiles";
+            envy.repository.path = get [ "dotfiles" "path" ] "${userHome}/.envy";
             envy.git.name = get [ "git" "name" ] user;
             envy.git.email = get [ "git" "email" ] "${user}@localhost";
             envy.llm.steps.url = get [ "llm" "steps" "url" ] "https://models-proxy.stepfun-inc.com";

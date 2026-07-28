@@ -42,7 +42,7 @@
     sessionVariables = {
       LANG = "en_US.UTF-8";
       EDITOR = "code";
-      DOTFILES_DIR = config.envy.repository.path;
+      ENVY_ROOT = config.envy.repository.path;
     };
 
     shellAliases = {

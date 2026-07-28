@@ -12,7 +12,7 @@ from envy.schemas.validators import (
     is_url,
     non_empty,
 )
-from envy.utils import DOTFILES_DIR, HOME_DIR
+from envy.utils import ENVY_ROOT, HOME_DIR
 
 
 @dataclass
@@ -48,8 +48,8 @@ COMMON_MACHINE_FIELDS = [
     FieldDef(group="HABITS", dest="machine", path="envy.habits.globalLauncher.gesture",
              prompt="Global launcher gesture", default_fn=lambda: "Option+Space",
              validators=[is_global_launcher_gesture], ignore=True, required=True),
-    FieldDef(group="ENV", dest="machine", path="envy.repository.path", prompt="Dotfiles local path",
-             default_fn=lambda: str(DOTFILES_DIR), ignore=True, required=True),
+    FieldDef(group="ENV", dest="machine", path="envy.repository.path", prompt="envY repository path",
+             default_fn=lambda: str(ENVY_ROOT), ignore=True, required=True),
     FieldDef(group="VSCODE", dest="machine", path="envy.vscode.mode", prompt="VS Code config mode",
              default_fn=lambda: "remote", choices=["remote", "local"], required=True),
     FieldDef(group="MIRRORS", dest="machine", path="envy.mirrors.mode", prompt="Network mirror mode",

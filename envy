@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-export ENVY_DOTFILES="$ROOT"
+export ENVY_ROOT="$ROOT"
 export PYTHONPATH="$ROOT/resources/scripts:${PYTHONPATH:-}"
 
 # The polished frontend is a separate Rust binary. Prefer an installed
@@ -16,7 +16,7 @@ if [ "${1:-}" = "tui" ] && [ "$#" -eq 1 ] && [ -z "${_ENVY_COMPLETE:-}" ]; then
   elif command -v cargo >/dev/null 2>&1 && [ -f "$ROOT/resources/scripts/envy-tui/Cargo.toml" ]; then
     exec env ENVY_BIN="$ROOT/envy" cargo run --quiet --manifest-path "$ROOT/resources/scripts/envy-tui/Cargo.toml" -- "$@"
   else
-    echo "error: envy-tui is not installed; enter the Nix devShell or install the Envy package." >&2
+    echo "error: envy-tui is not installed; enter the Nix devShell or install the envY package." >&2
     exit 1
   fi
 fi
@@ -24,7 +24,7 @@ fi
 # Check Python + required modules
 if ! python3 -c "import typer, rich, yaml" 2>/dev/null; then
   if command -v nix >/dev/null 2>&1; then
-    echo "[INFO] Preparing the minimal Envy runtime..." >&2
+    echo "[INFO] Preparing the minimal envY runtime..." >&2
     exec nix run "path:$ROOT#envy" -- "$@"
   else
     echo "error: Python dependencies missing (typer, rich, pyyaml)." >&2

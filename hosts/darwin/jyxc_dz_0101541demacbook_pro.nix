@@ -11,7 +11,7 @@
   envy.user.home = "/Users/jyxc-dz-0101541";
 
   # --- ENV CONFIG ---
-  envy.repository.path = "/Users/jyxc-dz-0101541/.dotfiles";
+  envy.repository.path = "/Users/jyxc-dz-0101541/.envy";
 
   # --- GIT CONFIG ---
   envy.git.name = "Kie-Chi";

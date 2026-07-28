@@ -19,7 +19,7 @@ from prompt_toolkit.styles import Style as PtStyle
 
 from envy import log
 from envy.utils import (
-    DOTFILES_DIR, HOME_DIR, AGE_KEY_DIR, AGE_KEY_FILE,
+    ENVY_ROOT, HOME_DIR, AGE_KEY_DIR, AGE_KEY_FILE,
     SOPS_YAML, SECRETS_FILE, RECOVERY_KEY_FILE,
     DEVICE_LABEL_FILE, run_cmd, backup_sensitive_file,
     is_sops_encrypted,
@@ -98,7 +98,7 @@ def complete_sops_labels(ctx, incomplete):
 
 
 def complete_export_formats(ctx, incomplete: str) -> list[tuple[str, str]]:
-    """Complete the public key export formats supported by Envy."""
+    """Complete the public key export formats supported by envY."""
     del ctx
     formats = {
         "age": "age public key format",
@@ -134,7 +134,7 @@ def run_sops_updatekeys() -> None:
 
 def _stage_repo_files(files: list[Path]) -> list[str]:
     """Stage explicit repository files and return changed relative pathspecs."""
-    return stage_repo_files(files, repository=DOTFILES_DIR)
+    return stage_repo_files(files, repository=ENVY_ROOT)
 
 
 def _commit_staged_files(changed: list[str], message: str) -> None:
@@ -142,12 +142,12 @@ def _commit_staged_files(changed: list[str], message: str) -> None:
         changed,
         message,
         confirm=confirm,
-        repository=DOTFILES_DIR,
+        repository=ENVY_ROOT,
     )
 
 
 def git_commit_sops_files(operation: str = "") -> None:
-    if not (DOTFILES_DIR / ".git").exists():
+    if not (ENVY_ROOT / ".git").exists():
         return
 
     label = get_sops_label()
@@ -182,7 +182,7 @@ def _run_key_operation(operation: str, function, *args, **kwargs):
 
 def git_commit_setup_files(machine_path: Path) -> None:
     """Offer one scoped commit for files managed by an envy setup save."""
-    if not (DOTFILES_DIR / ".git").exists():
+    if not (ENVY_ROOT / ".git").exists():
         return
 
     changed = _stage_repo_files([

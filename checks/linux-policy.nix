@@ -24,7 +24,7 @@ let
           imports = [ ../hosts/default.nix extraPolicy ];
           envy.user.name = "policy-check";
           envy.user.home = "/home/policy-check";
-          envy.repository.path = "/home/policy-check/.dotfiles";
+          envy.repository.path = "/home/policy-check/.envy";
           envy.git.name = "Policy Check";
           envy.git.email = "policy-check@example.com";
           envy.llm.steps.url = "https://example.com";

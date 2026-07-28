@@ -8,7 +8,7 @@ from pathlib import Path
 from envy.doctor.model import SECTION_SYSTEM, CheckResult, error, info, ok, warn
 from envy.evaluation import machine_manifest
 from envy.process import run_process
-from envy.utils import AGE_KEY_DIR, DOTFILES_DIR, platform_name
+from envy.utils import AGE_KEY_DIR, ENVY_ROOT, platform_name
 
 
 def run_checks() -> list[CheckResult]:
@@ -34,7 +34,7 @@ def run_checks() -> list[CheckResult]:
         results.append(warn(
             SECTION_SYSTEM,
             "apply runner",
-            f"{runner} is missing; Envy will use the repository-locked fallback",
+            f"{runner} is missing; envY will use the repository-locked fallback",
         ))
 
     if machine_manifest() is None:
@@ -48,7 +48,7 @@ def run_checks() -> list[CheckResult]:
         results.append(ok(SECTION_SYSTEM, "manifest evaluation", "selected machine evaluated"))
 
     branch = run_process(
-        ["git", "branch", "--show-current"], cwd=DOTFILES_DIR, capture=True, check=False
+        ["git", "branch", "--show-current"], cwd=ENVY_ROOT, capture=True, check=False
     )
     current_branch = (branch.stdout or "").strip()
     if branch.returncode != 0:
@@ -64,7 +64,7 @@ def run_checks() -> list[CheckResult]:
         ))
 
     status = run_process(
-        ["git", "status", "--porcelain=v1"], cwd=DOTFILES_DIR, capture=True, check=False
+        ["git", "status", "--porcelain=v1"], cwd=ENVY_ROOT, capture=True, check=False
     )
     if status.returncode != 0:
         results.append(error(SECTION_SYSTEM, "Git worktree", "cannot inspect worktree"))
@@ -100,9 +100,9 @@ def run_checks() -> list[CheckResult]:
 
 def _workflow_leftovers() -> list[Path]:
     patterns = [
-        (DOTFILES_DIR / "secrets", ".secrets-plain-*"),
-        (DOTFILES_DIR / "secrets", ".secrets-encrypted-*"),
-        (DOTFILES_DIR / "secrets", ".recovery-encrypted-*"),
+        (ENVY_ROOT / "secrets", ".secrets-plain-*"),
+        (ENVY_ROOT / "secrets", ".secrets-encrypted-*"),
+        (ENVY_ROOT / "secrets", ".recovery-encrypted-*"),
         (AGE_KEY_DIR, "rotate_*.txt"),
     ]
     paths: list[Path] = []

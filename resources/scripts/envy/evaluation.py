@@ -1,4 +1,4 @@
-"""Evaluate and cache the selected Nix machine for Envy's read-only views."""
+"""Evaluate and cache the selected Nix machine for envY's read-only views."""
 
 import hashlib
 import json
@@ -13,7 +13,7 @@ from typing import Any, Iterator
 
 from envy import log
 from envy.process import run_process
-from envy.utils import DOTFILES_DIR, current_machine_id, machine_manifest_attr, platform_name
+from envy.utils import ENVY_ROOT, current_machine_id, machine_manifest_attr, platform_name
 
 
 CACHE_SCHEMA = 2
@@ -36,7 +36,7 @@ def _command_bytes(command: list[str]) -> bytes | None:
     try:
         result = subprocess.run(
             command,
-            cwd=str(DOTFILES_DIR),
+            cwd=str(ENVY_ROOT),
             capture_output=True,
             timeout=_COMMAND_TIMEOUT,
             check=False,
@@ -54,7 +54,7 @@ def _untracked_digest(raw_paths: bytes) -> str | None:
     """Hash untracked paths, file types, modes, and contents without Git filters."""
     digest = hashlib.sha256()
     for raw_path in sorted(path for path in raw_paths.split(b"\0") if path):
-        path = DOTFILES_DIR / os.fsdecode(raw_path)
+        path = ENVY_ROOT / os.fsdecode(raw_path)
         try:
             metadata = path.lstat()
         except OSError:
@@ -182,7 +182,7 @@ def _evaluate_machine_manifest(machine_id: str) -> dict[str, Any] | None:
     log.debug("eval", "Nix manifest evaluation started", machine=machine_id, attr=attr)
     result = run_process(
         ["nix", "eval", "--impure", attr, "--json"],
-        cwd=DOTFILES_DIR, capture=True, timeout=30, check=False,
+        cwd=ENVY_ROOT, capture=True, timeout=30, check=False,
         activity=f"evaluate machine {machine_id}",
     )
     if result.returncode != 0:

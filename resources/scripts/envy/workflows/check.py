@@ -8,13 +8,13 @@ import typer
 
 from envy import log
 from envy.process import run_process
-from envy.utils import DOTFILES_DIR, current_machine_id, platform_name
+from envy.utils import ENVY_ROOT, current_machine_id, platform_name
 
 
 def machine_entries() -> list[tuple[str, str]]:
     result: list[tuple[str, str]] = []
     for platform in ("darwin", "linux"):
-        directory = DOTFILES_DIR / "hosts" / platform
+        directory = ENVY_ROOT / "hosts" / platform
         result.extend((platform, path.stem) for path in directory.glob("*.nix") if path.is_file())
     return sorted(result)
 
@@ -34,7 +34,7 @@ def machine_build_attr(platform: str, machine_id: str) -> str:
 def changed_machine_entries() -> list[tuple[str, str]]:
     result = run_process(
         ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=DOTFILES_DIR, capture=True, check=True,
+        cwd=ENVY_ROOT, capture=True, check=True,
     )
     entries = result.stdout.split("\0") if result.stdout else []
     paths: list[str] = []
@@ -93,7 +93,7 @@ def run_machine_checks(
             else ["nix", "eval", "--impure", "--raw", machine_drv_attr(platform, machine_id)]
         )
         log.step("check", "building machine" if should_build else "evaluating machine", machine=label)
-        result = run_process(command, cwd=DOTFILES_DIR, capture=True, check=False)
+        result = run_process(command, cwd=ENVY_ROOT, capture=True, check=False)
         ok = result.returncode == 0
         results.append((platform, machine_id, ok))
         if ok:

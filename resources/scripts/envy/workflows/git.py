@@ -11,7 +11,7 @@ from envy.git_safety import SecretSafetyError, assert_git_secret_safety
 from envy.host import require_current_machine_file
 from envy.journal import record_operation
 from envy.process import run_process
-from envy.utils import DOTFILES_DIR, current_machine_id, machine_build_attr, platform_name, run_apply
+from envy.utils import ENVY_ROOT, current_machine_id, machine_build_attr, platform_name, run_apply
 from envy.workflows.system import refine_before_apply
 
 
@@ -27,12 +27,12 @@ def complete_branches(incomplete: str) -> list[str]:
 
 
 def git_output(*args: str) -> str:
-    result = run_process(["git", *args], cwd=DOTFILES_DIR, capture=True, check=False)
+    result = run_process(["git", *args], cwd=ENVY_ROOT, capture=True, check=False)
     return (result.stdout or "").strip()
 
 
 def git_output_checked(*args: str) -> str:
-    result = run_process(["git", *args], cwd=DOTFILES_DIR, capture=True, check=False)
+    result = run_process(["git", *args], cwd=ENVY_ROOT, capture=True, check=False)
     if result.returncode != 0:
         log.error("git", "Git query failed", command=" ".join(args))
         raise typer.Exit(code=result.returncode)
@@ -42,7 +42,7 @@ def git_output_checked(*args: str) -> str:
 def changed_paths() -> list[str]:
     result = run_process(
         ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=DOTFILES_DIR, capture=True, check=True,
+        cwd=ENVY_ROOT, capture=True, check=True,
     )
     paths: list[str] = []
     entries = (result.stdout or "").split("\0")
@@ -73,7 +73,7 @@ def affected_machines(paths: list[str]) -> tuple[list[str], bool]:
     known = sorted(
         f"{platform}/{path.stem}"
         for platform in ("darwin", "linux")
-        for path in (DOTFILES_DIR / "hosts" / platform).glob("*.nix")
+        for path in (ENVY_ROOT / "hosts" / platform).glob("*.nix")
         if path.is_file()
     )
     affected: set[str] = set()
@@ -184,7 +184,7 @@ def confirm_push_scope(
 
 
 def run_checked_git(args: list[str], action: str) -> None:
-    result = run_process(["git", *args], cwd=DOTFILES_DIR, check=False)
+    result = run_process(["git", *args], cwd=ENVY_ROOT, check=False)
     if result.returncode != 0:
         log.error("git", f"{action} failed")
         raise typer.Exit(code=result.returncode)
@@ -198,7 +198,7 @@ def preflight_push_remotes(remotes: list[str], branch: str) -> set[str]:
         remote_ref = f"{remote}/{branch}"
         verify = run_process(
             ["git", "rev-parse", "--verify", remote_ref],
-            cwd=DOTFILES_DIR, capture=True, check=False,
+            cwd=ENVY_ROOT, capture=True, check=False,
         )
         if verify.returncode != 0:
             new_branches.add(remote)
@@ -216,7 +216,7 @@ def preflight_push_remotes(remotes: list[str], branch: str) -> set[str]:
 def git_is_ancestor(older: str, newer: str) -> bool:
     result = run_process(
         ["git", "merge-base", "--is-ancestor", older, newer],
-        cwd=DOTFILES_DIR, capture=True, check=False,
+        cwd=ENVY_ROOT, capture=True, check=False,
     )
     if result.returncode == 0:
         return True
@@ -269,7 +269,7 @@ def sync(
         remote_ref = f"{selected_remote}/{branch}"
         verify = run_process(
             ["git", "rev-parse", "--verify", remote_ref],
-            cwd=DOTFILES_DIR, capture=True, check=False,
+            cwd=ENVY_ROOT, capture=True, check=False,
         )
         if verify.returncode != 0:
             if remote is not None:
@@ -298,7 +298,7 @@ def sync(
         log.step("host", "building selected machine", machine=machine_id)
         result = run_process(
             ["nix", "build", "--impure", "--no-link", machine_build_attr(machine_id)],
-            cwd=DOTFILES_DIR, check=False,
+            cwd=ENVY_ROOT, check=False,
         )
         if result.returncode != 0:
             raise typer.Exit(code=result.returncode)
@@ -373,7 +373,7 @@ def push(
         if selected_remote in new_branches:
             command.append("-u")
         command.extend([selected_remote, current_branch])
-        result = run_process(command, cwd=DOTFILES_DIR, check=False)
+        result = run_process(command, cwd=ENVY_ROOT, check=False)
         if result.returncode == 0:
             log.ok("git", "push completed", remote=selected_remote, branch=current_branch)
             succeeded.append(selected_remote)
@@ -387,5 +387,5 @@ def push(
     if failed:
         log.error("git", f"{len(failed)} remote(s) failed after partial push processing")
         for selected_remote in failed:
-            log.hint(f"Retry: git -C {DOTFILES_DIR} push {selected_remote} {current_branch}")
+            log.hint(f"Retry: git -C {ENVY_ROOT} push {selected_remote} {current_branch}")
         raise typer.Exit(code=1)

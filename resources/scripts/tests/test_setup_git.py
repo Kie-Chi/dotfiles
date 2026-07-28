@@ -34,7 +34,7 @@ class SetupGitTests(unittest.TestCase):
             )
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
 
-            with patch.object(key, "DOTFILES_DIR", root):
+            with patch.object(key, "ENVY_ROOT", root):
                 changed = key._stage_repo_files([selected])
 
             staged = subprocess.run(
@@ -55,7 +55,7 @@ class SetupGitTests(unittest.TestCase):
                 root / "secrets" / "secrets.yaml",
                 root / "secrets" / "recovery-key.age",
             ]
-            with patch.object(key, "DOTFILES_DIR", root), patch.object(
+            with patch.object(key, "ENVY_ROOT", root), patch.object(
                 key, "SOPS_YAML", candidates[1]
             ), patch.object(key, "SECRETS_FILE", candidates[2]), patch.object(
                 key, "RECOVERY_KEY_FILE", candidates[3]
@@ -76,7 +76,7 @@ class SetupGitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             machine = root / "hosts" / "darwin" / "work-mac.nix"
-            with patch.object(key, "DOTFILES_DIR", root), patch.object(
+            with patch.object(key, "ENVY_ROOT", root), patch.object(
                 key, "_stage_repo_files", return_value=[]
             ), patch.object(key, "_commit_staged_files") as commit:
                 (root / ".git").mkdir()

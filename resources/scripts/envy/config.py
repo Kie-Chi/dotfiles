@@ -40,7 +40,7 @@ from envy.utils import (
     AGE_KEY_FILE,
     AGE_KEY_DIR,
     DEVICE_LABEL_FILE,
-    DOTFILES_DIR,
+    ENVY_ROOT,
     LEGACY_MACHINE_SELECTOR,
     LEGACY_SYSTEM_CONFIG,
     LEGACY_USER_CONFIG,
@@ -175,7 +175,7 @@ def read_machine_nix(machine_id: str | None = None) -> dict:
 
 def read_legacy_config_nix() -> dict:
     """Read the old ignored config.nix only as an upgrade source."""
-    for path in (LEGACY_USER_CONFIG, DOTFILES_DIR / "config.nix", LEGACY_SYSTEM_CONFIG):
+    for path in (LEGACY_USER_CONFIG, ENVY_ROOT / "config.nix", LEGACY_SYSTEM_CONFIG):
         if path.exists():
             try:
                 return _read_nix_assignments(path)
@@ -255,7 +255,7 @@ def _mirror_managed_pattern() -> re.Pattern[str]:
 
 
 def read_mirror_overrides(machine_id: str | None = None) -> dict[str, str]:
-    """Read Envy-owned mirror assignments without interpreting hand policy."""
+    """Read envY-owned mirror assignments without interpreting hand policy."""
     path = machine_config_file(machine_id)
     if not path.exists():
         return {}
@@ -290,7 +290,7 @@ def _render_mirror_override_block(values: dict[str, str]) -> str:
 def write_mirror_overrides(
     values: dict[str, str], machine_id: str | None = None,
 ) -> None:
-    """Atomically replace only the Envy-generated mirror override block."""
+    """Atomically replace only the envY-generated mirror override block."""
     selected = machine_id or current_machine_id()
     path = machine_config_file(selected)
     if not path.exists():

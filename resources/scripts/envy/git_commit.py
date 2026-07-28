@@ -8,10 +8,10 @@ from pathlib import Path
 from envy import log
 from envy.git_safety import assert_index_secret_encrypted, assert_worktree_secret_encrypted
 from envy.process import run_process
-from envy.utils import DOTFILES_DIR
+from envy.utils import ENVY_ROOT
 
 
-def stage_repo_files(files: list[Path], *, repository: Path = DOTFILES_DIR) -> list[str]:
+def stage_repo_files(files: list[Path], *, repository: Path = ENVY_ROOT) -> list[str]:
     if not (repository / ".git").exists():
         return []
     assert_worktree_secret_encrypted(repository / "secrets" / "secrets.yaml")
@@ -30,7 +30,7 @@ def stage_repo_files(files: list[Path], *, repository: Path = DOTFILES_DIR) -> l
         return []
 
     run_process(["git", "add", "--", *relatives], cwd=repository, check=True)
-    if repository.resolve() == DOTFILES_DIR.resolve():
+    if repository.resolve() == ENVY_ROOT.resolve():
         assert_index_secret_encrypted(repository=repository)
 
     changed: list[str] = []
@@ -51,7 +51,7 @@ def commit_staged_files(
     message: str,
     *,
     confirm: Callable[[str], bool],
-    repository: Path = DOTFILES_DIR,
+    repository: Path = ENVY_ROOT,
 ) -> None:
     display = ", ".join(changed)
     if not confirm(f"Commit {display} to git?"):

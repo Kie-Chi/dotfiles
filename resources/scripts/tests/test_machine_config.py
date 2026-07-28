@@ -57,7 +57,7 @@ class DarwinMachineConfigTests(unittest.TestCase):
         values = {field.path: field.default_fn() for field in config.MACHINE_FIELDS}
         values["envy.user.name"] = "chi"
         values["envy.user.home"] = "/Users/chi"
-        values["envy.repository.path"] = "/Users/chi/.dotfiles"
+        values["envy.repository.path"] = "/Users/chi/.envy"
         values["envy.git.name"] = "Chi"
         values["envy.git.email"] = "chi@example.com"
         values["envy.llm.steps.url"] = "https://example.com"
@@ -185,7 +185,7 @@ class DarwinMachineConfigTests(unittest.TestCase):
             """{
   home.user = "chi";
   home.dir = "/Users/chi";
-  dotfiles.path = "/Users/chi/.dotfiles";
+  dotfiles.path = "/Users/chi/.envy";
   git.name = "Chi";
   git.email = "chi@example.com";
   proxy.status = "none";
@@ -202,7 +202,7 @@ class DarwinMachineConfigTests(unittest.TestCase):
             config, "current_machine_id", return_value="test-mac"
         ), patch.object(config, "LEGACY_USER_CONFIG", legacy), patch.object(
             config, "LEGACY_SYSTEM_CONFIG", self.root / "missing-system-config"
-        ), patch.object(config, "DOTFILES_DIR", self.root), patch.object(
+        ), patch.object(config, "ENVY_ROOT", self.root), patch.object(
             config, "set_device_machine_id"
         ):
             report = config.refine_config(write=True)

@@ -13,11 +13,13 @@ in
     asRoot = true;
     name = "setupSshd";
     script = ''
+      esudo ${sys.cmds.rm} -f /etc/ssh/sshd_config.d/99-dotfiles.conf
+
       ${sys.deploy {
         name = "sshd_config";
         format = "kv";
         data = sshdConfig;
-        target = "/etc/ssh/sshd_config.d/99-dotfiles.conf";
+        target = "/etc/ssh/sshd_config.d/99-envy.conf";
         mode = "0644";
       }}
 

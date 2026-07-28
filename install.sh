@@ -2,9 +2,9 @@
 
 set -euo pipefail
 
-repository_url="${ENVY_REPOSITORY_URL:-https://github.com/Kie-Chi/dotfiles.git}"
+repository_url="${ENVY_REPOSITORY_URL:-https://github.com/Kie-Chi/envY.git}"
 branch="${ENVY_BRANCH:-master}"
-target="${ENVY_DOTFILES:-${HOME:?HOME is not set}/.dotfiles}"
+target="${ENVY_ROOT:-${ENVY_DOTFILES:-${DOTFILES_DIR:-${HOME:?HOME is not set}/.envy}}}"
 mirror="${ENVY_MIRROR:-china}"
 run_setup=1
 temporary_dir=""
@@ -13,18 +13,19 @@ usage() {
     cat <<'EOF'
 Usage: install.sh [options]
 
-Bootstrap the dotfiles repository, then run its setup.sh.
+Bootstrap the envY repository, then run its setup.sh.
 
 Options:
   --repo URL       Git repository URL
   --branch NAME    Branch to clone (default: master)
-  --target PATH    Checkout path (default: $HOME/.dotfiles)
+  --target PATH    Checkout path (default: $HOME/.envy)
   --mirror MODE    Bootstrap mirror: china or upstream (default: china)
   --no-setup       Clone only; do not run setup.sh
   -h, --help       Show this help
 
 Environment equivalents:
-  ENVY_REPOSITORY_URL, ENVY_BRANCH, ENVY_DOTFILES, ENVY_MIRROR
+  ENVY_REPOSITORY_URL, ENVY_BRANCH, ENVY_ROOT, ENVY_MIRROR
+  ENVY_DOTFILES and DOTFILES_DIR are deprecated aliases for ENVY_ROOT.
   ENVY_NIX_INSTALLER_URL overrides the Determinate Nix installer endpoint.
 EOF
 }
@@ -123,7 +124,7 @@ if [ "$run_setup" -eq 0 ]; then
     exit 0
 fi
 
-export ENVY_DOTFILES="$target"
+export ENVY_ROOT="$target"
 export ENVY_MIRROR="$mirror"
 if [ -t 0 ]; then
     exec "$BASH" "$target/setup.sh"

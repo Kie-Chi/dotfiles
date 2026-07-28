@@ -23,7 +23,7 @@ from envy.workflows.plan import plan_configuration
 from envy.workflows.generations import app as history_app
 from envy.workflows import system as system_workflow
 from envy.workflows import git as git_workflow
-from envy.utils import DOTFILES_DIR, PLATFORM, current_machine_id
+from envy.utils import ENVY_ROOT, PLATFORM, current_machine_id
 
 
 # ==========================================
@@ -73,7 +73,7 @@ def complete_journal_operations(ctx, incomplete):
 def complete_flake_inputs(ctx, incomplete):
     """Complete root flake input names from the local lock file only."""
     del ctx
-    lock_path = DOTFILES_DIR / "flake.lock"
+    lock_path = ENVY_ROOT / "flake.lock"
     try:
         payload = json.loads(lock_path.read_text())
         nodes = payload.get("nodes", {})
@@ -101,7 +101,7 @@ def complete_flake_inputs(ctx, incomplete):
 
 cli = typer.Typer(
     name="envy",
-    help="A friendly manager for your Nix dotfiles.",
+    help="A friendly manager for your Nix configuration.",
     rich_markup_mode="rich",
     no_args_is_help=True,
 )
@@ -118,14 +118,14 @@ update_app = typer.Typer(
 def main_callback(
     debug: bool = typer.Option(False, "--debug", "-e", help="Enable debug mode"),
 ):
-    """envy — dotfiles manager"""
+    """envy — configuration manager"""
     log.reset_consoles()
     if debug:
         os.environ["ENVY_DEBUG"] = "1"
     _check_schema_api()
     log.debug(
         "envy", "diagnostics enabled", platform=PLATFORM,
-        machine=current_machine_id(), repository=str(DOTFILES_DIR),
+        machine=current_machine_id(), repository=str(ENVY_ROOT),
         python=os.sys.version.split()[0], pid=os.getpid(),
     )
 
@@ -227,10 +227,10 @@ def cmd_tui():
     if binary is not None:
         os.execv(binary, [binary])
 
-    manifest = DOTFILES_DIR / "resources" / "scripts" / "envy-tui" / "Cargo.toml"
+    manifest = ENVY_ROOT / "resources" / "scripts" / "envy-tui" / "Cargo.toml"
     cargo = shutil.which("cargo")
     if cargo is not None and manifest.is_file():
-        launcher = DOTFILES_DIR / "envy"
+        launcher = ENVY_ROOT / "envy"
         backend = os.environ.get("ENVY_BIN")
         if not backend:
             backend = str(launcher) if launcher.is_file() else "envy"
@@ -245,7 +245,7 @@ def cmd_tui():
     log.error(
         "tui",
         "envy-tui is not installed",
-        hint="enter the Nix devShell or apply the Envy package",
+        hint="enter the Nix devShell or apply the envY package",
     )
     raise typer.Exit(code=1)
 
@@ -271,7 +271,7 @@ def cmd_rollback(
 @cli.command(name="edit")
 @cli.command(name="e", rich_help_panel="Aliases")
 def cmd_edit():
-    """Open the dotfiles directory in your default editor."""
+    """Open the envY repository in your default editor."""
     system_workflow.open_editor()
 
 
@@ -341,17 +341,17 @@ def cmd_log(
 @cli.command(name="d", rich_help_panel="Aliases")
 @cli.command(name="dif", rich_help_panel="Aliases")
 def cmd_diff():
-    """Show the git difference of the dotfiles repository."""
-    run_process(["git", "diff"], cwd=DOTFILES_DIR, check=True)
+    """Show the Git diff of the envY repository."""
+    run_process(["git", "diff"], cwd=ENVY_ROOT, check=True)
 
 
 @cli.command(name="git")
 def cmd_git(
     args: list[str] = typer.Argument(None, help="Git arguments"),
 ):
-    """Execute git commands in the dotfiles directory."""
+    """Execute Git commands in the envY repository."""
     git_args = args if args else []
-    run_process(["git", *git_args], cwd=DOTFILES_DIR, check=True)
+    run_process(["git", *git_args], cwd=ENVY_ROOT, check=True)
 
 
 @cli.command(name="clean")
