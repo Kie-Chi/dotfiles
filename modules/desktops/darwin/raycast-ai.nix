@@ -12,7 +12,7 @@
       backend = "Raycast";
       binding = config.envy.habits.globalLauncher.gesture;
       ownership = "application";
-      note = "Raycast owns its global hotkey; Envy records but does not overwrite the application preference.";
+      note = "Raycast owns its global hotkey; envY records but does not overwrite the application preference.";
       requirements = [
         {
           group = "homebrew.system.cask";

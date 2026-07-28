@@ -1,1 +1,1 @@
-"""Reusable Envy workflows kept separate from Typer command registration."""
+"""Reusable envY workflows kept separate from Typer command registration."""

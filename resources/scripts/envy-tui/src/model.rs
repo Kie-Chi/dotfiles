@@ -191,7 +191,7 @@ impl SoftwareAction {
 pub struct MutationIntent {
     pub action: SoftwareAction,
     pub group: String,
-    /// Operand passed to Envy. Search uses a canonical registry reference.
+    /// Operand passed to envY. Search uses a canonical registry reference.
     pub operand: String,
     /// Stable item ID that the verified plan must resolve to.
     pub item: String,

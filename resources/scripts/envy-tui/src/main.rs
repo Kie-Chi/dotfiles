@@ -42,10 +42,10 @@ fn run_workflow(
     let result = Command::new(program).args(args).status();
     let success = result.as_ref().is_ok_and(|status| status.success());
     if let Err(error) = &result {
-        eprintln!("Could not start Envy workflow: {error}");
+        eprintln!("Could not start envY workflow: {error}");
     }
     println!(
-        "\nWorkflow {}. Press Enter to return to the Envy TUI.",
+        "\nWorkflow {}. Press Enter to return to the envY TUI.",
         if success { "completed" } else { "failed" }
     );
     io::stdout().flush()?;

@@ -759,7 +759,7 @@ def _choose_cli_group(
     if not matches:
         raise typer.BadParameter(f"no compatible software group found for: {item_value}")
 
-    table = Table(title=f"Choose how Envy should manage {item_value}")
+    table = Table(title=f"Choose how envY should manage {item_value}")
     table.add_column("#", justify="right", style="cyan")
     table.add_column("Type")
     table.add_column("Canonical group", style="dim")
@@ -955,7 +955,7 @@ def _parse_nix_includes(value: str, group: SelectionGroup) -> list[ManagedInclud
             continue
         metadata_line = lines[index].strip()
         if not metadata_line.startswith(MANAGED_INCLUDE_METADATA):
-            raise SoftwarePolicyError("managed Nix package is missing Envy metadata")
+            raise SoftwarePolicyError("managed Nix package is missing envY metadata")
         try:
             metadata = json.loads(metadata_line.removeprefix(MANAGED_INCLUDE_METADATA))
         except json.JSONDecodeError as exc:
@@ -1129,7 +1129,7 @@ def _ensure_module_argument(text: str, argument: str) -> str:
         return text
     if "..." not in tokens:
         raise SoftwarePolicyError(
-            f"machine module header must accept ... before Envy can add {argument!r}"
+            f"machine module header must accept ... before envY can add {argument!r}"
         )
     replacement = "{ " + ", ".join([argument, *tokens]) + " }:"
     return text[:header.start()] + header.group(1) + replacement + text[header.end():]
@@ -2407,7 +2407,7 @@ def cmd_add(
         None, "--group", "-g", help="Select a canonical group without an interactive chooser",
         autocompletion=complete_add_groups,
     ),
-    clean: bool = typer.Option(False, "--clean", help="Remove redundant Envy-managed state for this item"),
+    clean: bool = typer.Option(False, "--clean", help="Remove redundant envY-managed state for this item"),
     ref: str | None = typer.Option(None, "--ref", help="Canonical registry reference when item is a custom stable ID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply the displayed plan without confirmation"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Display the plan without writing"),
@@ -2454,7 +2454,7 @@ def cmd_remove(
         None, "--group", "-g", help="Select a canonical group without an interactive chooser",
         autocompletion=complete_remove_groups,
     ),
-    clean: bool = typer.Option(False, "--clean", help="Remove redundant Envy-managed state for this item"),
+    clean: bool = typer.Option(False, "--clean", help="Remove redundant envY-managed state for this item"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply the displayed plan without confirmation"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Display the plan without writing"),
     json_output: bool = typer.Option(

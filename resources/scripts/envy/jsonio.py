@@ -1,4 +1,4 @@
-"""Small, stable JSON protocol helpers for Envy frontends."""
+"""Small, stable JSON protocol helpers for envY frontends."""
 
 from __future__ import annotations
 

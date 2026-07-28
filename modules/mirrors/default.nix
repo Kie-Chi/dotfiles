@@ -50,7 +50,7 @@ in
         <mirrors>
           <mirror>
             <id>envy-china</id>
-            <name>Envy China Maven mirror</name>
+            <name>envY China Maven mirror</name>
             <url>${profile.maven.repository}</url>
             <mirrorOf>central</mirrorOf>
           </mirror>

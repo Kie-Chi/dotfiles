@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dotfiles setup CLI for the selected machine file and sops secrets."""
+"""envY setup CLI for the selected machine file and sops secrets."""
 
 import subprocess
 from dataclasses import dataclass
@@ -357,9 +357,9 @@ def build_application(state: AppState) -> Application:
 
     # --- Title bar (always visible) ---
     title_content = FormattedTextControl(lambda: [("class:title", (
-        "  Dotfiles Setup — evaluated software policy"
+        "  envY Setup — evaluated software policy"
         if state.mode in {"policy", "policy_search"}
-        else "  Dotfiles Setup — menuconfig"
+        else "  envY Setup — menuconfig"
     ))])
     title_window = Window(content=title_content, height=1)
 

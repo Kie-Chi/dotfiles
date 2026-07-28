@@ -50,7 +50,7 @@ CURL_CONNECT_TIMEOUT = 10
 # the other candidates.
 CURL_SAMPLE_BYTES = 2 * 1024 * 1024
 # Bump when chsrc's human-readable measurement format handling changes. This
-# lets an upgraded Envy ignore a short-lived negative cache written by an older
+# lets an upgraded envY ignore a short-lived negative cache written by an older
 # parser without requiring the user to remember `--refresh`.
 MEASUREMENT_PARSER_VERSION = 2
 
@@ -1073,7 +1073,7 @@ def cmd_measure(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
-    """Measure one ecosystem with a selected provider and Envy's persistent cache."""
+    """Measure one ecosystem with a selected provider and envY's persistent cache."""
     target = target.casefold()
     provider = provider.casefold()
     cache_hit = bool(not refresh and _fresh_cached_measurements(target, provider))

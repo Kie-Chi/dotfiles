@@ -20,7 +20,7 @@ let
       ref = mkOption {
         type = types.nullOr types.nonEmptyStr;
         default = null;
-        description = "Canonical Envy software reference, when available.";
+        description = "Canonical envY software reference, when available.";
       };
       parameters = mkOption {
         type = types.attrsOf types.anything;

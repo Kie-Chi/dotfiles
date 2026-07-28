@@ -2,7 +2,7 @@
 name = "envy-tui"
 version = "0.1.0"
 edition = "2021"
-description = "A Ratatui frontend for the Envy dotfiles manager"
+description = "A Ratatui frontend for the envY configuration manager"
 license = "MIT"
 
 [dependencies]

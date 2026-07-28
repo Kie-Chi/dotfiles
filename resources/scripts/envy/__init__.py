@@ -1,4 +1,4 @@
-"""envy — dotfiles manager."""
+"""envy — configuration manager."""
 
 import sys
 from pathlib import Path
@@ -27,5 +27,5 @@ def _check_schema_api() -> None:
             f"Schema API: {CONFIG_SCHEMA_API_VERSION}, "
             f"supported: {SUPPORTED_SCHEMA_API_VERSIONS}"
         )
-        log.hint("Use ./envy from the dotfiles repo, or run: envy apply")
+        log.hint("Use ./envy from the envY repository, or run: envy apply")
         sys.exit(1)

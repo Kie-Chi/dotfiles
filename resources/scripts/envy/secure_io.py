@@ -1,4 +1,4 @@
-"""Atomic filesystem helpers for Envy-managed public and sensitive files."""
+"""Atomic filesystem helpers for envY-managed public and sensitive files."""
 
 from __future__ import annotations
 

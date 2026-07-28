@@ -149,7 +149,7 @@ def cmd_history(
     if not rows:
         log.warn("history", "no configuration generations were found")
         return
-    table = Table(title="Envy generations")
+    table = Table(title="envY generations")
     table.add_column("Generation", justify="right")
     table.add_column("Current")
     table.add_column("Created")

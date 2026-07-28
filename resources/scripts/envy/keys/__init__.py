@@ -1,4 +1,4 @@
-"""Age/sops storage primitives used by Envy key workflows."""
+"""Age/sops storage primitives used by envY key workflows."""
 
 from envy.keys.storage import (
     current_device_public_key,

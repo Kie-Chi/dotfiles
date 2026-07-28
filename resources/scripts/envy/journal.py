@@ -209,7 +209,7 @@ def render(payload: dict[str, Any]) -> None:
     if not entries:
         log.warn("journal", "no operations recorded yet")
         return
-    table = Table(title="Envy operation journal", title_style="cyan", expand=False)
+    table = Table(title="envY operation journal", title_style="cyan", expand=False)
     table.add_column("Time", style="dim", no_wrap=True)
     table.add_column("Operation", style="cyan", no_wrap=True)
     table.add_column("Result", no_wrap=True)

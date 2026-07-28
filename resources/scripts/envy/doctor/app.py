@@ -57,7 +57,7 @@ def complete_doctor_selection(ctx, incomplete: str) -> list[tuple[str, str]]:
 
 app = typer.Typer(
     name="doctor",
-    help="Check local dotfiles health, app state, login hints, and platform permissions.",
+    help="Check envY health, app state, login hints, and platform permissions.",
     rich_markup_mode="rich",
     no_args_is_help=False,
 )
@@ -98,7 +98,7 @@ def cmd_config(
     strict: bool = typer.Option(False, "--strict", help="Exit non-zero when warnings are present."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
-    """Check dotfiles config and secrets."""
+    """Check envY configuration and secrets."""
     _run(["config"], only, strict=strict, json_output=json_output)
 
 

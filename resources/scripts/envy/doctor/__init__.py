@@ -1,4 +1,4 @@
-"""Platform-aware doctor checks for dotfiles, apps, and login state."""
+"""Platform-aware doctor checks for envY, apps, and login state."""
 
 from envy.doctor.app import app
 

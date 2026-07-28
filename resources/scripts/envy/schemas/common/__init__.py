@@ -1,2 +1,2 @@
-"""Platform-neutral Envy schema components."""
-"""Platform-neutral Envy schemas."""
+"""Platform-neutral envY schema components."""
+"""Platform-neutral envY schemas."""

@@ -1,4 +1,4 @@
-"""Small recoverable file transactions for multi-file Envy workflows."""
+"""Small recoverable file transactions for multi-file envY workflows."""
 
 from __future__ import annotations
 

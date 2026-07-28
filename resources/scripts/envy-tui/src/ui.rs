@@ -618,7 +618,7 @@ fn render_doctor(frame: &mut Frame, app: &App, area: Rect) {
             frame,
             area,
             "No doctor results",
-            "Envy did not return any checks for this machine.",
+            "envY did not return any checks for this machine.",
             "Press r to run Doctor again.",
         );
         return;
@@ -849,7 +849,7 @@ fn render_mirror(frame: &mut Frame, app: &App, area: Rect) {
             frame,
             area,
             "No mirror targets",
-            "Envy did not return any ecosystem targets for this machine.",
+            "envY did not return any ecosystem targets for this machine.",
             "Press r to refresh or inspect `envy mirror targets`.",
         );
         return;
@@ -923,7 +923,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
     if app.loading() && !app.current_has_content() && app.screen != Screen::Search {
         frame.render_widget(Clear, area);
         frame.render_widget(
-            Paragraph::new(format!("  {} Loading complete Envy data…", spinner()))
+            Paragraph::new(format!("  {} Loading complete envY data…", spinner()))
                 .style(Style::default().fg(Color::Yellow))
                 .block(Block::default().borders(Borders::ALL)),
             area,
@@ -1117,7 +1117,7 @@ fn doctor_detail_lines(result: &Value) -> Vec<Line<'static>> {
     if result.get("action").is_some_and(|value| !value.is_null()) {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "Press x to run an allow-listed action; Envy will return here afterward.",
+            "Press x to run an allow-listed action; envY will return here afterward.",
             Style::default().fg(Color::Yellow),
         )));
     }
@@ -1940,7 +1940,7 @@ fn render_overlays(frame: &mut Frame, app: &mut App) {
                     Span::raw(" Doctor"),
                 ]),
                 Line::from(""),
-                Line::from("Enter or Esc keeps the change pending and returns to Envy."),
+                Line::from("Enter or Esc keeps the change pending and returns to envY."),
             ],
             0,
         );
@@ -1956,7 +1956,7 @@ fn render_overlays(frame: &mut Frame, app: &mut App) {
             vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    format!("{} Querying Envy cache and chsrc…", spinner()),
+                    format!("{} Querying envY cache and chsrc…", spinner()),
                     Style::default().fg(Color::Yellow).bold(),
                 )),
             ],

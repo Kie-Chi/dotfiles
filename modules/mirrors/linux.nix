@@ -74,7 +74,7 @@ EOF
           esudo ${sys.cmds.mkdir} -p /etc/apt/sources.list.d
           esudo ${sys.cmds.install} -m 0644 -o root -g root "$TEMP_SOURCE" "${sourcePath}"
           ${sys.cmds.rm} -f "$TEMP_SOURCE"
-          log_info "Configured the Envy APT mirror for $DISTRO_ID/$CODENAME."
+          log_info "Configured the envY APT mirror for $DISTRO_ID/$CODENAME."
         fi
       fi
     fi
@@ -83,7 +83,7 @@ EOF
     ${removeManagedMirrorFile}
     if [ -e "${sourcePath}" ]; then
       remove_envy_apt_mirror
-      log_info "Removed the Envy-managed APT mirror; system sources remain unchanged."
+      log_info "Removed the envY-managed APT mirror; system sources remain unchanged."
     fi
   '';
 in

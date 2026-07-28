@@ -33,7 +33,7 @@ in
       manifest = mkOption {
         type = types.attrs;
         readOnly = true;
-        description = "Normalized evaluated machine policy for Envy tooling.";
+        description = "Normalized evaluated machine policy for envY tooling.";
       };
       habits = mkOption {
         type = types.listOf (types.submodule {
@@ -68,12 +68,12 @@ in
             };
             ownership = mkOption {
               type = types.enum [ "declarative" "application" ];
-              description = "Whether Envy declares the binding or only records an application-owned preference.";
+              description = "Whether envY declares the binding or only records an application-owned preference.";
             };
             note = mkOption {
               type = types.str;
               default = "";
-              description = "Short implementation note shown by Envy inspection commands.";
+              description = "Short implementation note shown by envY inspection commands.";
             };
             requirements = mkOption {
               type = types.listOf (types.submodule {
@@ -116,7 +116,7 @@ in
 
     repository.path = mkOption {
       type = types.nonEmptyStr;
-      description = "Absolute path to this dotfiles checkout on the selected machine.";
+      description = "Absolute path to the envY checkout on the selected machine.";
     };
 
     vscode.mode = mkOption {
@@ -141,7 +141,7 @@ in
       type = types.attrs;
       default = { };
       description = ''
-        Envy-generated per-ecosystem mirror overrides. Values are written by
+        envY-generated per-ecosystem mirror overrides. Values are written by
         `envy mirror set` into the selected machine's managed mirror block;
         they take precedence over the selected mirror profile.
       '';

@@ -329,7 +329,7 @@ def check_habits(manifest: dict[str, Any] | None) -> tuple[list[HabitCheck], boo
                     habit.id,
                     implementation.context,
                     "info",
-                    f"manual verification required: {implementation.backend} owns its expected binding ({implementation.binding}); Envy does not read or overwrite it",
+                    f"manual verification required: {implementation.backend} owns its expected binding ({implementation.binding}); envY does not read or overwrite it",
                     {"binding": implementation.binding, "backend": implementation.backend},
                 ))
             else:
