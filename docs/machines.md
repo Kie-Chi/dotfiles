@@ -87,7 +87,7 @@ platform directory; `envy host init --mode` completes `import` and `copy`.
 
 `envy config refine` 可以迁移旧单行 `.device-label`、`~/.config/envy/machine`、旧 `config.nix` 和 Darwin 的旧 `envy.proxy.*`。稳态配置不再读取这些旧来源。
 
-Envy 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文件也可以立即 check/build/apply。
+envY 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文件也可以立即 check/build/apply。
 
 ## Option Boundary
 
@@ -148,7 +148,7 @@ Niri、两者（`all`）或都不导入（`none`）；公共 desktop 工具仍�
 # BEGIN ENVY MANAGED CONFIG
 envy.user.name = "chi";
 envy.user.home = "/Users/chi";
-envy.repository.path = "/Users/chi/.dotfiles";
+envy.repository.path = "/Users/chi/.envy";
 envy.git.name = "Chi";
 envy.git.email = "chi@example.com";
 envy.llm.steps.url = "https://example.com";

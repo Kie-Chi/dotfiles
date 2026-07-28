@@ -13,18 +13,18 @@
 
 ## Remote Bootstrap
 
-从默认 `master` clone 到 `~/.dotfiles` 并启动交互式 setup：
+从默认 `master` clone 到 `~/.envy` 并启动交互式 setup：
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh | bash
+  https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh | bash
 ```
 
 默认 bootstrap mirror 是 `china`。显式使用上游环境：
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh \
+  https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh \
   | bash -s -- --mirror upstream
 ```
 
@@ -32,7 +32,7 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fL \
-  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh \
+  https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh \
   -o /tmp/envy-install.sh
 less /tmp/envy-install.sh
 bash /tmp/envy-install.sh
@@ -43,7 +43,7 @@ bash /tmp/envy-install.sh
 ```bash
 ENVY_RELEASE='<tag>'
 curl --proto '=https' --tlsv1.2 -fsSL \
-  "https://raw.githubusercontent.com/Kie-Chi/dotfiles/$ENVY_RELEASE/install.sh" \
+  "https://raw.githubusercontent.com/Kie-Chi/envY/$ENVY_RELEASE/install.sh" \
   | ENVY_BRANCH="$ENVY_RELEASE" bash
 ```
 
@@ -53,7 +53,7 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh \
+  https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh \
   | bash -s -- --no-setup
 ```
 
@@ -62,20 +62,25 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 ```text
 --repo URL       Git repository URL
 --branch NAME    要 clone 的 branch 或 tag，默认 master
---target PATH    checkout 路径，默认 $HOME/.dotfiles
+--target PATH    checkout 路径，默认 $HOME/.envy
 --mirror MODE    bootstrap mirror：china 或 upstream，默认 china
 --no-setup       只 clone，不运行 setup.sh
 ```
 
-对应环境变量是 `ENVY_REPOSITORY_URL`、`ENVY_BRANCH`、`ENVY_DOTFILES` 和 `ENVY_MIRROR`。`ENVY_NIX_INSTALLER_URL` 可以显式覆盖 Determinate Nix Installer 下载地址；仓库不会自动信任第三方 installer mirror。例如：
+对应环境变量是 `ENVY_REPOSITORY_URL`、`ENVY_BRANCH`、`ENVY_ROOT` 和 `ENVY_MIRROR`。`ENVY_NIX_INSTALLER_URL` 可以显式覆盖 Determinate Nix Installer 下载地址；仓库不会自动信任第三方 installer mirror。例如：
 
 ```bash
-ENVY_REPOSITORY_URL='git@github.com:Kie-Chi/dotfiles.git' \
+ENVY_REPOSITORY_URL='git@github.com:Kie-Chi/envY.git' \
 ENVY_BRANCH='master' \
-ENVY_DOTFILES="$HOME/src/dotfiles" \
+ENVY_ROOT="$HOME/src/envy" \
 ENVY_MIRROR='china' \
 bash install.sh
 ```
+
+`ENVY_DOTFILES` 与 `DOTFILES_DIR` 仅作为旧版本迁移输入继续被识别；新脚本、
+shell 环境和文档统一使用 `ENVY_ROOT`。已有 `~/.dotfiles` checkout 应移动到
+`~/.envy`，并把 remote 更新为 `git@github.com:Kie-Chi/envY.git`。bootstrap
+不会自动移动已有目录，也不会覆盖其中的未提交改动。
 
 ## Existing Checkouts
 

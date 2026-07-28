@@ -1,4 +1,4 @@
-# Chi's Cross-platform Dotfiles
+# envY — Cross-platform Nix Configuration
 
 基于 Nix Flakes、nix-darwin、Home Manager 与 sops-nix 的声明式 Darwin/Linux 配置
 
@@ -50,14 +50,14 @@ Option 遵循公共优先原则：
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/Kie-Chi/dotfiles/master/install.sh | bash
+  https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh | bash
 ```
 
 或者手动 clone：
 
 ```bash
-git clone https://github.com/Kie-Chi/dotfiles.git ~/.dotfiles
-cd ~/.dotfiles
+git clone https://github.com/Kie-Chi/envY.git ~/.envy
+cd ~/.envy
 bash setup.sh
 ```
 
@@ -96,7 +96,7 @@ envy host select <machine-id>
 | `envy check --build` | 在本机平台构建所选 targets；外平台仍只求值 |
 | `envy plan` | 构建但不激活当前 target，并与 active generation 比较 closure |
 | `envy history` / `envy history diff <a> <b>` | 查看 generations 或比较两个 generation 的 closure |
-| `envy tui` | 启动 Rust/Ratatui 全屏 frontend；通过 JSON 调用现有 Envy backend |
+| `envy tui` | 启动 Rust/Ratatui 全屏 frontend；通过 JSON 调用现有 envY backend |
 | `envy rollback <n> --dry-run` | 在激活旧 generation 前预览 closure 差异 |
 | `envy mirror measure <target> --provider chsrc|curl` | 使用指定测速 provider 测量候选镜像；默认 `chsrc` |
 | `envy update` | 更新全部 flake inputs、检查全部 machines，并在 Darwin 更新 Homebrew metadata |
@@ -116,7 +116,7 @@ envy host select <machine-id>
 | `envy sw cache status` | 查看供 search/add 共用的精确 registry identity index |
 | `envy mirror status` | 展示当前 machine 求值后生效的镜像端点 |
 | `envy mirror probe` | 只读探测镜像 HTTP 状态与延迟 |
-| `envy mirror targets` / `envy mirror sources <target>` | 按 npm/rust/python/go target 列出可选镜像源；结果来自 Envy cache、chsrc 或 catalog fallback |
+| `envy mirror targets` / `envy mirror sources <target>` | 按 npm/rust/python/go target 列出可选镜像源；结果来自 envY cache、chsrc 或 catalog fallback |
 | `envy mirror measure <target> [--provider chsrc|curl]` | 使用 provider 专属 cache 运行/读取测速；curl 测量生态代表性资源，`--refresh` 强制重测 |
 | `envy mirror set <target> <source>` / `reset <target>` | dry-run 后把选择写入当前 machine 的 generated override block；不调用 `chsrc set` |
 | `envy mirror cache status/clean` | 查看或清理候选源与测速 cache |

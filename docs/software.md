@@ -21,7 +21,7 @@ alias. Software is not a `config` subcommand, and there is no top-level
 | `envy software cache status` |  | Inspect the exact registry identity index |
 
 `envy sw ls --details` includes versions and canonical references. `enable` and
-日常使用可以只提供软件名。Envy 会先从 evaluated manifest 和精确 identity
+日常使用可以只提供软件名。envY 会先从 evaluated manifest 和精确 identity
 index 判断兼容 group；唯一时自动选择，存在多个选择时在交互终端展示带人类
 标签的 chooser。脚本和高级操作可以用 `--group` 消除歧义：
 
@@ -82,7 +82,7 @@ are reported separately, and neither state writes machine policy.
 Shell completion is manifest-aware: `add` offers restorable managed exclusions
 plus fresh exact-index identities for the selected ecosystem and kind; it never
 contacts a registry just because Tab was pressed. `rm` offers known included
-items, `dis` offers currently enabled items, and `en` offers Envy-managed
+items, `dis` offers currently enabled items, and `en` offers envY-managed
 exclusions. `why` completes explainable evaluated or machine-owned IDs across
 groups (including stale exclusions), while `why --group` and `search --source`
 complete canonical groups and providers. Completion reads an existing registry
@@ -90,7 +90,7 @@ index in SQLite read-only mode and does not create an empty cache.
 
 `include` records that an active business module contributes an item;
 `exclude` is a machine-level mask and always wins when both contain the same
-stable ID. `en` removes only the Envy-managed mask and then checks the evaluated
+stable ID. `en` removes only the envY-managed mask and then checks the evaluated
 result:
 
 - An included item that becomes effective is reported as enabled.
@@ -138,7 +138,7 @@ Each group contains:
 | `scope` | `user` or `system` |
 | `kind` | Package/tool/font/formula/cask/repository/artifact |
 | `installer` | Home Manager, nix-darwin, Homebrew, npm, uv, or native backend |
-| `editable` | Whether Envy owns managed include/exclude writes |
+| `editable` | Whether envY owns managed include/exclude writes |
 | `reconcile` | Whether apply installs, upgrades, or removes entries |
 | `selection` | Structured `include`, stable-ID `exclude`, and evaluated `effective` |
 
@@ -162,7 +162,7 @@ version, for example `npm:@openai/codex`, `pypi:ruff`, and
 ### Nix source references
 
 Nix derivations do not retain the attribute expression that created them after
-evaluation, so Envy never guesses a `nix:<name>` reference from the displayed
+evaluation, so envY never guesses a `nix:<name>` reference from the displayed
 package name. Each Nix package contributor instead declares companion
 `references` metadata next to `include`, keyed by the final `lib.getName`
 package name:
@@ -191,7 +191,7 @@ the cache.
 
 The TUI keeps all available providers enabled so a slow registry never causes
 information to disappear. It remains responsive because the request runs in a
-background worker; repeated queries use Envy's 15-minute query cache and exact
+background worker; repeated queries use envY's 15-minute query cache and exact
 identity index. Provider failures are reported in the JSON `providers` list
 instead of silently dropping that provider.
 

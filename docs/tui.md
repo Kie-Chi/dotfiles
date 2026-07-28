@@ -12,7 +12,7 @@ From a repository checkout, the same command falls back to
 `envy --help`, shell completion, and `envy tui --help`; the shell wrapper keeps
 an exact `envy tui` fast path only for launching the installed binary.
 
-Envy keeps policy, Nix evaluation, registry resolution, and mutation safety in
+envY keeps policy, Nix evaluation, registry resolution, and mutation safety in
 the Python CLI. The TUI is a thin frontend that invokes these commands and
 renders their structured output; it does not parse Rich tables or reimplement
 software policy.
@@ -79,7 +79,7 @@ meaningful for scripts and the TUI.
   The interactive Search screen invokes the complete provider set in a
   background worker; cached queries render quickly without omitting providers.
 - Keep mutation confirmation in the frontend, but leave validation and rollback
-  in Envy. Never edit `hosts/*` directly from the TUI.
+  in envY. Never edit `hosts/*` directly from the TUI.
 - Read stderr and exit status for process failures; parse stdout only when the
   command was requested with `--json`.
 
@@ -115,15 +115,15 @@ return to the TUI and refresh affected views.
 The Mirror page is a two-level chooser. Its first table is grouped by ecosystem
 target (`npm`, `rust`, `python`, `go`) and shows the configured `china` or
 `upstream` profile plus each target's selected source. `profile` means the
-profile fallback is selected; `override` means an Envy-generated machine override
-is selected. Press `Enter` to load candidate sources from Envy's cache, `chsrc`,
+profile fallback is selected; `override` means an envY-generated machine override
+is selected. Press `Enter` to load candidate sources from envY's cache, `chsrc`,
 or the catalog fallback. The chooser marks the current effective source with
 `CURRENT profile` or `CURRENT override`.
 
 After candidates appear, the TUI starts `envy mirror measure TARGET --json` in
 the background. The TUI uses the default `chsrc` provider; the CLI also supports
 `envy mirror measure TARGET --provider curl --refresh --json` for URL-level curl
-measurements. It first reuses Envy's cached provider-specific measurement and only
+measurements. It first reuses envY's cached provider-specific measurement and only
 runs a new measurement when that cache is expired; all-failed results are still
 shown and cached briefly. The chooser remains usable while measurement runs;
 press `r` there to force a fresh measurement. `j`/`k` (and the mouse wheel)
@@ -132,7 +132,7 @@ target has many candidates; `PageUp`/`PageDown` page through the loop and
 `g`/`G` jump to its ends. `source cache` only describes cached candidate
 discovery, not a speed-test result. Completed measurements explicitly show
 `ok`/`failed`, HTTP status, throughput, and any chsrc diagnostic (for example
-`HTTP 000 / no response`). Envy then performs `mirror set TARGET SOURCE --dry-run --json`,
+`HTTP 000 / no response`). envY then performs `mirror set TARGET SOURCE --dry-run --json`,
 shows the generated endpoint assignments, and writes them only after a second
 `Enter`/`y` through `--yes --json`. The TUI never runs `chsrc set` and never
 edits a machine file directly. A successful write invalidates the affected
@@ -184,7 +184,7 @@ The Rust source is separated by responsibility: `main.rs` owns only terminal
 lifecycle, `app.rs` owns interaction state, `backend.rs` owns JSON subprocess
 boundaries and response validation, `model.rs` owns typed view models, and
 `ui.rs` owns Ratatui rendering. This keeps future screens from growing another
-single-file frontend while preserving Envy as the only policy authority.
+single-file frontend while preserving envY as the only policy authority.
 
 It intentionally remains a separate binary calling the existing `envy`
 executable. This keeps the policy engine in Python and makes the frontend a

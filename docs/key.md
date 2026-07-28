@@ -1,6 +1,6 @@
 # Key Management (envy key)
 
-sops-nix 使用 age 加密管理 dotfiles 中的私密信息。`envy key` 提供密钥全生命周期管理——从导入、轮换、添加/移除设备，到恢复密钥的生成与提取。
+sops-nix 使用 age 加密管理 envY 仓库中的私密信息。`envy key` 提供密钥全生命周期管理——从导入、轮换、添加/移除设备，到恢复密钥的生成与提取。
 
 ## 快速诊断
 
@@ -40,7 +40,7 @@ creation_rules:
 
 ### 场景 1：新设备配置
 
-在新设备上克隆 dotfiles 后，sops 无法解密 `secrets.yaml`。有两种方式：
+在新设备上克隆 envY 仓库后，sops 无法解密 `secrets.yaml`。有两种方式：
 
 **方式 A — 从旧设备复制密钥（最推荐）：**
 

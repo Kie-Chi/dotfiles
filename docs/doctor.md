@@ -62,7 +62,7 @@ Doctor commands are entrypoint scopes; result row sections are semantic check ca
 | Section | Aliases | Meaning |
 |---|---|---|
 | `self` | `doctor`, `doc` | Doctor tool metadata and invocation input, such as version, source, source priority, or unknown `--only` selections. |
-| `conf` | `config`, `cfg` | Non-sensitive config values and dotfiles config files. |
+| `conf` | `config`, `cfg` | Non-sensitive values and envY configuration files. |
 | `secr` | `secrets`, `secret`, `sec` | age, sops, `secrets.yaml`, and decryptability. |
 | `apps` | `install`, `inst` | Installed/visible artifacts: app bundles, CLI commands, code CLI, and VS Code extensions. |
 | `runs` | `runtime`, `run` | Running processes, daemons, backend states, and unreadable runtime/status APIs. |
@@ -196,7 +196,7 @@ Important implications:
 - `envy doctor` cannot force macOS to grant permissions.
 - `tccutil` can reset decisions, but cannot grant permissions.
 - Directly editing TCC databases is unsupported and may be blocked by SIP. Do not do it in this repo.
-- MDM PPPC profiles can pre-approve some permissions in managed environments, but that is outside this personal dotfiles flow.
+- MDM PPPC profiles can pre-approve some permissions in managed environments, but that is outside this personal envY flow.
 - Reading the user's TCC database usually requires Full Disk Access for the terminal app running `envy`.
 
 Common services used here:
@@ -252,7 +252,7 @@ Open the app once and enable launch-at-login if it is supposed to be a menu-bar/
 
 `expected state/config path is missing`
 
-Open the app once. If the file is managed by Home Manager or dotfiles activation, rerun `envy apply`.
+Open the app once. If the file is managed by Home Manager or envY activation, rerun `envy apply`.
 
 `command missing`
 

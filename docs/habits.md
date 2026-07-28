@@ -3,7 +3,7 @@
 `envy habit` manages stable personal interaction semantics through versioned
 machine policy. A desired gesture lives in `hosts/<platform>/<id>.nix`; the
 desktop module for each backend renders its native binding from that value.
-Machine policy continues to select software through the existing Envy
+Machine policy continues to select software through the existing envY
 package/cask options.
 
 ```bash
@@ -25,7 +25,7 @@ envy habit repair
 
 The canonical gesture is the machine's desired state. `binding` is the
 platform-native rendering: your Niri session uses the logical `Super` key for
-the same Option+Space habit. Envy shows both rather than flattening them into
+the same Option+Space habit. envY shows both rather than flattening them into
 one misleading key string.
 
 `F11` is intentionally not a contract. macOS reserves it for Show Desktop,
@@ -39,11 +39,11 @@ Each implementation declares one of two ownership modes:
 - `declarative`: the corresponding Nix desktop module uses one local value for
   both the native binding and its Habit contract. `envy habit set` changes the
   selected machine's value, and `envy habit repair` (or `set --apply`) runs the
-  normal Envy apply path to render and activate that desired state. The two
+  normal envY apply path to render and activate that desired state. The two
   cannot drift apart; `envy habit check` also verifies that required software
   is effective in the evaluated manifest.
 - `application`: the application owns the setting. Raycast's global hotkey is
-  recorded as part of the contract but never overwritten by Envy; the check
+  recorded as part of the contract but never overwritten by envY; the check
   verifies that Raycast is selected and explicitly reports that its expected
   hotkey still needs manual verification.
 

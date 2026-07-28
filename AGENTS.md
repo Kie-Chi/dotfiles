@@ -1,8 +1,8 @@
-# AGENTS.md — Project Guide for Chi's Nix Dotfiles
+# AGENTS.md — Project Guide for envY
 
 ## Project Overview
 
-Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux), using one `master` branch, nix-darwin/Home Manager, and sops-nix.
+Cross-platform Nix configuration for Darwin (aarch64-darwin) and Linux (x86_64-linux), using one `master` branch, nix-darwin/Home Manager, and sops-nix.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 
 **Non-sensitive machine config** (`hosts/darwin/<id>.nix` or `hosts/linux/<id>.nix`): the sole source for user name, paths, git info, VS Code mode, local LLM URLs/models, and machine software policy. Darwin hosts additionally own Darwin-only proxy/Homebrew policy; Linux has no proxy schema. Values use the `envy.*` option tree and modules read them through `config.envy.*`.
 
-**Device metadata** (`.device-label`): Gitignored TOML containing `device.machine_id` and `device.sops_label`. It selects the default Envy flake target and labels the device age key, but is not a second Nix configuration source. `envy config check/refine` validates and migrates it.
+**Device metadata** (`.device-label`): Gitignored TOML containing `device.machine_id` and `device.sops_label`. It selects the default envY flake target and labels the device age key, but is not a second Nix configuration source. `envy config check/refine` validates and migrates it.
 
 **Encrypted secrets** (`secrets/secrets.yaml`): passwords, API keys, and proxy URLs with tokens. Managed by sops-nix, encrypted with age key. Referenced as `config.sops.secrets.xxx` (file path) or `config.sops.placeholder.xxx` (for templates). Decrypted only at activation time — **never available as string values at Nix eval time**.
 
@@ -39,7 +39,7 @@ Cross-platform Nix dotfiles for Darwin (aarch64-darwin) and Linux (x86_64-linux)
 | `resources/scripts/envy/evaluation.py` | Shared reader for the evaluated machine manifest, with process-local and Git-fingerprinted persistent caches used by config views, setup, software policy, and doctor. |
 | `resources/scripts/envy/{process,secure_io,transaction}.py` | Shared command boundary, atomic/private file I/O, and multi-file rollback primitives. |
 | `resources/scripts/envy/jsonio.py` | Stable JSON envelope used by non-interactive frontends and future TUI clients. |
-| `resources/scripts/envy-tui/` | Rust/Ratatui frontend; invokes the Envy CLI through its JSON boundary and owns no policy. |
+| `resources/scripts/envy-tui/` | Rust/Ratatui frontend; invokes the envY CLI through its JSON boundary and owns no policy. |
 | `resources/scripts/envy/workflows/` | Check, update, system lifecycle, and shared-branch Git workflows kept out of the CLI registration layer. |
 | `resources/scripts/envy/keys/` | Age/sops storage, device identity, and recovery-key encryption primitives. |
 | `resources/scripts/envy/software.py` | Direct managed include/exclude policy, desired-state planner, checkbox model, atomic writes, and evaluation rollback. |
@@ -129,7 +129,7 @@ Hybrid approach (in `setup.py`):
 | `envy check [--all|--changed] [--platform ...] [--build]` | Evaluate or locally build selected cross-platform machine targets |
 | `envy plan` | Build without activation and compare the target with the active generation closure |
 | `envy history` / `envy history diff <a> <b>` | Inspect generations or compare two generation closures |
-| `envy tui` | Launch the Rust/Ratatui frontend; it owns presentation only and calls Envy through JSON |
+| `envy tui` | Launch the Rust/Ratatui frontend; it owns presentation only and calls envY through JSON |
 | `envy update` / `envy update inputs [name]` | Update inputs transactionally and validate every machine before retaining `flake.lock` |
 | `envy sync --no-apply` | Fast-forward the shared `master` branch without applying |
 | `envy sync --build-only` | Fast-forward and build only the selected machine |
@@ -183,7 +183,7 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 - Microphone: join/start a meeting and unmute.
 - Screen Recording: start screen sharing.
 
-`tccutil` can reset permission decisions, but it cannot grant permissions. Do not edit TCC databases directly; it is unsupported and can be blocked by SIP. For managed fleets, pre-approval belongs in MDM PPPC profiles, not this dotfiles repo.
+`tccutil` can reset permission decisions, but it cannot grant permissions. Do not edit TCC databases directly; it is unsupported and can be blocked by SIP. For managed fleets, pre-approval belongs in MDM PPPC profiles, not this envY repository.
 
 ## Important rules
 
@@ -199,7 +199,7 @@ For meeting apps such as Tencent Meeting or Feishu, open the app and actually st
 - Manifest software group IDs use `<ecosystem>.<scope>.<kind>`; platform and installer are fields, not ID segments. Search providers may exist without a declarative manifest group.
 - Nix package contributors must declare companion `references` metadata keyed by final `lib.getName`: use `nix:<attr-path>`, `flake:<input>#<attr>`, or `local:<path>`. Never infer a Nix source reference from a derivation name.
 - The marked `ENVY MANAGED SOFTWARE` block directly assigns ecosystem `include`/`exclude`. Setup and `en/dis` mutate only its exclusions; `add/rm` may mutate both. Never rewrite hand-maintained policy outside its markers.
-- `--clean` may normalize only the target ID's Envy-owned entries and must never rewrite shared contributions or external exclusions.
+- `--clean` may normalize only the target ID's envY-owned entries and must never rewrite shared contributions or external exclusions.
 - A new registry-backed managed include must resolve through the evaluated manifest, the exact identity index, or a provider-specific exact lookup before writing. Never synthesize an unverified canonical reference; distinguish not-found from provider-unavailable and leave machine policy unchanged on either failure.
 - Push scope checks must include both worktree paths and outgoing commits. `--machine-only` may cover several machine files; `--self` may cover only the selected machine file. Both must fail before staging when out-of-scope paths exist.
 - Do not add an `enable` option merely because a setting could theoretically differ by machine. Shared infrastructure is unconditional; software is selected by package/cask/brew names; new machine options require a demonstrated behavioral difference.

@@ -13,7 +13,7 @@
 }
 ```
 
-除了整个 profile 的 `envy.mirrors.mode`，Envy 也支持按生态覆盖。覆盖由
+除了整个 profile 的 `envy.mirrors.mode`，envY 也支持按生态覆盖。覆盖由
 `envy mirror set` 生成，写入当前 machine 文件中独立的 managed block；用户不需要
 手动编辑嵌套 Nix 属性：
 
@@ -49,7 +49,7 @@ generated assignments，其他 target 与手工 machine policy 不受影响。ca
 | Common | Maven Central | Aliyun public repository |
 | Common | Conda / conda-forge | TUNA；保留仓库原有 mamba env/package directories |
 | Darwin | Homebrew API, bottles, brew/core Git | TUNA，通过 nix-darwin activation environment |
-| Linux | Ubuntu / Debian APT | TUNA，Deb822 source owned by Envy |
+| Linux | Ubuntu / Debian APT | TUNA，Deb822 source owned by envY |
 | Linux | Docker installer | `get.docker.com --mirror Aliyun` |
 
 DNF、pacman 和 zypper 继续使用机器已有 repositories。仓库目前没有为这些发行版选择并验证统一镜像，不能因为它们也安装 system packages 就复用 APT 配置。
@@ -62,7 +62,7 @@ China mode 在 Ubuntu 或 Debian 上生成：
 /etc/apt/sources.list.d/envy-mirror.sources
 ```
 
-Envy 不覆盖、重命名或删除 `/etc/apt/sources.list` 以及其他软件创建的 source 文件。Envy 自己的 `pkg_update`、`pkg_install` 和本地 `.deb` 安装只读取上述 source，避免被慢速系统源拖累。切换到 `upstream` 时只删除 Envy 自己的文件。
+envY 不覆盖、重命名或删除 `/etc/apt/sources.list` 以及其他软件创建的 source 文件。envY 自己的 `pkg_update`、`pkg_install` 和本地 `.deb` 安装只读取上述 source，避免被慢速系统源拖累。切换到 `upstream` 时只删除 envY 自己的文件。
 
 Waydroid 是独立第三方 repository。它的安装仍读取完整系统 source set，因此 `repo.waydro.id` 不会被 TUNA Ubuntu/Debian 源遮蔽。腾讯官方 WeChat `.deb` 也保留原始下载 URL，只把依赖解析交给 APT mirror。
 
@@ -100,11 +100,11 @@ envy mirror cache status --json
 相同的 TensorFlow tarball，Go 使用固定 module 元数据，Python 使用 `pip` 的 simple
 索引，Rust 使用 crates API/下载 artifact；因此不会把一个很小的 registry 根响应
 当成吞吐量。结果中的 `measurementUrl`（表格里的 `Probe URL`）是实际测速地址。
-Envy 永远不会在 activation 或 TUI 选择时调用 `chsrc set`。测速结果按 provider 隔离后写入 Envy 自己的 SQLite cache：
+envY 永远不会在 activation 或 TUI 选择时调用 `chsrc set`。测速结果按 provider 隔离后写入 envY 自己的 SQLite cache：
 `~/.cache/envy/mirrors/index-v1.sqlite3`（目录 0700，文件 0600）。候选源 cache
 默认 30 天，成功测速 6 小时；全为 HTTP 000/无吞吐量的失败结果只缓存 5 分钟，避免
 把 chsrc 的“最快镜像站”提示误当作可用结果。第二次执行如果看到 `(cached)`，表示
-读取了 provider 专属缓存；使用 `--refresh` 才会重新发起请求。短暂无法运行 chsrc 时，Envy 会在允许的
+读取了 provider 专属缓存；使用 `--refresh` 才会重新发起请求。短暂无法运行 chsrc 时，envY 会在允许的
 陈旧窗口内复用自己的 cache，最后才回退到 catalog 内置候选源。
 
 TUI 顶层会明确显示当前 machine policy 的 profile（`china` 或 `upstream`）以及每个 target 的
@@ -123,12 +123,12 @@ effective source 会以 `CURRENT profile` 或 `CURRENT override` 标识。候选
 
 Nix binary cache 只提供已经构建的 store paths，不能代替所有 source 下载：
 
-- clone dotfiles 和 flake 的 GitHub inputs 仍需能够访问 GitHub。受限网络可设置 `HTTPS_PROXY`，或用 `ENVY_REPOSITORY_URL` 指向用户信任的 Git remote。
+- clone envY 仓库和 flake 的 GitHub inputs 仍需能够访问 GitHub。受限网络可设置 `HTTPS_PROXY`，或用 `ENVY_REPOSITORY_URL` 指向用户信任的 Git remote。
 - Determinate Nix Installer 本身在 Nix 可用前下载。没有自动选择第三方副本；需要时显式设置经过审查的 `ENVY_NIX_INSTALLER_URL`。
 - 固定哈希的 `fetchurl`、`fetchFromGitHub`、Zotero XPI、GitHub release、KDE artifact 和 Rime source 保持原 URL。把它们透明改写到通用代理会改变供应链边界，即使哈希仍能检测内容变化。
 - Docker 与 Waydroid 安装脚本仍来自其官方 endpoint；Docker 的 package repository 通过官方脚本参数选择 Aliyun。
 
-`chsrc` 可以作为用户手动排障和比较镜像的工具，但不是 Envy activation 的依赖。Envy 不应在每次 apply 时修改 application-owned 或 system-owned 配置。
+`chsrc` 可以作为用户手动排障和比较镜像的工具，但不是 envY activation 的依赖。envY 不应在每次 apply 时修改 application-owned 或 system-owned 配置。
 
 ## Security
 

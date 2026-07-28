@@ -39,8 +39,8 @@ Register it in `skills/catalog.nix`:
 
 ```nix
 {
-  dotfiles-maintainer = {
-    source = ./dotfiles-maintainer;
+  envy-maintainer = {
+    source = ./envy-maintainer;
     targets = [ "codex" "claude" ];
   };
 }
@@ -49,7 +49,7 @@ Register it in `skills/catalog.nix`:
 Then activate it in `modules/agents/default.nix`:
 
 ```nix
-agents.skills.active = [ "dotfiles-maintainer" ];
+agents.skills.active = [ "envy-maintainer" ];
 ```
 
 Use a single shared source when both agents accept the same workflow. Split it into provider-specific skills only when frontmatter or behavior genuinely differs.
