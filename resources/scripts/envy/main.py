@@ -119,6 +119,7 @@ def main_callback(
     debug: bool = typer.Option(False, "--debug", "-e", help="Enable debug mode"),
 ):
     """envy — dotfiles manager"""
+    log.reset_consoles()
     if debug:
         os.environ["ENVY_DEBUG"] = "1"
     _check_schema_api()

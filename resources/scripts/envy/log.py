@@ -10,6 +10,13 @@ console = Console()
 diagnostic_console = Console(stderr=True)
 
 
+def reset_consoles() -> None:
+    """Bind consoles to the streams and terminal capabilities of this CLI run."""
+    global console, diagnostic_console
+    console = Console()
+    diagnostic_console = Console(stderr=True)
+
+
 def is_debug() -> bool:
     return os.environ.get("ENVY_DEBUG") == "1"
 

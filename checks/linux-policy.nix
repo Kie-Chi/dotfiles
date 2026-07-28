@@ -60,6 +60,7 @@ let
     [ ]
     ({ pkgs, ... }: {
       envy.software.nix.packages.include = [ pkgs.hello ];
+      envy.software.nix.packages.references.hello = "nix:hello";
       envy.linux.software.native.packages.include = [
         {
           id = "curl";
