@@ -1582,6 +1582,10 @@ fn mirror_chooser_source_window(selected: usize, count: usize, visible: usize) -
     (start, start + visible)
 }
 
+fn format_throughput(throughput_bps: u64) -> String {
+    format!("{:.2} MB/s", throughput_bps as f64 / (1024.0 * 1024.0))
+}
+
 fn mirror_measurement_state(source: &crate::model::MirrorSource) -> String {
     let http = source
         .http_status
@@ -1589,7 +1593,7 @@ fn mirror_measurement_state(source: &crate::model::MirrorSource) -> String {
         .unwrap_or_default();
     let throughput = source
         .throughput_bps
-        .map(|value| format!(" · {value} B/s"))
+        .map(|value| format!(" · {}", format_throughput(value)))
         .unwrap_or_default();
     match source.ok {
         Some(true) if source.measurement_stale => {
@@ -2048,6 +2052,13 @@ mod tests {
         assert_eq!(mirror_chooser_source_window(0, 12, 8), (0, 8));
         assert_eq!(mirror_chooser_source_window(7, 12, 8), (3, 11));
         assert_eq!(mirror_chooser_source_window(11, 12, 8), (4, 12));
+    }
+
+    #[test]
+    fn mirror_throughput_is_displayed_in_megabytes_per_second() {
+        assert_eq!(format_throughput(0), "0.00 MB/s");
+        assert_eq!(format_throughput(1024 * 1024), "1.00 MB/s");
+        assert_eq!(format_throughput(4_850_000), "4.63 MB/s");
     }
 
     #[test]
