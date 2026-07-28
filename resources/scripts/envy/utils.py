@@ -36,16 +36,22 @@ LEGACY_USER_CONFIG = HOME_DIR / ".config" / "dotfiles" / "config.nix"
 LEGACY_SYSTEM_CONFIG = Path("/etc/dotfiles/config.nix")
 
 
+def _is_envy_checkout(path: Path) -> bool:
+    return (path / "flake.nix").is_file() and (path / "resources/scripts/envy").is_dir()
+
+
 def _resolve_envy_root() -> Path:
-    env = (
-        os.environ.get("ENVY_ROOT")
-        or os.environ.get("ENVY_DOTFILES")
-        or os.environ.get("DOTFILES_DIR")
-    )
-    if env:
-        return Path(env)
+    for name in ("ENVY_ROOT", "ENVY_DOTFILES", "DOTFILES_DIR"):
+        value = os.environ.get(name)
+        if value:
+            candidate = Path(value).expanduser()
+            if _is_envy_checkout(candidate):
+                return candidate
+    working_checkout = Path.cwd()
+    if _is_envy_checkout(working_checkout):
+        return working_checkout
     source_checkout = Path(__file__).resolve().parents[3]
-    if (source_checkout / "flake.nix").exists():
+    if _is_envy_checkout(source_checkout):
         return source_checkout
     return HOME_DIR / ".envy"
 

@@ -45,9 +45,10 @@ let
     text = ''
       bundled="${scriptsSrc}"
       repo="''${ENVY_ROOT:-''${ENVY_DOTFILES:-''${DOTFILES_DIR:-}}}"
-      if [ -z "$repo" ]; then
+      if [ ! -f "$repo/flake.nix" ] || [ ! -d "$repo/resources/scripts/envy" ]; then
         repo=${lib.escapeShellArg config.envy.repository.path}
       fi
+      export ENVY_ROOT="$repo"
 
       # Prefer repo source unless explicitly using bundled
       if [ -d "$repo/resources/scripts/envy" ] && [ "''${ENVY_USE_BUNDLED:-0}" != "1" ]; then
