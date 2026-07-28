@@ -4,10 +4,37 @@ from pathlib import Path
 from unittest.mock import patch
 
 from envy import config
+from envy.schemas.common.config import (
+    COMMON_MACHINE_FIELDS,
+    LEGACY_CONFIG_PATHS as COMMON_LEGACY_CONFIG_PATHS,
+    OBSOLETE_MACHINE_KEYS as COMMON_OBSOLETE_MACHINE_KEYS,
+)
+from envy.schemas.darwin.config import (
+    LEGACY_CONFIG_PATHS as DARWIN_LEGACY_CONFIG_PATHS,
+    MACHINE_FIELDS as DARWIN_MACHINE_FIELDS,
+    OBSOLETE_MACHINE_KEYS as PLATFORM_DARWIN_OBSOLETE_MACHINE_KEYS,
+)
 
 
-class MachineConfigTests(unittest.TestCase):
+DARWIN_MACHINE_SCHEMA = COMMON_MACHINE_FIELDS + DARWIN_MACHINE_FIELDS
+DARWIN_LEGACY_SCHEMA = COMMON_LEGACY_CONFIG_PATHS | DARWIN_LEGACY_CONFIG_PATHS
+DARWIN_OBSOLETE_MACHINE_KEYS = (
+    COMMON_OBSOLETE_MACHINE_KEYS + PLATFORM_DARWIN_OBSOLETE_MACHINE_KEYS
+)
+
+
+class DarwinMachineConfigTests(unittest.TestCase):
     def setUp(self):
+        # This fixture exercises Darwin-only boolean and legacy fields even
+        # when the cross-platform suite is running on a Linux worker.
+        self.schema_patch = patch.multiple(
+            config,
+            MACHINE_FIELDS=DARWIN_MACHINE_SCHEMA,
+            LEGACY_CONFIG_PATHS=DARWIN_LEGACY_SCHEMA,
+            OBSOLETE_MACHINE_KEYS=DARWIN_OBSOLETE_MACHINE_KEYS,
+        )
+        self.schema_patch.start()
+        self.addCleanup(self.schema_patch.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
         self.machines = self.root / "hosts" / "darwin"
