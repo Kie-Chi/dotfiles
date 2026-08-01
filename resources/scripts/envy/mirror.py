@@ -27,6 +27,11 @@ from envy.config import (
 from envy.evaluation import machine_manifest
 from envy.jsonio import emit, emit_error
 from envy.mutation import offer_mutation_commit
+from envy.nix_trust import (
+    current_nix_trust_context,
+    nix_trust_is_applicable,
+    run_nix_trust,
+)
 
 
 app = typer.Typer(
@@ -1266,6 +1271,67 @@ def cmd_reset(
 
 
 cache_app = typer.Typer(name="cache", help="Inspect or clear mirror source and measurement cache", no_args_is_help=True)
+trust_app = typer.Typer(name="trust", help="Inspect or repair Linux Nix daemon cache trust", no_args_is_help=True)
+
+
+def _run_trust_command(action: str, *, json_output: bool) -> None:
+    context = current_nix_trust_context()
+    if not nix_trust_is_applicable():
+        data = {
+            "applicable": False,
+            "platform": "darwin",
+            "state": "declarative",
+            "mode": context.mode,
+        }
+        if json_output:
+            emit(f"mirror.trust.{action}", data=data)
+        else:
+            log.info("mirror", "Nix daemon trust is managed declaratively by nix-darwin")
+        return
+
+    capture = action == "status"
+    quiet = json_output and action == "repair"
+    result = run_nix_trust(action, context=context, capture=capture, quiet=quiet)
+    ready = result.returncode == 0
+    state = "ready" if ready else ("repair-required" if action == "status" and result.returncode == 1 else "error")
+    detail = (result.stderr or result.stdout or "").strip()
+    if json_output:
+        emit(
+            f"mirror.trust.{action}",
+            ok=ready,
+            data={
+                "applicable": True,
+                "platform": "linux",
+                "state": state,
+                "mode": context.mode,
+                "user": context.user,
+                "exitCode": result.returncode,
+            },
+            error=None if ready else {"code": state, "message": detail or state},
+        )
+    elif capture:
+        if result.stdout:
+            log.console.print(result.stdout.rstrip(), markup=False)
+        if result.stderr:
+            log.diagnostic_console.print(result.stderr.rstrip(), markup=False)
+    if not ready:
+        raise typer.Exit(code=result.returncode)
+
+
+@trust_app.command(name="status")
+def cmd_trust_status(
+    json_output: bool = typer.Option(False, "--json", help="Emit a stable status envelope."),
+):
+    """Check whether the selected Linux cache policy is trusted by the Nix daemon."""
+    _run_trust_command("status", json_output=json_output)
+
+
+@trust_app.command(name="repair")
+def cmd_trust_repair(
+    json_output: bool = typer.Option(False, "--json", help="Emit a stable repair envelope."),
+):
+    """Reconcile daemon trust and restart an active Nix daemon only when changed."""
+    _run_trust_command("repair", json_output=json_output)
 
 
 @cache_app.command(name="status")
@@ -1302,6 +1368,7 @@ def cmd_cache_clean(
 
 
 app.add_typer(cache_app, name="cache")
+app.add_typer(trust_app, name="trust")
 
 
 @app.command(name="probe")

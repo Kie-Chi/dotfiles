@@ -12,6 +12,7 @@ from envy import log
 from envy.config import refine_all
 from envy.host import current_machine_file, initialize_machine, require_current_machine_file
 from envy.journal import record_operation
+from envy.nix_trust import ensure_nix_daemon_trust
 from envy.process import run_process
 from envy.utils import (
     ENVY_ROOT,
@@ -36,6 +37,7 @@ def refine_before_apply() -> None:
             raise typer.Abort()
         mode = typer.prompt("Creation mode (import/copy)", default="import")
         initialize_machine(machine_path.stem, mode)
+    ensure_nix_daemon_trust(platform=PLATFORM)
     report = refine_all(write=True, strict=True, include_secrets=True)
     if not report.ok:
         raise typer.Exit(code=1)
