@@ -31,7 +31,7 @@ Environment equivalents:
   ENVY_REPOSITORY_URL, ENVY_BRANCH, ENVY_ROOT, ENVY_MIRROR
   ENVY_DOTFILES and DOTFILES_DIR are deprecated aliases for ENVY_ROOT.
   ENVY_GIT_MIRROR_URL overrides the China GitHub proxy (default: gh-proxy.com).
-  ENVY_NIX_INSTALLER_URL overrides the Determinate Nix installer endpoint.
+  ENVY_NIX_INSTALLER_URL overrides the Nix installer endpoint.
 EOF
 }
 

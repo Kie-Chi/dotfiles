@@ -62,7 +62,7 @@
         "https://mirrors.ustc.edu.cn/nix-channels/store"
         "https://cache.nixos.org/"
       ];
-      extraSubstituters = [ "https://mirrors.ustc.edu.cn/nix-channels/store" ];
+      extraSubstituters = [ ];
     };
     npm.registry = "https://registry.npmmirror.com";
     python.index = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple";

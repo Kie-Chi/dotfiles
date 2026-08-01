@@ -54,6 +54,6 @@ if [ "${ENVY_DEV_SHELL:-0}" = "1" ] \
     export PYTHONPATH="$BASE_DIR/resources/scripts:${PYTHONPATH:-}"
     exec python3 "$BASE_DIR/setup.py"
 else
-    echo "[INFO] Preparing the envY setup runtime (the Rust toolchain is not required)..."
+    echo "[INFO] Preparing the envY setup runtime..."
     exec nix run "path:$BASE_DIR#setup"
 fi

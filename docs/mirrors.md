@@ -41,7 +41,7 @@ generated assignments，其他 target 与手工 machine policy 不受影响。ca
 
 | Scope | Ecosystem | China endpoint / behavior |
 |---|---|---|
-| Common | Nix binary cache | USTC，保留 `cache.nixos.org` fallback 与 Nix signature verification |
+| Common | Nix binary cache | USTC 优先，`cache.nixos.org` 回退；保留 Nix signature verification |
 | Common | npm | npmmirror |
 | Common | PyPI / uv | TUNA |
 | Common | Go modules | `goproxy.cn,direct` |
@@ -51,6 +51,22 @@ generated assignments，其他 target 与手工 machine policy 不受影响。ca
 | Darwin | Homebrew API, bottles, brew/core Git | TUNA，通过 nix-darwin activation environment |
 | Linux | Ubuntu / Debian APT | TUNA，Deb822 source owned by envY |
 | Linux | Docker installer | `get.docker.com --mirror Aliyun` |
+
+### Nix Cache And Sources
+
+Nix 的 `substituters` 只负责已经构建好的 `/nix/store` 路径，不会改写
+`fetchurl`、`fetchFromGitHub` 或 flake input 的源地址。`china` profile 会显式写入以下
+顺序：
+
+```text
+https://mirrors.ustc.edu.cn/nix-channels/store
+https://cache.nixos.org/
+```
+
+因此看到 `cache.nixos.org` 有两种正常情况：USTC 没有对应的 store path，或者请求发生在
+Nix source fetcher 上而不是 binary cache。前者是有意保留的官方回退，后者仍使用源码声明
+中的原始 URL。可以用 `nix config show | grep '^substituters'` 检查当前生效顺序；如果仍然
+看到 USTC 排在系统默认缓存之后，说明尚未重新运行 Home Manager/nix-darwin activation。
 
 DNF、pacman 和 zypper 继续使用机器已有 repositories。仓库目前没有为这些发行版选择并验证统一镜像，不能因为它们也安装 system packages 就复用 APT 配置。
 

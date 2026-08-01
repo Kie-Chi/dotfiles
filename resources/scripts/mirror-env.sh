@@ -20,7 +20,7 @@ export ENVY_MIRROR="$envy_mirror_mode"
 
 if [ "${ENVY_MIRROR_ENV_APPLIED:-}" != "$envy_mirror_mode" ]; then
     if [ "$envy_mirror_mode" = "china" ]; then
-        envy_nix_config='extra-substituters = https://mirrors.ustc.edu.cn/nix-channels/store
+        envy_nix_config='substituters = https://mirrors.ustc.edu.cn/nix-channels/store https://cache.nixos.org/
 fallback = true
 connect-timeout = 5
 download-attempts = 3'

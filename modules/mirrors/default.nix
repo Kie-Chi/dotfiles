@@ -5,6 +5,7 @@ let
   profile = (import ./resolve.nix { inherit lib; })
     catalog.${config.envy.mirrors.mode}
     config.envy.mirrors.overrides;
+  substituters = lib.concatStringsSep " " profile.nix.substituters;
   extraSubstituters = lib.concatStringsSep " " profile.nix.extraSubstituters;
   condaConfig = {
     envs_dirs = [ "~/.mamba/envs" ];
@@ -13,8 +14,9 @@ let
     show_channel_urls = true;
     default_channels = profile.conda.defaultChannels;
   };
-  nixMirrorConfig = lib.optionalString (profile.nix.extraSubstituters != [ ]) ''
-    extra-substituters = ${extraSubstituters}
+  nixMirrorConfig = ''
+    substituters = ${substituters}
+    ${lib.optionalString (profile.nix.extraSubstituters != [ ]) "extra-substituters = ${extraSubstituters}"}
   '';
 in
 {

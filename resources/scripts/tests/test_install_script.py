@@ -165,7 +165,9 @@ class InstallScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count("extra-substituters"), 1)
+        self.assertEqual(result.stdout.count("substituters ="), 1)
+        self.assertIn("https://mirrors.ustc.edu.cn/nix-channels/store", result.stdout)
+        self.assertIn("https://cache.nixos.org/", result.stdout)
 
     def test_setup_without_a_terminal_fails_with_clone_only_guidance(self):
         target = self.root / "checkout"

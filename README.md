@@ -54,7 +54,7 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 ```
 
 国内 bootstrap 默认通过 `gh-proxy.com` 获取 GitHub 仓库，并在无法访问代理时回退到
-GitHub 直连；Nix、npm、PyPI、Go 和 Rust/Cargo 的首次 setup 下载也会使用国内镜像。
+GitHub 直连；Nix binary cache、npm、PyPI、Go 和 Rust/Cargo 的首次 setup 下载也会使用国内镜像。
 如果网络可以直连 GitHub，可在命令后追加 `--mirror upstream`。
 
 或者手动 clone：
