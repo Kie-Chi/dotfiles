@@ -102,11 +102,13 @@ let
   serverForbiddenActivations = inputs.nixpkgs.lib.intersectLists
     [ "installWayDroid" "rimeDeploy" "setupSunshineInput" "swayosdSystemSetup" "niriStartUp" ]
     (builtins.attrNames server.config.home.activation);
+  nixTrustActivation = server.config.home.activation.configureNixDaemonTrust.data;
 in
 assert serverForbiddenPackages == [ ];
 assert serverForbiddenActivations == [ ];
 assert hasActivation "configureAptMirror" server;
 assert hasActivation "configureNixDaemonTrust" server;
+assert inputs.nixpkgs.lib.hasInfix "/bin/envy-nix-trust" nixTrustActivation;
 assert hasActivation "installNativePackages" server;
 assert hasActivation "installNpmTools" server;
 assert hasActivation "installPypiTools" server;

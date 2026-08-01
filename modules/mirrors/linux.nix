@@ -5,7 +5,20 @@ let
     (import ./catalog.nix).${config.envy.mirrors.mode}
     config.envy.mirrors.overrides;
   sourcePath = "/etc/apt/sources.list.d/envy-mirror.sources";
-  nixTrustScript = ../../resources/scripts/nix-trust.sh;
+  nixTrustSource = ../../resources/scripts/nix-trust.sh;
+  nixTrust = pkgs.writeShellApplication {
+    name = "envy-nix-trust";
+    runtimeInputs = with pkgs; [
+      coreutils
+      diffutils
+      gawk
+      gnugrep
+    ];
+    text = ''
+      exec ${pkgs.bash}/bin/bash "${nixTrustSource}" "$@"
+    '';
+  };
+  nixTrustCommand = "${nixTrust}/bin/envy-nix-trust";
   removeManagedMirrorFile = ''
     remove_envy_apt_mirror() {
       if [ -e "${sourcePath}" ]; then
@@ -92,7 +105,7 @@ in
   home.activation.configureNixDaemonTrust = sys.task.root {
     name = "configure-nix-daemon-trust";
     script = ''
-      if ${pkgs.bash}/bin/bash "${nixTrustScript}" status \
+      if ${nixTrustCommand} status \
           --mode "${config.envy.mirrors.mode}" \
           --user "${config.envy.user.name}"; then
         :
@@ -101,7 +114,7 @@ in
         if [ "$TRUST_STATUS" -ne 1 ]; then
           exit "$TRUST_STATUS"
         fi
-        esudo ${pkgs.bash}/bin/bash "${nixTrustScript}" repair \
+        esudo ${nixTrustCommand} repair \
           --mode "${config.envy.mirrors.mode}" \
           --user "${config.envy.user.name}" \
           --elevated

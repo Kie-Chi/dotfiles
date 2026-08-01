@@ -10,6 +10,11 @@
   envy.user.name = "jyxc-dz-0101541";
   envy.user.home = "/Users/jyxc-dz-0101541";
 
+  # --- DARWIN_SERVICES CONFIG ---
+  envy.darwin.services.mihomo.mode = "none";
+  envy.darwin.services.mihomo.tun = false;
+  envy.darwin.services.openssh.mode = "keep";
+
   # --- ENV CONFIG ---
   envy.repository.path = "/Users/jyxc-dz-0101541/.envy";
 
@@ -29,11 +34,6 @@
 
   # --- MIRRORS CONFIG ---
   envy.mirrors.mode = "china";
-
-  # --- DARWIN SERVICES CONFIG ---
-  envy.darwin.services.mihomo.mode = "none";
-  envy.darwin.services.mihomo.tun = false;
-  envy.darwin.services.openssh.mode = "manual";
 
   # --- VSCODE CONFIG ---
   envy.vscode.mode = "remote";
