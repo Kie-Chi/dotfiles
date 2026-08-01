@@ -7,6 +7,42 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 export ENVY_ROOT="$ROOT"
 export PYTHONPATH="$ROOT/resources/scripts:${PYTHONPATH:-}"
 
+# Nix installers update shell startup files, but this process may be running
+# before those files have been sourced (notably right after bootstrap). Restore
+# the stable profile locations so the repo entry point can discover `nix`.
+load_nix_path() {
+  local profile_script='/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+  local nix_bin='/nix/var/nix/profiles/default/bin'
+
+  if [ -e "$profile_script" ]; then
+    # shellcheck source=/dev/null
+    . "$profile_script"
+  fi
+  if [ -d "$nix_bin" ]; then
+    PATH="$nix_bin:${PATH:-}"
+  fi
+  if [ -d '/nix/profile/bin' ]; then
+    PATH="/nix/profile/bin:${PATH:-}"
+  fi
+  if [ -n "${HOME:-}" ] && [ -d "$HOME/.nix-profile/bin" ]; then
+    PATH="$HOME/.nix-profile/bin:${PATH:-}"
+  fi
+  export PATH
+}
+
+if ! command -v nix >/dev/null 2>&1; then
+  load_nix_path
+fi
+
+# Keep the repo-local entry point reproducible: the host Python may happen to
+# provide envy dependencies while still missing the tools and environment from
+# this flake's devShell. Re-exec inside `nix develop` once, then let the normal
+# source launcher below handle the command.
+if [ "${ENVY_DEV_SHELL:-0}" != "1" ] && command -v nix >/dev/null 2>&1; then
+  export ENVY_DEV_SHELL=1
+  exec nix develop "path:$ROOT" --command "$ROOT/envy" "$@"
+fi
+
 # The polished frontend is a separate Rust binary. Prefer an installed
 # package, while keeping the repository checkout runnable during development.
 if [ "${1:-}" = "tui" ] && [ "$#" -eq 1 ] && [ -z "${_ENVY_COMPLETE:-}" ]; then
@@ -23,14 +59,9 @@ fi
 
 # Check Python + required modules
 if ! python3 -c "import typer, rich, yaml" 2>/dev/null; then
-  if command -v nix >/dev/null 2>&1; then
-    echo "[INFO] Preparing the minimal envY runtime..." >&2
-    exec nix run "path:$ROOT#envy" -- "$@"
-  else
-    echo "error: Python dependencies missing (typer, rich, pyyaml)." >&2
-    echo "Install nix or: pip install typer rich pyyaml" >&2
-    exit 1
-  fi
+  echo "error: Python dependencies missing (typer, rich, pyyaml)." >&2
+  echo "Enter the Nix devShell or install them with: pip install typer rich pyyaml" >&2
+  exit 1
 fi
 
 exec python3 -m envy "$@"
