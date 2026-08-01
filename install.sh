@@ -2,10 +2,14 @@
 
 set -euo pipefail
 
-repository_url="${ENVY_REPOSITORY_URL:-https://github.com/Kie-Chi/envY.git}"
+default_repository_url="https://github.com/Kie-Chi/envY.git"
+repository_url="${ENVY_REPOSITORY_URL:-$default_repository_url}"
+repository_url_explicit=0
+[ -n "${ENVY_REPOSITORY_URL:-}" ] && repository_url_explicit=1
 branch="${ENVY_BRANCH:-master}"
 target="${ENVY_ROOT:-${ENVY_DOTFILES:-${DOTFILES_DIR:-${HOME:?HOME is not set}/.envy}}}"
 mirror="${ENVY_MIRROR:-china}"
+git_mirror_url="${ENVY_GIT_MIRROR_URL:-https://gh-proxy.com/}"
 run_setup=1
 temporary_dir=""
 
@@ -26,6 +30,7 @@ Options:
 Environment equivalents:
   ENVY_REPOSITORY_URL, ENVY_BRANCH, ENVY_ROOT, ENVY_MIRROR
   ENVY_DOTFILES and DOTFILES_DIR are deprecated aliases for ENVY_ROOT.
+  ENVY_GIT_MIRROR_URL overrides the China GitHub proxy (default: gh-proxy.com).
   ENVY_NIX_INSTALLER_URL overrides the Determinate Nix installer endpoint.
 EOF
 }
@@ -47,6 +52,7 @@ while [ "$#" -gt 0 ]; do
         --repo)
             [ "$#" -ge 2 ] || fail "--repo requires a value"
             repository_url="$2"
+            repository_url_explicit=1
             shift 2
             ;;
         --branch)
@@ -81,6 +87,7 @@ done
 [ -n "$repository_url" ] || fail "repository URL cannot be empty"
 [ -n "$branch" ] || fail "branch cannot be empty"
 [ -n "$target" ] || fail "target cannot be empty"
+[ -n "$git_mirror_url" ] || fail "Git mirror URL cannot be empty"
 
 case "$mirror" in
     china|upstream)
@@ -98,6 +105,48 @@ esac
 
 command -v git >/dev/null 2>&1 || fail "git is required before bootstrapping"
 
+clone_repository() {
+    local clone_url
+    local normalized_mirror_url
+    local clone_index=0
+    local clone_count
+    local -a clone_urls=()
+
+    # An explicitly supplied repository is already a trust decision. Do not
+    # rewrite it through a third-party proxy. The default GitHub URL gets a
+    # domestic proxy in China mode, followed by the upstream fallback.
+    if [ "$repository_url_explicit" -eq 1 ] || [ "$mirror" = "upstream" ] \
+        || [[ "$repository_url" != https://github.com/* ]]; then
+        clone_urls=("$repository_url")
+    else
+        normalized_mirror_url="${git_mirror_url%/}/"
+        clone_urls=("${normalized_mirror_url}${repository_url}" "$repository_url")
+    fi
+
+    clone_count="${#clone_urls[@]}"
+    for clone_url in "${clone_urls[@]}"; do
+        printf 'Cloning %s (%s)...\n' "$clone_url" "$branch"
+        if git -c http.connectTimeout=15 \
+            -c http.lowSpeedLimit=1024 \
+            -c http.lowSpeedTime=30 \
+            clone --quiet --single-branch --branch "$branch" \
+            "$clone_url" "$temporary_dir/repository"; then
+            return 0
+        fi
+
+        # A failed clone may leave a partial destination behind. It is inside
+        # our private temporary directory, so remove only that partial clone
+        # before trying the next endpoint.
+        rm -rf "$temporary_dir/repository"
+        if [ "$((clone_index + 1))" -lt "$clone_count" ]; then
+            printf 'Clone endpoint failed; trying the next endpoint...\n' >&2
+        fi
+        clone_index=$((clone_index + 1))
+    done
+
+    return 1
+}
+
 if [ -d "$target/.git" ]; then
     printf 'Using existing checkout: %s\n' "$target"
 elif [ -e "$target" ]; then
@@ -108,8 +157,7 @@ else
     temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/envy-bootstrap.XXXXXX")"
     trap cleanup EXIT HUP INT TERM
 
-    printf 'Cloning %s (%s)...\n' "$repository_url" "$branch"
-    git clone --quiet --single-branch --branch "$branch" "$repository_url" "$temporary_dir/repository"
+    clone_repository || fail "unable to clone repository; set ENVY_REPOSITORY_URL to a reachable trusted Git remote"
     [ ! -e "$target" ] || fail "target appeared while cloning: $target"
     mv "$temporary_dir/repository" "$target"
     rmdir "$temporary_dir"

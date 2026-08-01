@@ -32,7 +32,7 @@ generated assignments，其他 target 与手工 machine policy 不受影响。ca
 
 首次安装时 machine module 还没有求值，镜像分为两个阶段：
 
-1. `install.sh --mirror china|upstream` 设置 `ENVY_MIRROR`。`setup.sh` 加载 `resources/scripts/mirror-env.sh`，在第一次 `nix develop` 前注入临时 Nix、npm、PyPI/uv、Go 和 Rust/Cargo 环境。
+1. `install.sh --mirror china|upstream` 设置 `ENVY_MIRROR`。`china` 模式会先通过 `gh-proxy.com` clone GitHub 仓库（可用 `ENVY_GIT_MIRROR_URL` 替换），失败后回退直连；`setup.sh` 加载 `resources/scripts/mirror-env.sh`，在第一次 `nix develop` 前注入临时 Nix、npm、PyPI/uv、Go 和 Rust/Cargo 环境。
 2. setup 写入 machine setting；`envy apply` 后由 `modules/mirrors/` 声明式维护长期配置。
 
 直接运行 `bash setup.sh` 时也会读取 `ENVY_MIRROR`，未指定则使用 `china`。bootstrap shell 中的端点必须与 `modules/mirrors/catalog.nix` 保持一致。
@@ -126,8 +126,8 @@ effective source 会以 `CURRENT profile` 或 `CURRENT override` 标识。候选
 
 Nix binary cache 只提供已经构建的 store paths，不能代替所有 source 下载：
 
-- clone envY 仓库和 flake 的 GitHub inputs 仍需能够访问 GitHub。受限网络可设置 `HTTPS_PROXY`，或用 `ENVY_REPOSITORY_URL` 指向用户信任的 Git remote。
-- Determinate Nix Installer 本身在 Nix 可用前下载。没有自动选择第三方副本；需要时显式设置经过审查的 `ENVY_NIX_INSTALLER_URL`。
+- clone envY 仓库在 `china` 模式默认使用 `gh-proxy.com`，也会回退到 GitHub 直连；可以用 `ENVY_GIT_MIRROR_URL` 或 `ENVY_REPOSITORY_URL` 指向用户信任的 endpoint。flake 的 GitHub inputs 仍需能够访问 GitHub，受限网络可设置 `HTTPS_PROXY`。
+- `china` 模式的 Nix installer 使用清华镜像中的官方 Nix 二进制安装脚本，脚本会先验证 tarball 的 SHA-256；`upstream` 模式继续使用 Determinate Nix Installer。需要其他来源时显式设置经过审查的 `ENVY_NIX_INSTALLER_URL`，必要时配合 `ENVY_NIX_INSTALLER_ARGS`。
 - 固定哈希的 `fetchurl`、`fetchFromGitHub`、Zotero XPI、GitHub release、KDE artifact 和 Rime source 保持原 URL。把它们透明改写到通用代理会改变供应链边界，即使哈希仍能检测内容变化。
 - Docker 与 Waydroid 安装脚本仍来自其官方 endpoint；Docker 的 package repository 通过官方脚本参数选择 Aliyun。
 

@@ -9,7 +9,7 @@
 - macOS 或 Linux，具有 Bash、Git 和网络连接
 - 使用远程命令时需要 `curl`；已下载脚本可以直接用 Bash 执行
 - 运行交互式 setup 时需要真实终端。无 TTY 的 CI 环境应使用 `--no-setup`
-- 首次安装 Nix 可能要求 `sudo`。`setup.sh` 通过 `requires.sh` 使用 Determinate Nix Installer，然后运行最小化的 setup flake app；Cargo/Rustc 仅属于开发 devShell
+- 首次安装 Nix 可能要求 `sudo`。`setup.sh` 在 `china` 模式通过清华镜像运行官方 Nix 二进制安装脚本，在 `upstream` 模式使用 Determinate Nix Installer，然后运行最小化的 setup flake app；Cargo/Rustc 仅属于开发 devShell
 
 ## Remote Bootstrap
 
@@ -17,10 +17,12 @@
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh | bash
+  https://gh-proxy.com/https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh | bash
 ```
 
-默认 bootstrap mirror 是 `china`。显式使用上游环境：
+默认 bootstrap mirror 是 `china`。国内模式使用 `gh-proxy.com` 获取 GitHub 仓库，失败时
+回退到 GitHub 直连；可以通过 `ENVY_GIT_MIRROR_URL` 指定自己信任的 GitHub 代理。
+显式使用上游环境：
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fsSL \
@@ -32,7 +34,7 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fL \
-  https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh \
+  https://gh-proxy.com/https://raw.githubusercontent.com/Kie-Chi/envY/master/install.sh \
   -o /tmp/envy-install.sh
 less /tmp/envy-install.sh
 bash /tmp/envy-install.sh
@@ -67,7 +69,10 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 --no-setup       只 clone，不运行 setup.sh
 ```
 
-对应环境变量是 `ENVY_REPOSITORY_URL`、`ENVY_BRANCH`、`ENVY_ROOT` 和 `ENVY_MIRROR`。`ENVY_NIX_INSTALLER_URL` 可以显式覆盖 Determinate Nix Installer 下载地址；仓库不会自动信任第三方 installer mirror。例如：
+对应环境变量是 `ENVY_REPOSITORY_URL`、`ENVY_BRANCH`、`ENVY_ROOT`、`ENVY_MIRROR` 和
+`ENVY_GIT_MIRROR_URL`。`ENVY_NIX_INSTALLER_URL` 可以显式覆盖 Nix installer 下载地址；
+如果该地址提供标准 Nix 安装脚本，可再设置 `ENVY_NIX_INSTALLER_ARGS='--daemon'`。
+国内模式的默认 GitHub 代理是可替换的第三方 endpoint，使用前应确认其信任边界。例如：
 
 ```bash
 ENVY_REPOSITORY_URL='git@github.com:Kie-Chi/envY.git' \

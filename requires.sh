@@ -31,8 +31,33 @@ install_nix() {
     msg_info "Nix not found. Installing Nix package manager..."
     read -r -p "Press Enter to continue, or Ctrl+C to cancel." </dev/tty
 
-    local nix_installer_url="${ENVY_NIX_INSTALLER_URL:-https://install.determinate.systems/nix}"
-    curl --proto '=https' --tlsv1.2 -sSf -L "$nix_installer_url" | sh -s -- install
+    command_exists curl || msg_error "curl is required to install Nix"
+
+    local nix_installer_url
+    local nix_installer_args
+    local -a installer_args=()
+    if [ -n "${ENVY_NIX_INSTALLER_URL:-}" ]; then
+        # Keep the historical Determinate invocation for explicitly supplied
+        # installer endpoints. A standard Nix installer can opt into its
+        # daemon mode with ENVY_NIX_INSTALLER_ARGS.
+        nix_installer_url="$ENVY_NIX_INSTALLER_URL"
+        nix_installer_args="${ENVY_NIX_INSTALLER_ARGS:-install}"
+    elif [ "${ENVY_MIRROR:-china}" = "china" ]; then
+        # TUNA mirrors the official Nix binary installer and its tarballs. The
+        # script verifies the tarball hash before running the embedded install.
+        nix_installer_url="https://mirrors.tuna.tsinghua.edu.cn/nix/latest/install"
+        nix_installer_args="${ENVY_NIX_INSTALLER_ARGS:---daemon}"
+    else
+        nix_installer_url="https://install.determinate.systems/nix"
+        nix_installer_args="${ENVY_NIX_INSTALLER_ARGS:-install}"
+    fi
+
+    # Split only the explicitly documented argument string; this avoids eval
+    # while still allowing flags such as `--daemon --no-channel`. Word
+    # splitting is intentional here and is scoped to installer arguments.
+    read -r -a installer_args <<< "$nix_installer_args"
+    curl --proto '=https' --tlsv1.2 -sSf -L "$nix_installer_url" \
+        | sh -s -- "${installer_args[@]}"
 
     msg_success "Nix installation complete."
     msg_warn "You may need to re-login or restart your shell for Nix to be available."
