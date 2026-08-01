@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -95,8 +96,10 @@ class NixTrustScriptTests(unittest.TestCase):
     def test_repair_is_idempotent_and_restarts_only_after_change(self):
         calls = self.root / "systemctl.calls"
         systemctl = self.root / "systemctl"
+        bash = shutil.which("bash")
+        self.assertIsNotNone(bash)
         systemctl.write_text(
-            "#!/usr/bin/env bash\n"
+            f"#!{bash}\n"
             "set -eu\n"
             "if [ \"$1\" = is-active ]; then\n"
             "  [ \"${3:-}\" = nix-daemon.service ]\n"
@@ -113,6 +116,11 @@ class NixTrustScriptTests(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(self.custom_config.stat().st_ino, inode)
+        self.assertTrue(
+            calls.is_file(),
+            f"first={first.stdout!r}/{first.stderr!r}; "
+            f"second={second.stdout!r}/{second.stderr!r}",
+        )
         self.assertEqual(calls.read_text().splitlines(), ["restart nix-daemon.service"])
 
     def test_malformed_markers_fail_without_modifying_file(self):
