@@ -177,6 +177,21 @@ def _write_cache(machine_id: str, fingerprint: str, manifest: dict[str, Any]) ->
                 pass
 
 
+def informative_nix_error(stderr: str, *, fallback: str = "nix eval exited without stderr") -> str:
+    """Return the most useful line from a failed Nix invocation's stderr.
+
+    Nix prints the real cause on an ``error:`` line, but the final line is often
+    a bare location trace (or blank), so ``splitlines()[-1]`` hides the reason.
+    Prefer the last ``error:`` line, then the last non-empty line.
+    """
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    if not lines:
+        return fallback
+    error_lines = [line for line in lines if "error:" in line]
+    chosen = error_lines[-1] if error_lines else lines[-1]
+    return chosen[:500]
+
+
 def _evaluate_machine_manifest(machine_id: str) -> dict[str, Any] | None:
     global _last_manifest_error
     _last_manifest_error = None
@@ -189,8 +204,7 @@ def _evaluate_machine_manifest(machine_id: str) -> dict[str, Any] | None:
         activity=f"evaluate machine {machine_id}",
     )
     if result.returncode != 0:
-        detail = (result.stderr or "").strip().splitlines()[-1:]
-        _last_manifest_error = detail[0][:500] if detail else "nix eval exited without stderr"
+        _last_manifest_error = informative_nix_error(result.stderr or "")
         log.debug(
             "eval", "Nix manifest evaluation failed", machine=machine_id,
             exit_code=result.returncode, detail=_last_manifest_error,

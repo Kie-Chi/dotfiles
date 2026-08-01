@@ -30,6 +30,7 @@ from envy.key import (
 )
 from envy.config import (
     read_machine_nix, read_secrets_yaml, write_machine_nix, write_secrets_yaml,
+    RefineReport, _validate_field,
 )
 from envy.evaluation import machine_manifest, manifest_settings
 from envy.host import initialize_machine, machine_file, validate_machine_id
@@ -700,6 +701,23 @@ def confirm_save() -> bool:
     return prompt_yes_no("Apply changes and save?")
 
 
+def validate_required_fields(values: dict) -> bool:
+    """Reject empty/invalid required fields before the destructive save.
+
+    Reuses envy.config._validate_field so the checks and hints match the
+    `envy config refine` CLI path. Returns True when every applicable field
+    passes; logs per-field errors and returns False otherwise.
+    """
+    report = RefineReport()
+    for f in ALL_FIELDS:
+        if f.condition and not f.condition(values):
+            continue
+        if f.path not in values:
+            continue
+        _validate_field(f, values[f.path], report, scope="setup")
+    return not report.errors
+
+
 def save_all(
     values: dict,
     exclusions: dict[str, list[str]],
@@ -898,6 +916,14 @@ def main() -> int:
         else:
             log.hint("No changes to apply.")
             return 0
+
+    # Catch empty/invalid required fields before the destructive save. Otherwise
+    # write_machine_nix persists e.g. `envy.llm.steps.url = ""`, the Nix manifest
+    # rejects it, and the FileTransaction rolls everything back — silently
+    # discarding the user's edits with only a cryptic `""` from the evaluator.
+    if not validate_required_fields(new_values):
+        log.hint("Fix the fields above, then reopen envy setup.")
+        return 1
 
     if not confirm_save():
         log.warn("setup", "changes cancelled")

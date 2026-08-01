@@ -9,6 +9,7 @@ import typer
 from rich.table import Table
 
 from envy import log
+from envy.evaluation import informative_nix_error
 from envy.jsonio import emit, emit_error
 from envy.mutation import offer_mutation_commit
 from envy.process import run_process
@@ -149,8 +150,8 @@ def evaluate_machine_manifest(platform: str, machine_id: str) -> dict:
         cwd=ENVY_ROOT, capture=True, check=False, timeout=60,
     )
     if result.returncode != 0:
-        detail = (result.stderr or "manifest evaluation failed").strip().splitlines()[-1]
-        raise RuntimeError(f"cannot evaluate {platform}/{machine_id}: {detail[:500]}")
+        detail = informative_nix_error(result.stderr or "", fallback="manifest evaluation failed")
+        raise RuntimeError(f"cannot evaluate {platform}/{machine_id}: {detail}")
     try:
         value = json.loads(result.stdout or "{}")
     except json.JSONDecodeError as exc:
