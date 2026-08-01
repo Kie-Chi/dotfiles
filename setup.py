@@ -27,6 +27,7 @@ from envy.key import (
     get_current_device_public_key, ensure_sops_label,
     run_sops_updatekeys, git_commit_setup_files, key_import,
     generate_device_age_key, store_device_age_key,
+    warn_if_device_key_is_recovery,
 )
 from envy.config import (
     read_machine_nix, read_secrets_yaml, write_machine_nix, write_secrets_yaml,
@@ -75,6 +76,7 @@ def setup_age_key() -> str:
         if current_pub:
             keys = read_sops_yaml_keys()
             if current_pub in keys.values():
+                warn_if_device_key_is_recovery(current_pub, keys)
                 return current_pub
 
             # Key exists but not in .sops.yaml — detect SSH rotation

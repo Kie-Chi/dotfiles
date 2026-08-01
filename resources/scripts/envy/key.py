@@ -132,6 +132,21 @@ def run_sops_updatekeys() -> None:
     log.ok("key", "secrets re-encrypted with updated key list")
 
 
+def warn_if_device_key_is_recovery(pub: str, keys: dict) -> bool:
+    """Warn (non-blocking) when the device key equals the recovery key.
+
+    Using the recovery key as the device key defeats the offline-backup
+    separation the recovery key exists for. Returns True on overlap so callers
+    can offer remediation (rotation).
+    """
+    if pub and keys.get("recovery") == pub:
+        log.warn("key", "your device key is the same as the recovery key")
+        log.hint("The recovery key should be kept separate for offline backup.")
+        log.hint("Recommended: run 'envy key rotate' to generate an independent device key.")
+        return True
+    return False
+
+
 def _stage_repo_files(files: list[Path]) -> list[str]:
     """Stage explicit repository files and return changed relative pathspecs."""
     return stage_repo_files(files, repository=ENVY_ROOT)
@@ -684,11 +699,7 @@ def key_import(
 
     # Warn if device key overlaps with recovery key
     keys = read_sops_yaml_keys()
-    if "recovery" in keys and pub == keys["recovery"]:
-        log.warn("key", "your device key is the same as the recovery key")
-        log.hint("The recovery key should be kept separate for offline backup.")
-        log.hint("It is recommended to rotate your device key to generate an independent one.")
-
+    if warn_if_device_key_is_recovery(pub, keys):
         if not RECOVERY_KEY_FILE.exists():
             log.info("key", "the recovery private key needs to be sealed into secrets/recovery-key.age")
             log.hint("Sealing encrypts the recovery private key with all device public keys")

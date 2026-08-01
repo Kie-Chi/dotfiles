@@ -28,6 +28,7 @@ from envy.doctor.model import (
     warn,
 )
 from envy.schemas import __version__ as envy_version, CONFIG_SCHEMA_VERSION
+from envy.secure_io import atomic_write_text, secure_temporary_path
 from envy.utils import (
     AGE_KEY_FILE,
     AGE_KEY_DIR,
@@ -37,6 +38,7 @@ from envy.utils import (
     device_metadata_is_toml,
     is_sops_encrypted,
     read_device_metadata,
+    run_cmd,
 )
 
 
@@ -230,7 +232,62 @@ def _check_secrets(machine_values: dict[str, str]) -> list[CheckResult]:
             hint="Encrypt secrets.yaml before any commit or push.",
         ))
 
+    results.extend(_check_secret_write_capability())
+    results.extend(_check_device_key_distinct_from_recovery())
     return results
+
+
+def _check_secret_write_capability() -> list[CheckResult]:
+    """Exercise envY's exact sops-encrypt path on a throwaway plaintext.
+
+    Catches environment regressions (e.g. sops enforcing creation_rules even
+    with --age) before they surface as a rolled-back rotate/setup. Never touches
+    the real secrets.yaml.
+    """
+    from envy.config import SECRETS_DIR, _sops_encrypt_argv
+    from envy.key import read_sops_yaml_keys
+
+    recipients = ",".join(read_sops_yaml_keys().values())
+    if not recipients:
+        return []
+    try:
+        with secure_temporary_path(
+            SECRETS_DIR, prefix=".doctor-plain-", suffix=".yaml"
+        ) as plain_path, secure_temporary_path(
+            SECRETS_DIR, prefix=".doctor-enc-", suffix=".yaml"
+        ) as enc_path:
+            atomic_write_text(plain_path, "probe: ok\n", mode=0o600)
+            run_cmd(_sops_encrypt_argv(recipients, str(enc_path), str(plain_path)))
+            if not is_sops_encrypted(enc_path):
+                raise RuntimeError("sops produced unencrypted output")
+    except Exception as exc:  # noqa: BLE001 - surface any failure as a check error
+        detail = str(exc).strip().splitlines()[-1] if str(exc).strip() else "sops encrypt failed"
+        return [error(
+            SECTION_SECRETS,
+            "secret write",
+            f"cannot re-encrypt secrets: {detail[:300]}",
+            hint="Run: envy key repair, or check the installed sops version.",
+        )]
+    return [ok(SECTION_SECRETS, "secret write", "sops re-encryption succeeds")]
+
+
+def _check_device_key_distinct_from_recovery() -> list[CheckResult]:
+    """Warn when this device uses the recovery key as its device key."""
+    from envy.key import get_current_device_public_key, read_sops_yaml_keys
+
+    keys = read_sops_yaml_keys()
+    recovery = keys.get("recovery")
+    current = get_current_device_public_key()
+    if not recovery or not current:
+        return []
+    if current == recovery:
+        return [warn(
+            SECTION_SECRETS,
+            "device key",
+            "device key is the same as the recovery key",
+            hint="Run: envy key rotate to generate an independent device key.",
+        )]
+    return [ok(SECTION_SECRETS, "device key", "distinct from the recovery key")]
 
 
 def _check_private_permissions() -> list[CheckResult]:

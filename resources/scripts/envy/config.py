@@ -363,6 +363,22 @@ def write_secrets_yaml(values: dict, *, replace: bool = False) -> None:
     write_secrets_data(data)
 
 
+def _sops_encrypt_argv(recipients: str, out: str, src: str) -> list[str]:
+    """Build the sops --encrypt command envY uses for every secret write.
+
+    `--config /dev/null` makes the explicit `--age` recipient list authoritative
+    and decouples encryption from `.sops.yaml` creation_rules. sops 3.13+ rejects
+    an encrypt whose target path matches no creation rule even when `--age` is
+    given, which broke re-encrypting the `.secrets-plain-*` temp file. Keeping
+    this in one place ensures the doctor write-capability probe uses identical
+    flags.
+    """
+    return [
+        "sops", "--encrypt", "--config", "/dev/null",
+        "--age", recipients, "--output", out, src,
+    ]
+
+
 def write_secrets_data(data: dict) -> None:
     """Encrypt a secure temporary plaintext and atomically publish ciphertext."""
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
@@ -380,10 +396,7 @@ def write_secrets_data(data: dict) -> None:
             SECRETS_DIR, prefix=".secrets-encrypted-", suffix=".yaml"
         ) as encrypted_path:
             atomic_write_text(plain_path, plaintext, mode=0o600)
-            run_cmd([
-                "sops", "--encrypt", "--age", age_recipients,
-                "--output", str(encrypted_path), str(plain_path),
-            ])
+            run_cmd(_sops_encrypt_argv(age_recipients, str(encrypted_path), str(plain_path)))
             if not is_sops_encrypted(encrypted_path):
                 raise RuntimeError("sops output is not encrypted")
             replace_prepared_file(encrypted_path, SECRETS_FILE, mode=0o644)
