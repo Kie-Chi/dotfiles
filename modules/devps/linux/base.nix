@@ -56,7 +56,7 @@ in
         log_info "No Docker found, installing..."
         $DRY_RUN_CMD ${sys.cmds.mkdir} -p "$envy_state_dir"
         $DRY_RUN_CMD ${pkgs.curl}/bin/curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-        $DRY_RUN_CMD esudo ${sys.cmds.sh} /tmp/get-docker.sh ${dockerMirrorArg}
+        $DRY_RUN_CMD esudo_system ${sys.cmds.sh} /tmp/get-docker.sh ${dockerMirrorArg}
         $DRY_RUN_CMD esudo ${sys.cmds.usermod} -aG docker ${config.envy.user.name}
         if [ -z "$DRY_RUN_CMD" ]; then
           if id -nG "${config.envy.user.name}" | ${sys.cmds.grep} -qw "docker"; then

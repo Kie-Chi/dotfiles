@@ -48,6 +48,7 @@ if isDarwin then {
   cp = "/usr/bin/cp";
   mkdir = "/usr/bin/mkdir";
   cat = "/usr/bin/cat";
+  tee = "/usr/bin/tee";
   chown = "/usr/bin/chown";
   pgrep = "/usr/bin/pgrep";
   pkill = "/usr/bin/pkill";

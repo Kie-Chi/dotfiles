@@ -105,9 +105,11 @@ let
   sysInitActivation = server.config.home.activation.sysInit.data;
   nixTrustActivation = server.config.home.activation.configureNixDaemonTrust.data;
   nativePackagesActivation = server.config.home.activation.installNativePackages.data;
+  zshDefaultActivation = server.config.home.activation.setZshAsDefault.data;
 in
 assert serverForbiddenPackages == [ ];
 assert serverForbiddenActivations == [ ];
+assert inputs.nixpkgs.lib.hasInfix "esudo_system()" sysInitActivation;
 assert inputs.nixpkgs.lib.hasInfix "/bin/env" sysInitActivation;
 assert inputs.nixpkgs.lib.hasInfix
   "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -117,6 +119,9 @@ assert hasActivation "configureNixDaemonTrust" server;
 assert inputs.nixpkgs.lib.hasInfix "/bin/envy-nix-trust" nixTrustActivation;
 assert hasActivation "installNativePackages" server;
 assert !(inputs.nixpkgs.lib.hasInfix "pkg_update || true" nativePackagesActivation);
+assert inputs.nixpkgs.lib.hasInfix "/usr/bin/tee" zshDefaultActivation;
+assert inputs.nixpkgs.lib.hasInfix "/usr/sbin/usermod" zshDefaultActivation;
+assert !(inputs.nixpkgs.lib.hasInfix "esudo chsh" zshDefaultActivation);
 assert hasActivation "installNpmTools" server;
 assert hasActivation "installPypiTools" server;
 assert server.config.envy.machine.manifest.schemaVersion == 2;

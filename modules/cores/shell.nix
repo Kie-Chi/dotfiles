@@ -105,9 +105,9 @@ in
       if [ "$SHELL" != "$zsh_path" ]; then
         log_info "Setting Zsh as default shell..."
         if ! ${sys.cmds.grep} -q "$zsh_path" /etc/shells; then
-          echo "$zsh_path" | esudo tee -a /etc/shells > /dev/null
+          printf '%s\n' "$zsh_path" | esudo ${sys.cmds.tee} -a /etc/shells > /dev/null
         fi
-        esudo chsh -s "$zsh_path" ${config.envy.user.name}
+        esudo ${sys.cmds.usermod} -s "$zsh_path" "${config.envy.user.name}"
         log_info "Default shell changed to Zsh. Please relogin."
       fi
     '';

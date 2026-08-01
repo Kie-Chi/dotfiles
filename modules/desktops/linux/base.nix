@@ -140,8 +140,8 @@ in
       if pkg_installed "waydroid"; then
         log_info "Package 'waydroid' is already installed."
       else
-        esudo bash /tmp/waydroid.sh
-        esudo ${sys.cmds.apt} install -y waydroid
+        esudo_system ${pkgs.bash}/bin/bash /tmp/waydroid.sh
+        esudo_system ${sys.cmds.apt} install -y waydroid
         waydroid prop set persist.waydroid.multi_windows true
         esudo ${sys.cmds.systemctl} restart waydroid-container
       fi

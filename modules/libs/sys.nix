@@ -86,6 +86,14 @@ let
 
     # --- Linux-only package management functions ---
     pkg = lib.optionalAttrs (!isDarwin) rec {
+      systemSudoFn = ''
+        esudo_system() {
+          esudo ${pkgs.coreutils}/bin/env \
+            "PATH=${linuxSystemPath}" \
+            "$@"
+        }
+      '';
+
       detectManagerFn = ''
         detect_pkg_manager() {
           if [ -x "${cmds.apt}" ] || command -v apt >/dev/null 2>&1; then
@@ -134,23 +142,18 @@ let
 
       aptFn = ''
         apt_envy() {
-          local -a APT_ENV
           local APT_CMD
           APT_CMD="${cmds.apt}"
           if [ ! -x "$APT_CMD" ]; then
             APT_CMD="$(command -v apt)"
           fi
-          APT_ENV=(
-            ${pkgs.coreutils}/bin/env
-            "PATH=${linuxSystemPath}"
-          )
           if [ -f /etc/apt/sources.list.d/envy-mirror.sources ]; then
-            esudo "''${APT_ENV[@]}" "$APT_CMD" \
+            esudo_system "$APT_CMD" \
               -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/envy-mirror.sources \
               -o Dir::Etc::sourceparts=- \
               "$@"
           else
-            esudo "''${APT_ENV[@]}" "$APT_CMD" "$@"
+            esudo_system "$APT_CMD" "$@"
           fi
         }
       '';
@@ -163,13 +166,13 @@ let
               apt_envy update
               ;;
             dnf)
-              esudo /usr/bin/dnf makecache -y
+              esudo_system /usr/bin/dnf makecache -y
               ;;
             pacman)
-              esudo /usr/bin/pacman -Sy --noconfirm
+              esudo_system /usr/bin/pacman -Sy --noconfirm
               ;;
             zypper)
-              esudo /usr/bin/zypper --gpg-auto-import-keys refresh
+              esudo_system /usr/bin/zypper --gpg-auto-import-keys refresh
               ;;
             *)
               echo "No supported package manager found. Skipping package index update."
@@ -191,13 +194,13 @@ let
               apt_envy install -y "$@"
               ;;
             dnf)
-              esudo /usr/bin/dnf install -y "$@"
+              esudo_system /usr/bin/dnf install -y "$@"
               ;;
             pacman)
-              esudo /usr/bin/pacman -S --noconfirm --needed "$@"
+              esudo_system /usr/bin/pacman -S --noconfirm --needed "$@"
               ;;
             zypper)
-              esudo /usr/bin/zypper --non-interactive install "$@"
+              esudo_system /usr/bin/zypper --non-interactive install "$@"
               ;;
             *)
               echo "No supported package manager found. Cannot install: $*"
@@ -219,10 +222,10 @@ let
               apt_envy install -y "$@"
               ;;
             dnf)
-              esudo /usr/bin/dnf install -y "$@"
+              esudo_system /usr/bin/dnf install -y "$@"
               ;;
             zypper)
-              esudo /usr/bin/zypper --non-interactive install "$@"
+              esudo_system /usr/bin/zypper --non-interactive install "$@"
               ;;
             pacman)
               echo "Local package file installation is not implemented for pacman in this module."
@@ -341,6 +344,7 @@ let
       ${esudoFn}
       ${lib.optionalString (!isDarwin) ''
         # Package management functions (Linux only)
+        ${pkg.systemSudoFn or ""}
         ${pkg.detectManagerFn or ""}
         ${pkg.isInstalledFn or ""}
         ${pkg.aptFn or ""}
