@@ -86,7 +86,7 @@ in
     post = ''
       if [ -e "$HOME/.config/envy/docker.modified" ]; then
         log_info "Docker configuration modified."
-        esudo ${sys.cmds.systemctl} restart docker
+        esudo_system ${sys.cmds.systemctl} restart docker
       fi
     '';
   };

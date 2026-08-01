@@ -64,13 +64,13 @@ in
 
       # Reload system services
       log_info "Reloading system services..."
-      esudo ${sys.cmds.systemctl} daemon-reload
-      esudo ${sys.cmds.systemctl} reload dbus || true
+      esudo_system ${sys.cmds.systemctl} daemon-reload
+      esudo_system ${sys.cmds.systemctl} reload dbus || true
       esudo ${sys.cmds.udevadm} control --reload-rules
       esudo ${sys.cmds.udevadm} trigger
 
       # Enable and start the backend service
-      esudo ${sys.cmds.systemctl} enable --now swayosd-libinput-backend.service || true
+      esudo_system ${sys.cmds.systemctl} enable --now swayosd-libinput-backend.service || true
 
       log_info "SwayOSD system setup complete"
     '';

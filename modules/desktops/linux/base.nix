@@ -143,7 +143,7 @@ in
         esudo_system ${pkgs.bash}/bin/bash /tmp/waydroid.sh
         esudo_system ${sys.cmds.apt} install -y waydroid
         waydroid prop set persist.waydroid.multi_windows true
-        esudo ${sys.cmds.systemctl} restart waydroid-container
+        esudo_system ${sys.cmds.systemctl} restart waydroid-container
       fi
     '';
   });

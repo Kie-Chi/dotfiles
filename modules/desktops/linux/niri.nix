@@ -308,7 +308,7 @@ in
     target = "/usr/share/wayland-sessions/niri.desktop";
     mode = "0644";
     post = ''
-      esudo ${sys.cmds.systemctl} restart nix-daemon
+      esudo_system ${sys.cmds.systemctl} restart nix-daemon
     '';
   };
     })

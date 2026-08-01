@@ -105,6 +105,7 @@ let
   sysInitActivation = server.config.home.activation.sysInit.data;
   nixTrustActivation = server.config.home.activation.configureNixDaemonTrust.data;
   nativePackagesActivation = server.config.home.activation.installNativePackages.data;
+  sshdActivation = server.config.home.activation.setupSshd.data;
   zshDefaultActivation = server.config.home.activation.setZshAsDefault.data;
 in
 assert serverForbiddenPackages == [ ];
@@ -119,6 +120,10 @@ assert hasActivation "configureNixDaemonTrust" server;
 assert inputs.nixpkgs.lib.hasInfix "/bin/envy-nix-trust" nixTrustActivation;
 assert hasActivation "installNativePackages" server;
 assert !(inputs.nixpkgs.lib.hasInfix "pkg_update || true" nativePackagesActivation);
+assert inputs.nixpkgs.lib.hasInfix
+  "esudo_system /usr/bin/systemctl enable --now ssh"
+  sshdActivation;
+assert !(inputs.nixpkgs.lib.hasInfix "esudo /usr/bin/systemctl" sshdActivation);
 assert inputs.nixpkgs.lib.hasInfix "/usr/bin/tee" zshDefaultActivation;
 assert inputs.nixpkgs.lib.hasInfix "/usr/sbin/usermod" zshDefaultActivation;
 assert !(inputs.nixpkgs.lib.hasInfix "esudo chsh" zshDefaultActivation);

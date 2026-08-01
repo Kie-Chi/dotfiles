@@ -23,8 +23,8 @@ in
         mode = "0644";
       }}
 
-      esudo ${sys.cmds.systemctl} enable --now ssh
-      esudo ${sys.cmds.systemctl} restart ssh
+      esudo_system ${sys.cmds.systemctl} enable --now ssh
+      esudo_system ${sys.cmds.systemctl} restart ssh
       log_info "sshd setup complete."
     '';
   };
