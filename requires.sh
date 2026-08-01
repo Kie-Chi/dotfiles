@@ -67,6 +67,14 @@ install_nix() {
         # shellcheck source=/dev/null
         . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
     fi
+    if [ -d '/nix/var/nix/profiles/default/bin' ]; then
+        PATH="/nix/var/nix/profiles/default/bin:${PATH:-}"
+    fi
+    if [ -n "${HOME:-}" ] && [ -d "$HOME/.nix-profile/bin" ]; then
+        PATH="$HOME/.nix-profile/bin:${PATH:-}"
+    fi
+    export PATH
+    command_exists nix || msg_error "Nix was installed but is not available on PATH"
 }
 
 main() {

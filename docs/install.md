@@ -104,7 +104,7 @@ install.sh -> clone/reuse checkout -> setup.sh -> nix run path:.#setup -> setup.
 ```
 
 - `install.sh` 只负责 repository bootstrap 和终端交接。
-- `setup.sh` 只负责准备 Nix 和 setup runtime 并启动 setup。
+- `setup.sh` 只负责准备 Nix 和 setup runtime 并启动 setup。安装 Nix 后会在当前进程显式恢复 `/nix/var/nix/profiles/default/bin`，不要求重新登录才能继续 setup。
 - `setup.py` 创建或选择 host、编辑 machine 配置和 software exclusions，并管理 sops secrets。
 - setup 的列表、输入和变更摘要会遮罩 secret，只显示是否为空，不打印 secret 原文。
 

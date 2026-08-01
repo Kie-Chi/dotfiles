@@ -5,7 +5,26 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRES_SCRIPT="$BASE_DIR/requires.sh"
 MIRROR_ENV_SCRIPT="$BASE_DIR/resources/scripts/mirror-env.sh"
+NIX_PROFILE_SCRIPT='/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+NIX_BIN_DIR='/nix/var/nix/profiles/default/bin'
 export ENVY_ROOT="$BASE_DIR"
+
+load_nix_path() {
+    if [ -e "$NIX_PROFILE_SCRIPT" ]; then
+        # shellcheck source=/dev/null
+        . "$NIX_PROFILE_SCRIPT"
+    fi
+
+    # The installer runs as a child process, so its PATH changes cannot be
+    # inherited. Restore the stable profile locations explicitly as well.
+    if [ -d "$NIX_BIN_DIR" ]; then
+        PATH="$NIX_BIN_DIR:${PATH:-}"
+    fi
+    if [ -n "${HOME:-}" ] && [ -d "$HOME/.nix-profile/bin" ]; then
+        PATH="$HOME/.nix-profile/bin:${PATH:-}"
+    fi
+    export PATH
+}
 
 # Bootstrap-time mirrors make the first nix develop usable before a machine
 # module has been evaluated and applied.
@@ -18,10 +37,7 @@ export ENVY_ROOT="$BASE_DIR"
 
 # Source Nix profile if not already in PATH (handles "nix installed but PATH not set" scenario)
 if ! command -v nix >/dev/null 2>&1; then
-    if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
-        # shellcheck source=/dev/null
-        . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
-    fi
+    load_nix_path
 fi
 
 if ! command -v nix >/dev/null 2>&1; then
@@ -30,15 +46,17 @@ if ! command -v nix >/dev/null 2>&1; then
         chmod +x "$REQUIRES_SCRIPT"
         "$REQUIRES_SCRIPT"
         # Source Nix profile again after fresh install (subprocess env doesn't propagate to parent)
-        if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
-            # shellcheck source=/dev/null
-            . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
-        fi
+        load_nix_path
     else
         echo "[ERROR] requires.sh not found and Nix is not installed!"
         exit 1
     fi
 fi
+
+command -v nix >/dev/null 2>&1 || {
+    echo "[ERROR] Nix was installed but is not available on PATH. Expected: $NIX_BIN_DIR/nix" >&2
+    exit 1
+}
 
 # ==========================================
 # STEP 2: Enter the minimal setup runtime
