@@ -17,14 +17,30 @@ class PlatformSchemaTests(unittest.TestCase):
         self.assertTrue(all(not path.startswith("envy.darwin.") for path in paths))
         self.assertTrue(all(not path.startswith("envy.linux.") for path in paths))
 
-    def test_proxy_exists_only_in_darwin_config_schema(self):
+    def test_darwin_services_exist_only_in_darwin_config_schema(self):
         darwin_paths = {field.path for field in DARWIN_MACHINE_FIELDS}
         linux_paths = {field.path for field in LINUX_MACHINE_FIELDS}
         self.assertEqual(
-            {path for path in darwin_paths if ".proxy." in path},
-            {"envy.darwin.proxy.mode", "envy.darwin.proxy.tun"},
+            {path for path in darwin_paths if ".services." in path},
+            {
+                "envy.darwin.services.mihomo.mode",
+                "envy.darwin.services.mihomo.tun",
+                "envy.darwin.services.openssh.mode",
+            },
         )
-        self.assertFalse(any("proxy" in path for path in linux_paths))
+        self.assertFalse(any(".services.mihomo." in path for path in linux_paths))
+        self.assertFalse(any(".services.openssh." in path for path in linux_paths))
+
+    def test_darwin_service_modes_share_the_same_semantics(self):
+        fields = {field.path: field for field in DARWIN_MACHINE_FIELDS}
+        self.assertEqual(
+            fields["envy.darwin.services.mihomo.mode"].choices,
+            ["none", "manual", "keep"],
+        )
+        self.assertEqual(
+            fields["envy.darwin.services.openssh.mode"].choices,
+            ["none", "manual", "keep"],
+        )
 
     def test_linux_app_schema_has_no_darwin_bundle_or_tcc_signals(self):
         self.assertIn("chrome", LINUX_APP_SPECS)

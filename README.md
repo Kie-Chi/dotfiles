@@ -179,11 +179,14 @@ Darwin 专有 policy 只出现在 Darwin host：
 
 ```nix
 {
-  envy.darwin.proxy.mode = "none";
-  envy.darwin.proxy.tun = false;
+  envy.darwin.services.mihomo.mode = "none";
+  envy.darwin.services.mihomo.tun = false;
+  envy.darwin.services.openssh.mode = "manual";
   envy.darwin.software.homebrew.casks.exclude = [ "uuremote" ];
 }
 ```
+
+Darwin 服务统一使用 `none`、`manual`、`keep`：分别表示关闭、不要求常驻且可手动控制、以及由 envY 确保启用。OpenSSH 的 `manual` 保留 macOS“远程登录”的当前状态。
 
 Linux 专有 policy 只出现在 Linux host：
 

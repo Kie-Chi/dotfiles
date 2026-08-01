@@ -85,7 +85,7 @@ envy config refine
 `envy host select` and `envy host check` complete machine IDs from the current
 platform directory; `envy host init --mode` completes `import` and `copy`.
 
-`envy config refine` 可以迁移旧单行 `.device-label`、`~/.config/envy/machine`、旧 `config.nix` 和 Darwin 的旧 `envy.proxy.*`。稳态配置不再读取这些旧来源。
+`envy config refine` 可以迁移旧单行 `.device-label`、`~/.config/envy/machine`、旧 `config.nix`，以及 Darwin 的旧 `envy.darwin.proxy.*` / `envy.proxy.*`。稳态配置不再读取这些旧来源。
 
 envY 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文件也可以立即 check/build/apply。
 
@@ -118,7 +118,8 @@ envY 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文�
 
 | Option | Meaning |
 |---|---|
-| `envy.darwin.proxy.*` | Darwin proxy service/TUN policy |
+| `envy.darwin.services.mihomo.*` | Mihomo service mode and TUN policy |
+| `envy.darwin.services.openssh.mode` | macOS built-in OpenSSH service mode |
 | `envy.darwin.software.nix.systemPackages.*` | nix-darwin system packages |
 | `envy.darwin.software.nix.fonts.*` | nix-darwin fonts |
 | `envy.darwin.software.homebrew.formulae.*` | Homebrew formulae |
@@ -189,12 +190,25 @@ envy.llm.steps.model = "step-3.7-flash";
 envy.llm.deepseek.url = "https://api.deepseek.com";
 envy.llm.deepseek.model = "deepseek-v4-pro";
 envy.vscode.mode = "remote";
-envy.darwin.proxy.mode = "none";
-envy.darwin.proxy.tun = false;
+envy.darwin.services.mihomo.mode = "none";
+envy.darwin.services.mihomo.tun = false;
+envy.darwin.services.openssh.mode = "manual";
 # END ENVY MANAGED CONFIG
 ```
 
-Linux managed block 会包含 `envy.linux.*`，不会出现 proxy。
+Darwin 服务的 `mode` 统一使用以下三种语义：
+
+| Mode | Meaning |
+|---|---|
+| `none` | 明确关闭该服务；Mihomo 同时不生成配置或安装贡献 |
+| `manual` | 服务可手动控制，envY 不要求它自动启动或保持运行 |
+| `keep` | envY 确保服务启用；Mihomo 由 launchd 自动启动并保持运行 |
+
+OpenSSH 使用 macOS 自带的 sshd，不安装另一套服务。其 `manual` 映射为
+nix-darwin 的 `services.openssh.enable = null`，因此保留系统设置中“远程登录”的
+当前状态；`none` 和 `keep` 分别映射为 `false` 和 `true`。
+
+Linux managed block 会包含 `envy.linux.*`，不会出现这些 Darwin 服务字段。
 
 ## Software Policy
 

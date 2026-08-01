@@ -26,13 +26,15 @@ class EvaluationTests(unittest.TestCase):
     def test_settings_are_read_from_the_evaluated_manifest(self):
         values = manifest_settings({
             "settings": {
-                "envy.darwin.proxy.mode": "none",
-                "envy.darwin.proxy.tun": False,
+                "envy.darwin.services.mihomo.mode": "none",
+                "envy.darwin.services.mihomo.tun": False,
+                "envy.darwin.services.openssh.mode": "manual",
             }
         })
 
-        self.assertEqual(values["envy.darwin.proxy.mode"], "none")
-        self.assertEqual(values["envy.darwin.proxy.tun"], "false")
+        self.assertEqual(values["envy.darwin.services.mihomo.mode"], "none")
+        self.assertEqual(values["envy.darwin.services.mihomo.tun"], "false")
+        self.assertEqual(values["envy.darwin.services.openssh.mode"], "manual")
 
     def test_selection_rows_include_all_three_views(self):
         manifest = {

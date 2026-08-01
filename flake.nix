@@ -292,6 +292,21 @@
           (builtins.attrValues darwinConfigurations)
         && lib.all
           (configuration:
+            let
+              disabled = configuration.extendModules {
+                modules = [{ envy.darwin.services.openssh.mode = lib.mkForce "none"; }];
+              };
+              kept = configuration.extendModules {
+                modules = [{ envy.darwin.services.openssh.mode = lib.mkForce "keep"; }];
+              };
+            in
+              configuration.config.envy.darwin.services.openssh.mode == "manual"
+              && configuration.config.services.openssh.enable == null
+              && disabled.config.services.openssh.enable == false
+              && kept.config.services.openssh.enable == true)
+          (builtins.attrValues darwinConfigurations)
+        && lib.all
+          (configuration:
             configuration.options.envy ? linux
             && configuration.options.envy ? environment
             && configuration.options.envy ? shell

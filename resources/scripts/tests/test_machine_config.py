@@ -61,7 +61,7 @@ class DarwinMachineConfigTests(unittest.TestCase):
         values["envy.git.name"] = "Chi"
         values["envy.git.email"] = "chi@example.com"
         values["envy.llm.steps.url"] = "https://example.com"
-        values["envy.darwin.proxy.tun"] = "false"
+        values["envy.darwin.services.mihomo.tun"] = "false"
         return values
 
     def machine_file_patch(self):
@@ -80,7 +80,7 @@ class DarwinMachineConfigTests(unittest.TestCase):
         text = self.machine.read_text()
         self.assertIn('envy.software.nix.packages.exclude = [ "okular" ];', text)
         self.assertIn(config.MANAGED_START, text)
-        self.assertIn("envy.darwin.proxy.tun = false;", text)
+        self.assertIn("envy.darwin.services.mihomo.tun = false;", text)
 
     def test_second_write_replaces_only_managed_block(self):
         values = self.values()
@@ -154,16 +154,16 @@ class DarwinMachineConfigTests(unittest.TestCase):
             values = config.read_machine_nix()
 
         self.assertEqual(values["envy.user.name"], "chi")
-        self.assertEqual(values["envy.darwin.proxy.tun"], "false")
+        self.assertEqual(values["envy.darwin.services.mihomo.tun"], "false")
 
     def test_writer_uses_schema_default_for_hidden_conditional_field(self):
         values = self.values()
-        values.pop("envy.darwin.proxy.tun")
+        values.pop("envy.darwin.services.mihomo.tun")
         with self.machine_file_patch(), patch.object(
             config, "current_machine_id", return_value="test-mac"
         ), patch.object(config, "set_device_machine_id"):
             config.write_machine_nix(values)
-        self.assertIn("envy.darwin.proxy.tun = false;", self.machine.read_text())
+        self.assertIn("envy.darwin.services.mihomo.tun = false;", self.machine.read_text())
 
     def test_set_value_persists_habit_policy_through_managed_machine_block(self):
         with self.machine_file_patch(), patch.object(
@@ -212,6 +212,49 @@ class DarwinMachineConfigTests(unittest.TestCase):
         self.assertEqual(values["envy.user.name"], "chi")
         self.assertEqual(values["envy.llm.steps.model"], "step-model")
         self.assertIn(config.MANAGED_START, self.machine.read_text())
+
+    def test_refine_migrates_versioned_proxy_paths_without_losing_values(self):
+        values = self.values()
+        values["envy.darwin.services.mihomo.mode"] = "keep"
+        values["envy.darwin.services.mihomo.tun"] = "true"
+        with self.machine_file_patch(), patch.object(
+            config, "current_machine_id", return_value="test-mac"
+        ), patch.object(config, "set_device_machine_id"):
+            config.write_machine_nix(values)
+            text = self.machine.read_text().replace(
+                "envy.darwin.services.mihomo.mode", "envy.darwin.proxy.mode"
+            ).replace(
+                "envy.darwin.services.mihomo.tun", "envy.darwin.proxy.tun"
+            )
+            self.machine.write_text(text)
+
+            report = config.refine_config(write=True)
+            migrated = config.read_machine_nix()
+
+        self.assertTrue(report.ok)
+        self.assertEqual(migrated["envy.darwin.services.mihomo.mode"], "keep")
+        self.assertEqual(migrated["envy.darwin.services.mihomo.tun"], "true")
+        self.assertEqual(migrated["envy.darwin.services.openssh.mode"], "manual")
+        self.assertNotIn("envy.darwin.proxy.mode", self.machine.read_text())
+        self.assertNotIn("envy.darwin.proxy.tun", self.machine.read_text())
+
+    def test_writer_removes_obsolete_flat_proxy_assignments(self):
+        self.machine.write_text(
+            self.machine.read_text().replace(
+                "  envy.software.nix.packages.exclude",
+                '  envy.darwin.proxy.mode = "keep";\n'
+                "  envy.darwin.proxy.tun = true;\n"
+                "  envy.software.nix.packages.exclude",
+            )
+        )
+        with self.machine_file_patch(), patch.object(
+            config, "current_machine_id", return_value="test-mac"
+        ), patch.object(config, "set_device_machine_id"):
+            config.write_machine_nix(self.values())
+
+        text = self.machine.read_text()
+        self.assertNotIn("envy.darwin.proxy.mode", text)
+        self.assertNotIn("envy.darwin.proxy.tun", text)
 
 
 if __name__ == "__main__":
