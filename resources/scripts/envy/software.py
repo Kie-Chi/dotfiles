@@ -18,6 +18,7 @@ from rich.text import Text
 from envy import log
 from envy.evaluation import (
     invalidate_machine_manifest,
+    last_manifest_error,
     machine_manifest,
     manifest_software_groups,
 )
@@ -537,8 +538,12 @@ def write_and_validate_exclusions(
         if updated != original:
             atomic_write_text(target, original)
         invalidate_machine_manifest()
+        detail = last_manifest_error()
+        message = "software manifest evaluation failed"
+        if detail:
+            message = f"{message}: {detail}"
         raise SoftwarePolicyError(
-            "software manifest evaluation failed; restored the original machine configuration"
+            f"{message}; restored the original machine configuration"
         )
     return manifest
 
@@ -568,7 +573,11 @@ def write_and_validate_software_policy(
     try:
         manifest = machine_manifest(refresh=True)
         if manifest is None or not manifest_software_groups(manifest):
-            raise SoftwarePolicyError("software manifest evaluation failed")
+            detail = last_manifest_error()
+            message = "software manifest evaluation failed"
+            if detail:
+                message = f"{message}: {detail}"
+            raise SoftwarePolicyError(message)
         _, effective, _ = _evaluated_item_state(manifest, group_key, item_id)
         if effective != expected_effective:
             expectation = "effective" if expected_effective else "absent from effective"

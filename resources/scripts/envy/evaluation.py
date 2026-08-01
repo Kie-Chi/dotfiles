@@ -19,6 +19,7 @@ from envy.utils import ENVY_ROOT, current_machine_id, machine_manifest_attr, pla
 CACHE_SCHEMA = 2
 _CACHE_ENV = "ENVY_NO_CACHE"
 _COMMAND_TIMEOUT = 5
+_last_manifest_error: str | None = None
 
 
 def _cache_disabled() -> bool:
@@ -177,6 +178,8 @@ def _write_cache(machine_id: str, fingerprint: str, manifest: dict[str, Any]) ->
 
 
 def _evaluate_machine_manifest(machine_id: str) -> dict[str, Any] | None:
+    global _last_manifest_error
+    _last_manifest_error = None
     attr = machine_manifest_attr(machine_id)
     started = time.monotonic()
     log.debug("eval", "Nix manifest evaluation started", machine=machine_id, attr=attr)
@@ -187,15 +190,17 @@ def _evaluate_machine_manifest(machine_id: str) -> dict[str, Any] | None:
     )
     if result.returncode != 0:
         detail = (result.stderr or "").strip().splitlines()[-1:]
+        _last_manifest_error = detail[0][:500] if detail else "nix eval exited without stderr"
         log.debug(
             "eval", "Nix manifest evaluation failed", machine=machine_id,
-            exit_code=result.returncode, detail=detail[0][:300] if detail else "",
+            exit_code=result.returncode, detail=_last_manifest_error,
             elapsed=f"{time.monotonic() - started:.3f}s",
         )
         return None
     try:
         value = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
+        _last_manifest_error = f"invalid Nix manifest JSON: {exc}"
         log.debug(
             "eval", "Nix manifest JSON invalid", machine=machine_id,
             reason=str(exc), elapsed=f"{time.monotonic() - started:.3f}s",
@@ -206,6 +211,11 @@ def _evaluate_machine_manifest(machine_id: str) -> dict[str, Any] | None:
         elapsed=f"{time.monotonic() - started:.3f}s",
     )
     return value if isinstance(value, dict) else None
+
+
+def last_manifest_error() -> str | None:
+    """Return the latest safe, short Nix manifest evaluation failure detail."""
+    return _last_manifest_error
 
 
 def _load_machine_manifest(*, read_cache: bool, write_cache: bool) -> dict[str, Any] | None:
