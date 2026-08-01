@@ -102,6 +102,10 @@ envY 使用 `path:.#<machine-id>`，所以刚创建且尚未提交的 host 文�
 | `envy.user.*` | 用户名与 Home 目录 |
 | `envy.repository.path` | 当前机器的 checkout 路径 |
 | `envy.git.*` | Git identity |
+| `envy.environment.sessionVariables` | 非敏感的 machine session 环境变量 |
+| `envy.environment.sessionPath` | 追加到 machine session `PATH` 的目录 |
+| `envy.shell.zsh.aliases` | 与公共 alias 合并的 machine Zsh aliases |
+| `envy.shell.zsh.initContent` | 在公共配置之后追加的 machine Zsh 初始化片段 |
 | `envy.llm.*` | 非敏感 Base URL 和模型 |
 | `envy.vscode.mode` | VS Code local/remote policy |
 | `envy.software.nix.packages.include/exclude/effective` | 公共 Home Manager package 选择机制 |
@@ -139,6 +143,35 @@ Niri、两者（`all`）或都不导入（`none`）；公共 desktop 工具仍�
 类型统一拥有
 
 新 option 只有在已经出现真实机器行为差异时才添加。不要为所有共享基础设施制造没有使用场景的 `enable`
+
+### Machine Environment And Zsh
+
+环境与 shell 扩展是跨平台的 Home Manager policy。它们应手写在 machine
+文件的 managed block 外，避免 `envy config refine` 重写自由结构：
+
+```nix
+{
+  envy.environment.sessionVariables = {
+    EDITOR = "nvim";
+    LIKED_CONDA_ENV = "research";
+  };
+
+  envy.environment.sessionPath = [
+    "$HOME/.local/special-bin"
+  ];
+
+  envy.shell.zsh.aliases.work = "cd ~/work";
+  envy.shell.zsh.initContent = ''
+    [[ -f "$HOME/.zsh-machine-local" ]] && source "$HOME/.zsh-machine-local"
+  '';
+}
+```
+
+`sessionVariables` 同时进入 Home Manager session 与交互式 Zsh；同名 machine
+值覆盖共享默认值。`sessionPath` 和 `initContent` 都追加在公共配置之后，aliases
+保留公共键并允许 machine 覆盖同名键。这些值会在 Nix eval 时进入 store 和
+evaluated manifest，因此不得包含密码、token、API key 或其他秘密；秘密仍由
+sops template 在 activation 时注入。
 
 ## Managed Config Block
 
