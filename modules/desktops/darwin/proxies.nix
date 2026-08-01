@@ -1,7 +1,7 @@
 { config, lib, ... }:
 
 let
-  proxyStatus = config.envy.darwin.proxy.mode;
+  proxyStatus = config.envy.darwin.services.mihomo.mode;
   proxyConfigured = proxyStatus != "none";
   mihomoEnabled = proxyConfigured
     && !(builtins.elem "mihomo" config.envy.darwin.software.homebrew.formulae.exclude);
@@ -22,7 +22,7 @@ in
 
       # interface-name: @PHYS_IFACE@
       tun:
-        enable: ${if config.envy.darwin.proxy.tun then "true" else "false"}
+        enable: ${if config.envy.darwin.services.mihomo.tun then "true" else "false"}
         stack: mixed
         auto-route: true
         strict-route: false

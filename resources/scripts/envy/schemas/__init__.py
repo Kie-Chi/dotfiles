@@ -9,7 +9,7 @@ chicken-and-egg problem where installed envy cannot see new schema fields.
 __version__ = "0.3.0"
 
 # Bump when MACHINE_FIELDS/SECRET_FIELDS change (add/remove/rename fields)
-CONFIG_SCHEMA_VERSION = 4
+CONFIG_SCHEMA_VERSION = 5
 
 # Bump when FieldDef protocol changes (new parameters, validator calling convention)
 CONFIG_SCHEMA_API_VERSION = 1

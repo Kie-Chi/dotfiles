@@ -84,8 +84,9 @@ in
         "envy.llm.deepseek.model" = config.envy.llm.deepseek.model;
         "envy.habits.terminalScratchpad.gesture" = config.envy.habits.terminalScratchpad.gesture;
         "envy.habits.globalLauncher.gesture" = config.envy.habits.globalLauncher.gesture;
-        "envy.darwin.proxy.mode" = policy.proxy.mode;
-        "envy.darwin.proxy.tun" = policy.proxy.tun;
+        "envy.darwin.services.mihomo.mode" = policy.services.mihomo.mode;
+        "envy.darwin.services.mihomo.tun" = policy.services.mihomo.tun;
+        "envy.darwin.services.openssh.mode" = policy.services.openssh.mode;
         "envy.vscode.mode" = config.envy.vscode.mode;
         "envy.mirrors.mode" = config.envy.mirrors.mode;
       };

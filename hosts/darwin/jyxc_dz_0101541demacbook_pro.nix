@@ -30,9 +30,10 @@
   # --- MIRRORS CONFIG ---
   envy.mirrors.mode = "china";
 
-  # --- DARWIN PROXY CONFIG ---
-  envy.darwin.proxy.mode = "none";
-  envy.darwin.proxy.tun = false;
+  # --- DARWIN SERVICES CONFIG ---
+  envy.darwin.services.mihomo.mode = "none";
+  envy.darwin.services.mihomo.tun = false;
+  envy.darwin.services.openssh.mode = "manual";
 
   # --- VSCODE CONFIG ---
   envy.vscode.mode = "remote";

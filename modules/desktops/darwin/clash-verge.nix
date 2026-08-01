@@ -1,10 +1,10 @@
 { config, lib, ... }:
 
 let
-  proxyStatus = config.envy.darwin.proxy.mode;
+  proxyStatus = config.envy.darwin.services.mihomo.mode;
   enabled = proxyStatus != "none"
     && !(builtins.elem "clash-verge-rev" config.envy.darwin.software.homebrew.casks.exclude);
-  enableTun = config.envy.darwin.proxy.tun;
+  enableTun = config.envy.darwin.services.mihomo.tun;
   renderYaml = lib.generators.toYAML {};
 in
 {

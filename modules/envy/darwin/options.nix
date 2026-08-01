@@ -6,16 +6,24 @@ let
 in
 {
   options.envy.darwin = {
-    proxy = {
-      mode = mkOption {
-        type = types.enum [ "none" "manual" "keep" ];
-        default = "none";
-        description = "Darwin proxy service policy.";
+    services = {
+      mihomo = {
+        mode = mkOption {
+          type = types.enum [ "none" "manual" "keep" ];
+          default = "none";
+          description = "Mihomo service mode: disabled, manually controlled, or kept running.";
+        };
+        tun = mkOption {
+          type = types.bool;
+          default = false;
+          description = "Whether Mihomo uses TUN mode.";
+        };
       };
-      tun = mkOption {
-        type = types.bool;
-        default = false;
-        description = "Whether Darwin uses proxy TUN mode.";
+
+      openssh.mode = mkOption {
+        type = types.enum [ "none" "manual" "keep" ];
+        default = "manual";
+        description = "OpenSSH service mode: disabled, manually controlled by macOS, or kept enabled.";
       };
     };
 

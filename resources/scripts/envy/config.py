@@ -231,7 +231,7 @@ def write_machine_nix(values: dict, machine_id: str | None = None) -> None:
     else:
         # Move legacy flat assignments for managed fields into the controlled
         # block while leaving imports and all other machine policy untouched.
-        managed_paths = {field.path for field in MACHINE_FIELDS}
+        managed_paths = {field.path for field in MACHINE_FIELDS} | set(OBSOLETE_MACHINE_KEYS)
         assignment = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*=.*;\s*$")
         kept_lines = []
         for line in text.splitlines(keepends=True):
@@ -574,7 +574,7 @@ def refine_config(*, write: bool = True, strict: bool = False) -> RefineReport:
 
     for f in MACHINE_FIELDS:
         if f.path not in values:
-            legacy_value = _legacy_config_value(f.path, values, legacy_values)
+            legacy_value = _legacy_config_value(f.path, original, legacy_values)
             values[f.path] = legacy_value if str(legacy_value).strip() else f.default_fn()
             report.added.append(f.path)
             action = "migrated legacy field" if str(legacy_value).strip() else "added missing field"

@@ -5,8 +5,8 @@ let
   proxyPort = "20122";
   mihomoBin = "/opt/homebrew/bin/mihomo";
   configDir = "${config.envy.user.home}/.config/mihomo";
-  proxyStatus = config.envy.darwin.proxy.mode;
-  isTunMode = config.envy.darwin.proxy.tun;
+  proxyStatus = config.envy.darwin.services.mihomo.mode;
+  isTunMode = config.envy.darwin.services.mihomo.tun;
   proxyConfigured = proxyStatus != "none";
   serviceEnabled = proxyConfigured
     && builtins.elem "mihomo" config.envy.darwin.software.homebrew.formulae.effective;
