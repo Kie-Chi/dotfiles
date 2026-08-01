@@ -74,9 +74,9 @@ in
     mesa = "nix:mesa";
   } // lib.optionalAttrs waydroidEnabled {
     "waydroid-helper" = "local:modules/desktops/linux/base.nix#waydroidHelper";
-  } // lib.optionalAttrs (nixGLDefault != null) {
-    nixGLIntel = "local:flake.nix#nixGLDefault";
-  };
+  } // lib.optionalAttrs (nixGLDefault != null) (
+    lib.setAttrByPath [ (lib.getName nixGLDefault) ] "local:flake.nix#nixGLDefault"
+  );
 
   home.pointerCursor = {
     name = "Yaru";
