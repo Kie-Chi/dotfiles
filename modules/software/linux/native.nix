@@ -49,7 +49,7 @@ in
       ${lib.concatMapStringsSep "\n" collectPackage packages}
 
       if [ ''${#MISSING_PKGS[@]} -gt 0 ]; then
-        pkg_update || true
+        pkg_update
         pkg_install "''${MISSING_PKGS[@]}"
       else
         log_info "all native packages satisfied, nothing to install."

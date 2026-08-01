@@ -2,6 +2,7 @@
 
 let
   isDarwin = pkgs.stdenv.isDarwin;
+  linuxSystemPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
   sopsHomePasswdPath = config.sops.secrets.home-passwd.path;
   hasSopsSecrets = config.sops.secrets != {};
 
@@ -133,17 +134,23 @@ let
 
       aptFn = ''
         apt_envy() {
+          local -a APT_ENV
+          local APT_CMD
           APT_CMD="${cmds.apt}"
           if [ ! -x "$APT_CMD" ]; then
             APT_CMD="$(command -v apt)"
           fi
+          APT_ENV=(
+            ${pkgs.coreutils}/bin/env
+            "PATH=${linuxSystemPath}"
+          )
           if [ -f /etc/apt/sources.list.d/envy-mirror.sources ]; then
-            esudo "$APT_CMD" \
+            esudo "''${APT_ENV[@]}" "$APT_CMD" \
               -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/envy-mirror.sources \
               -o Dir::Etc::sourceparts=- \
               "$@"
           else
-            esudo "$APT_CMD" "$@"
+            esudo "''${APT_ENV[@]}" "$APT_CMD" "$@"
           fi
         }
       '';
