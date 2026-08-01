@@ -1,9 +1,14 @@
 import subprocess
 import tempfile
 import unittest
+import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from typer.testing import CliRunner
+
+from envy import main
 from envy.mirror import (
     MirrorCache,
     CHSRC_MEASURE_TIMEOUT,
@@ -27,6 +32,20 @@ from envy.mirror import (
 
 
 class MirrorTests(unittest.TestCase):
+    def test_trust_status_is_registered_and_reports_darwin_declarative_state(self):
+        context = SimpleNamespace(mode="china", user="policy-user")
+        with patch("envy.mirror.nix_trust_is_applicable", return_value=False), patch(
+            "envy.mirror.current_nix_trust_context", return_value=context
+        ):
+            result = CliRunner().invoke(
+                main.cli, ["mirror", "trust", "status", "--json"]
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        payload = json.loads(result.output)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["data"]["state"], "declarative")
+
     def test_entries_flatten_effective_values_and_hide_probe_metadata(self):
         mirrors = {
             "mode": "china",

@@ -165,9 +165,39 @@ class InstallScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count("substituters ="), 1)
+        self.assertEqual(
+            result.stdout.splitlines().count(
+                "substituters = https://mirrors.ustc.edu.cn/nix-channels/store https://cache.nixos.org/"
+            ),
+            1,
+        )
         self.assertIn("https://mirrors.ustc.edu.cn/nix-channels/store", result.stdout)
         self.assertIn("https://cache.nixos.org/", result.stdout)
+        self.assertIn("extra-substituters = https://cache.thalheim.io", result.stdout)
+
+    def test_upstream_bootstrap_also_uses_sops_nix_cache(self):
+        script = ROOT / "resources" / "scripts" / "mirror-env.sh"
+        environment = dict(os.environ)
+        for name in ("ENVY_MIRROR_ENV_APPLIED", "NIX_CONFIG"):
+            environment.pop(name, None)
+        environment["ENVY_MIRROR"] = "upstream"
+
+        result = subprocess.run(
+            [
+                "bash", "-c",
+                '. "$1"; . "$1"; printf "%s\\n" "$NIX_CONFIG"',
+                "envy-mirror-test", str(script),
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count("extra-substituters ="), 1)
+        self.assertIn("https://cache.thalheim.io", result.stdout)
+        self.assertNotIn("mirrors.ustc.edu.cn", result.stdout)
 
     def test_setup_without_a_terminal_fails_with_clone_only_guidance(self):
         target = self.root / "checkout"

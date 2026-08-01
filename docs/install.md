@@ -88,11 +88,15 @@ shell 环境和文档统一使用 `ENVY_ROOT`。已有 `~/.dotfiles` checkout �
 不会自动移动已有目录，也不会覆盖其中的未提交改动。
 
 `setup.sh` 也支持 `--mirror china|upstream`。Linux 的 Nix daemon 模式会拒绝普通用户
-通过 `NIX_CONFIG` 临时添加未信任的 substituter；`china` 模式会在被
-`/etc/nix/nix.conf` include 的 `/etc/nix/nix.custom.conf` 中追加一个带固定标记的
-envY 管理块，信任 USTC endpoint 及其使用的官方 cache key。envY 不会直接修改官方
-主配置文件。
-该操作需要 `sudo`，没有权限时 setup 仍可继续，但 Nix 会回退到 daemon 已信任的缓存。
+通过 `NIX_CONFIG` 临时添加未信任的 substituter；setup 会在第一次 Nix build 前调用
+`resources/scripts/nix-trust.sh`，原子维护被 `/etc/nix/nix.conf` include 的
+`/etc/nix/nix.custom.conf` 中固定标记块。两种模式都信任 sops-nix 的
+`cache.thalheim.io` 及固定 public key；`china` 另外信任 USTC 和官方 cache key。该 block
+还使用 `extra-trusted-users` 加入当前用户，不会替换管理员已有的 `trusted-users` policy。
+
+仅当 block 需要创建或升级时才会请求 `sudo`，更改后只重启当前 active 的 Nix daemon。
+缺少 include、marker 格式损坏或没有提权能力都会明确终止 setup，避免带着实际未生效的
+缓存策略继续执行大规模本地构建。envY 不会直接改写官方主配置文件的其他内容。
 
 ## Existing Checkouts
 

@@ -106,6 +106,7 @@ in
 assert serverForbiddenPackages == [ ];
 assert serverForbiddenActivations == [ ];
 assert hasActivation "configureAptMirror" server;
+assert hasActivation "configureNixDaemonTrust" server;
 assert hasActivation "installNativePackages" server;
 assert hasActivation "installNpmTools" server;
 assert hasActivation "installPypiTools" server;
@@ -117,6 +118,15 @@ assert server.config.envy.machine.manifest.software.groups ? "pypi.user.tool";
 assert !(server.config.envy.machine.manifest.software.groups ? "homebrew.system.cask");
 assert server.config.envy.machine.manifest.mirrors ? apt;
 assert !(server.config.envy.machine.manifest.mirrors ? homebrew);
+assert builtins.elem
+  "https://cache.thalheim.io"
+  server.config.envy.machine.manifest.mirrors.nix.extraSubstituters;
+assert builtins.elem
+  "cache.thalheim.io-1:R7msbosLEZKrxk/lKxf9BTjOOH7Ax3H0Qj0/6wiHOgc="
+  server.config.envy.machine.manifest.mirrors.nix.extraTrustedPublicKeys;
+assert !(inputs.nixpkgs.lib.hasInfix
+  "download-attempts"
+  server.config.home.file.".config/nix/nix.conf".text);
 assert server.config.home.sessionVariables.UV_DEFAULT_INDEX ==
   "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple";
 assert builtins.attrNames server.config.systemd.user.services == [ "sops-nix" ];

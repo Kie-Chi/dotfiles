@@ -252,7 +252,8 @@
           bash -n setup.sh
           bash -n requires.sh
           bash -n resources/scripts/mirror-env.sh
-          shellcheck -x envy install.sh setup.sh requires.sh resources/scripts/mirror-env.sh
+          bash -n resources/scripts/nix-trust.sh
+          shellcheck -x envy install.sh setup.sh requires.sh resources/scripts/mirror-env.sh resources/scripts/nix-trust.sh
           touch "$out"
         '';
 
@@ -301,6 +302,13 @@
             configuration.config.envy.machine.manifest.mirrors ? homebrew
             && !(configuration.config.envy.machine.manifest.mirrors ? apt)
             && !(configuration.config.envy.machine.manifest.mirrors ? dockerInstallerMirror)
+            && builtins.elem
+              "https://cache.thalheim.io"
+              configuration.config.nix.settings.substituters
+            && builtins.elem
+              "cache.thalheim.io-1:R7msbosLEZKrxk/lKxf9BTjOOH7Ax3H0Qj0/6wiHOgc="
+              configuration.config.nix.settings.extra-trusted-public-keys
+            && configuration.config.nix.settings.download-attempts == 3
             && configuration.config.envy.machine.manifest.schemaVersion == 2
             && configuration.config.envy.machine.manifest ? environment
             && configuration.config.envy.machine.manifest ? shell
@@ -318,6 +326,12 @@
             configuration.config.envy.machine.manifest.mirrors ? apt
             && configuration.config.envy.machine.manifest.mirrors ? dockerInstallerMirror
             && !(configuration.config.envy.machine.manifest.mirrors ? homebrew)
+            && builtins.elem
+              "https://cache.thalheim.io"
+              configuration.config.envy.machine.manifest.mirrors.nix.extraSubstituters
+            && builtins.elem
+              "cache.thalheim.io-1:R7msbosLEZKrxk/lKxf9BTjOOH7Ax3H0Qj0/6wiHOgc="
+              configuration.config.envy.machine.manifest.mirrors.nix.extraTrustedPublicKeys
             && configuration.config.envy.machine.manifest.schemaVersion == 2
             && configuration.config.envy.machine.manifest ? environment
             && configuration.config.envy.machine.manifest ? shell

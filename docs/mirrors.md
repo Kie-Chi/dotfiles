@@ -32,8 +32,8 @@ generated assignments，其他 target 与手工 machine policy 不受影响。ca
 
 首次安装时 machine module 还没有求值，镜像分为两个阶段：
 
-1. `install.sh --mirror china|upstream` 设置 `ENVY_MIRROR`。`china` 模式会先通过 `gh-proxy.com` clone GitHub 仓库（可用 `ENVY_GIT_MIRROR_URL` 替换），失败后回退直连；`setup.sh` 加载 `resources/scripts/mirror-env.sh`，在第一次 `nix develop` 前注入临时 Nix、npm、PyPI/uv、Go 和 Rust/Cargo 环境。
-2. setup 写入 machine setting；`envy apply` 后由 `modules/mirrors/` 声明式维护长期配置。
+1. `install.sh --mirror china|upstream` 设置 `ENVY_MIRROR`。`china` 模式会先通过 `gh-proxy.com` clone GitHub 仓库（可用 `ENVY_GIT_MIRROR_URL` 替换），失败后回退直连；`setup.sh` 加载 `resources/scripts/mirror-env.sh`，在第一次 `nix develop` 前注入临时 Nix、npm、PyPI/uv、Go 和 Rust/Cargo 环境。Linux 还会先用 `resources/scripts/nix-trust.sh` 校准 Nix daemon trust。
+2. setup 写入 machine setting；`envy apply` 后由 `modules/mirrors/` 维护长期配置。Darwin 通过 nix-darwin 的 `nix.settings` 声明，Linux 通过同一个 trust helper 维护 marker block。
 
 直接运行 `bash setup.sh` 时也会读取 `ENVY_MIRROR`，未指定则使用 `china`。bootstrap shell 中的端点必须与 `modules/mirrors/catalog.nix` 保持一致。
 
@@ -41,7 +41,7 @@ generated assignments，其他 target 与手工 machine policy 不受影响。ca
 
 | Scope | Ecosystem | China endpoint / behavior |
 |---|---|---|
-| Common | Nix binary cache | USTC 优先，`cache.nixos.org` 回退；保留 Nix signature verification |
+| Common | Nix binary cache | 两种模式都增加 `cache.thalheim.io` 作为 sops-nix dependency cache；China 仍为 USTC 优先、`cache.nixos.org` 回退；保留 Nix signature verification |
 | Common | npm | npmmirror |
 | Common | PyPI / uv | TUNA |
 | Common | Go modules | `goproxy.cn,direct` |
@@ -55,7 +55,9 @@ generated assignments，其他 target 与手工 machine policy 不受影响。ca
 ### Nix Cache And Sources
 
 Nix 的 `substituters` 只负责已经构建好的 `/nix/store` 路径，不会改写
-`fetchurl`、`fetchFromGitHub` 或 flake input 的源地址。`china` profile 会显式写入以下
+`fetchurl`、`fetchFromGitHub` 或 flake input 的源地址。两个 profile 都会额外加入
+`cache.thalheim.io` 及其固定 public key，因为 sops-nix 发布的部分构建结果不在官方缓存中。
+`china` profile 的主缓存仍显式写入以下
 顺序：
 
 ```text
@@ -63,7 +65,11 @@ https://mirrors.ustc.edu.cn/nix-channels/store
 https://cache.nixos.org/
 ```
 
-因此看到 `cache.nixos.org` 有两种正常情况：USTC 没有对应的 store path，或者请求发生在
+这样 `sops-install-secrets` 可以直接取得已构建的 store path，不需要在 Nix sandbox 中临时
+执行 `go mod download`；用户 shell 中的 `GOPROXY` 不会传入 multi-user Nix daemon build，
+因此它不是这个问题的长期修复。
+
+看到 `cache.nixos.org` 有两种正常情况：USTC 没有对应的 store path，或者请求发生在
 Nix source fetcher 上而不是 binary cache。前者是有意保留的官方回退，后者仍使用源码声明
 中的原始 URL。可以用 `nix config show | grep '^substituters'` 检查当前生效顺序；如果仍然
 看到 USTC 排在系统默认缓存之后，说明尚未重新运行 Home Manager/nix-darwin activation。
@@ -89,9 +95,17 @@ envy mirror status
 envy mirror status --refresh
 envy mirror probe
 envy mirror probe --timeout 30
+envy mirror trust status
+envy mirror trust repair
 ```
 
 `status` 展示当前 machine evaluated manifest 中实际生效的平台端点。`probe` 对 catalog 中的 probe URL 做只读 HTTP HEAD 检查，报告状态码和耗时；失败时返回非零，不下载 artifact、不写 machine 配置，也不调用 `chsrc`。
+
+Linux 上的 `trust status` 不写配置；`trust repair` 只替换
+`/etc/nix/nix.custom.conf` 中 `ENVY MANAGED NIX MIRROR` 标记之间的内容，保留标记外的管理员设置。
+旧 block 会升级到当前策略；重复运行不会写文件或重启服务。只有内容实际变化时，才会重启
+当前 active 的 `nix-daemon.service` 或 `determinate-nixd.service`。marker 缺失一端、重复或顺序
+错误时会停止且不修改文件。`envy apply` 在 `refine` 和首次 Nix 求值之前自动执行同一预检。
 
 ## Per-target source selection and cache
 

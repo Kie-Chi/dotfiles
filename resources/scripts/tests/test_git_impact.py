@@ -24,6 +24,8 @@ class GitImpactTests(unittest.TestCase):
             main.typer, "prompt", return_value="copy"
         ), patch.object(system_workflow, "initialize_machine") as initialize, patch.object(
             system_workflow, "refine_all", return_value=report
+        ), patch.object(
+            system_workflow, "ensure_nix_daemon_trust"
         ):
             system_workflow.refine_before_apply()
 
@@ -35,12 +37,32 @@ class GitImpactTests(unittest.TestCase):
             system_workflow.sys.stdin, "isatty", return_value=False
         ), patch.object(system_workflow, "initialize_machine") as initialize, patch.object(
             system_workflow, "refine_all"
-        ) as refine:
+        ) as refine, patch.object(system_workflow, "ensure_nix_daemon_trust"):
             with self.assertRaises(typer.Exit):
                 system_workflow.refine_before_apply()
 
         initialize.assert_not_called()
         refine.assert_not_called()
+
+    def test_linux_trust_preflight_runs_before_refine(self):
+        machine = Path(__file__).resolve()
+        events = []
+        report = SimpleNamespace(ok=True)
+        with patch.object(system_workflow, "PLATFORM", "linux"), patch.object(
+            system_workflow, "current_machine_file", return_value=machine
+        ), patch.object(
+            system_workflow,
+            "ensure_nix_daemon_trust",
+            side_effect=lambda **_: events.append("trust"),
+        ) as trust, patch.object(
+            system_workflow,
+            "refine_all",
+            side_effect=lambda **_: (events.append("refine"), report)[1],
+        ):
+            system_workflow.refine_before_apply()
+
+        trust.assert_called_once_with(platform="linux")
+        self.assertEqual(events, ["trust", "refine"])
 
     def test_changed_paths_preserve_first_character_spaces_and_rename_destination(self):
         completed = SimpleNamespace(
