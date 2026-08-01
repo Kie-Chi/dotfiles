@@ -285,11 +285,15 @@
         lib.all
           (configuration:
             configuration.options.envy ? darwin
+            && configuration.options.envy ? environment
+            && configuration.options.envy ? shell
             && !(configuration.options.envy ? linux))
           (builtins.attrValues darwinConfigurations)
         && lib.all
           (configuration:
             configuration.options.envy ? linux
+            && configuration.options.envy ? environment
+            && configuration.options.envy ? shell
             && !(configuration.options.envy ? darwin))
           (builtins.attrValues homeConfigurations)
         && lib.all
@@ -298,6 +302,8 @@
             && !(configuration.config.envy.machine.manifest.mirrors ? apt)
             && !(configuration.config.envy.machine.manifest.mirrors ? dockerInstallerMirror)
             && configuration.config.envy.machine.manifest.schemaVersion == 2
+            && configuration.config.envy.machine.manifest ? environment
+            && configuration.config.envy.machine.manifest ? shell
             && configuration.config.envy.machine.manifest.software.groups ? "homebrew.system.cask"
             && builtins.any
               (item: item.id == "codegraph")
@@ -313,6 +319,8 @@
             && configuration.config.envy.machine.manifest.mirrors ? dockerInstallerMirror
             && !(configuration.config.envy.machine.manifest.mirrors ? homebrew)
             && configuration.config.envy.machine.manifest.schemaVersion == 2
+            && configuration.config.envy.machine.manifest ? environment
+            && configuration.config.envy.machine.manifest ? shell
             && configuration.config.envy.machine.manifest.software.groups ? "native.system.package"
             && !(configuration.config.envy.machine.manifest.software.groups ? "homebrew.system.cask"))
           (builtins.attrValues homeConfigurations);

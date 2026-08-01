@@ -1,5 +1,15 @@
 { pkgs, lib, config, machinePlatform, sys, ... }:
 
+let
+  machineEnvironment = config.envy.environment;
+  machineZsh = config.envy.shell.zsh;
+  machineSessionVariables = lib.mapAttrs
+    (_: value: lib.mkOverride 90 value)
+    machineEnvironment.sessionVariables;
+  machineAliases = lib.mapAttrs
+    (_: value: lib.mkOverride 90 value)
+    machineZsh.aliases;
+in
 {
   programs.zsh = {
     enable = true;
@@ -43,7 +53,7 @@
       LANG = "en_US.UTF-8";
       EDITOR = "code";
       ENVY_ROOT = config.envy.repository.path;
-    };
+    } // machineSessionVariables;
 
     shellAliases = {
       zshconf = "nvim ${config.envy.repository.path}/modules/cores/shell.nix";
@@ -58,16 +68,22 @@
       rcat = "command cat";
       grep = "rg";
 
-    };
+    } // machineAliases;
 
 
-    initContent = ''
-      [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+    initContent = lib.mkMerge [
+      ''
+        [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-      ${builtins.readFile ../../files/zsh/opt.zsh}
-      ${builtins.readFile ../../files/zsh/func.zsh}
-    '';
+        ${builtins.readFile ../../files/zsh/opt.zsh}
+        ${builtins.readFile ../../files/zsh/func.zsh}
+      ''
+      (lib.mkOrder 2000 machineZsh.initContent)
+    ];
   };
+
+  home.sessionVariables = machineSessionVariables;
+  home.sessionPath = lib.mkAfter machineEnvironment.sessionPath;
 
   programs.zoxide = {
     enable = true;

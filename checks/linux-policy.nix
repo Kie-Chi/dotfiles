@@ -59,6 +59,18 @@ let
     "none"
     [ ]
     ({ pkgs, ... }: {
+      envy.environment.sessionVariables = {
+        EDITOR = "machine-editor";
+        ENVY_POLICY_CHECK = "enabled";
+      };
+      envy.environment.sessionPath = [ "/opt/envy-policy-check/bin" ];
+      envy.shell.zsh.aliases = {
+        grep = "rg --hidden";
+        policy-check = "envy status";
+      };
+      envy.shell.zsh.initContent = ''
+        export ENVY_ZSH_POLICY_CHECK=enabled
+      '';
       envy.software.nix.packages.include = [ pkgs.hello ];
       envy.software.nix.packages.references.hello = "nix:hello";
       envy.linux.software.native.packages.include = [
@@ -143,6 +155,27 @@ assert !hasPackage "waydroid" waydroidExcluded;
 assert !hasPackage "waydroid-helper" waydroidExcluded;
 assert !hasActivation "installWayDroid" waydroidExcluded;
 assert !(builtins.hasAttr "id.waydro.waydroid_helper" waydroidExcluded.config.xdg.desktopEntries);
+assert directSelections.config.home.sessionVariables.EDITOR == "machine-editor";
+assert directSelections.config.home.sessionVariables.ENVY_POLICY_CHECK == "enabled";
+assert directSelections.config.programs.zsh.sessionVariables.EDITOR == "machine-editor";
+assert builtins.elem "/opt/envy-policy-check/bin" directSelections.config.home.sessionPath;
+assert directSelections.config.programs.zsh.shellAliases.grep == "rg --hidden";
+assert directSelections.config.programs.zsh.shellAliases.policy-check == "envy status";
+assert inputs.nixpkgs.lib.hasInfix
+  "[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh"
+  directSelections.config.programs.zsh.initContent;
+assert inputs.nixpkgs.lib.hasSuffix
+  "export ENVY_ZSH_POLICY_CHECK=enabled\n"
+  directSelections.config.programs.zsh.initContent;
+assert directSelections.config.envy.machine.manifest.environment.sessionVariables.EDITOR ==
+  "machine-editor";
+assert directSelections.config.envy.machine.manifest.environment.sessionPath ==
+  [ "/opt/envy-policy-check/bin" ];
+assert directSelections.config.envy.machine.manifest.shell.zsh.aliases.policy-check ==
+  "envy status";
+assert inputs.nixpkgs.lib.hasInfix
+  "ENVY_ZSH_POLICY_CHECK"
+  directSelections.config.envy.machine.manifest.shell.zsh.initContent;
 assert hasPackage "hello" directSelections;
 assert builtins.any
   (item: item.id == "curl")

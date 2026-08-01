@@ -89,6 +89,14 @@ in
         "envy.vscode.mode" = config.envy.vscode.mode;
         "envy.mirrors.mode" = config.envy.mirrors.mode;
       };
+      environment = {
+        sessionVariables = config.envy.environment.sessionVariables;
+        sessionPath = config.envy.environment.sessionPath;
+      };
+      shell.zsh = {
+        aliases = config.envy.shell.zsh.aliases;
+        initContent = config.envy.shell.zsh.initContent;
+      };
       mirrorOverrides = config.envy.mirrors.overrides;
       mirrors = commonMirrors // {
         mode = config.envy.mirrors.mode;

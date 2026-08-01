@@ -119,6 +119,50 @@ in
       description = "Absolute path to the envY checkout on the selected machine.";
     };
 
+    environment = {
+      sessionVariables = mkOption {
+        type = types.attrsOf (types.oneOf [
+          types.str
+          types.path
+          types.int
+          types.float
+          types.bool
+        ]);
+        default = { };
+        description = ''
+          Non-sensitive machine-specific variables added to the Home Manager
+          session and interactive Zsh environment. Machine values take
+          precedence over shared defaults with the same name.
+        '';
+      };
+      sessionPath = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = ''
+          Machine-specific paths appended to the Home Manager session PATH.
+        '';
+      };
+    };
+
+    shell.zsh = {
+      aliases = mkOption {
+        type = types.attrsOf types.str;
+        default = { };
+        description = ''
+          Machine-specific Zsh aliases merged with shared aliases. Machine
+          values take precedence over shared aliases with the same name.
+        '';
+      };
+      initContent = mkOption {
+        type = types.lines;
+        default = "";
+        description = ''
+          Non-sensitive machine-specific Zsh initialization appended after
+          shared and feature-owned initialization.
+        '';
+      };
+    };
+
     vscode.mode = mkOption {
       type = types.enum [ "remote" "local" ];
       default = "remote";
