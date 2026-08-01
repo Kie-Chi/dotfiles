@@ -37,7 +37,6 @@ in
     ".config/nix/nix.conf".text = ''
       ${nixMirrorConfig}fallback = true
       connect-timeout = 5
-      download-attempts = 3
     '';
   } // lib.optionalAttrs (machinePlatform == "linux") {
     ".condarc".text = lib.generators.toYAML { } condaConfig;

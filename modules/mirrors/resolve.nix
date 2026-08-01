@@ -18,6 +18,7 @@ profile // {
   nix = profile.nix // {
     substituters = field "nix" "substituters" profile.nix.substituters;
     extraSubstituters = field "nix" "extraSubstituters" profile.nix.extraSubstituters;
+    extraTrustedPublicKeys = field "nix" "extraTrustedPublicKeys" profile.nix.extraTrustedPublicKeys;
   };
   npm = profile.npm // {
     registry = field "npm" "registry" profile.npm.registry;

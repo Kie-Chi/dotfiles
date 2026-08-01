@@ -87,6 +87,7 @@ in
 
   envy.software.nix.packages.references = {
     "mirror-env.sh" = "local:resources/scripts/mirror-env.sh";
+    "nix-trust.sh" = "local:resources/scripts/nix-trust.sh";
     ppack = "local:resources/scripts/ppack";
     scrctl = "local:resources/scripts/scrctl";
     spk = "local:resources/scripts/spk";

@@ -19,18 +19,12 @@ esac
 export ENVY_MIRROR="$envy_mirror_mode"
 
 if [ "${ENVY_MIRROR_ENV_APPLIED:-}" != "$envy_mirror_mode" ]; then
-    if [ "$envy_mirror_mode" = "china" ]; then
-        envy_nix_config='substituters = https://mirrors.ustc.edu.cn/nix-channels/store https://cache.nixos.org/
+    envy_nix_config='extra-substituters = https://cache.thalheim.io
 fallback = true
-connect-timeout = 5
-download-attempts = 3'
-        if [ -n "${NIX_CONFIG:-}" ]; then
-            NIX_CONFIG="$NIX_CONFIG
+connect-timeout = 5'
+    if [ "$envy_mirror_mode" = "china" ]; then
+        envy_nix_config="substituters = https://mirrors.ustc.edu.cn/nix-channels/store https://cache.nixos.org/
 $envy_nix_config"
-        else
-            NIX_CONFIG="$envy_nix_config"
-        fi
-        export NIX_CONFIG
         export npm_config_registry="https://registry.npmmirror.com"
         export PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
         export UV_DEFAULT_INDEX="$PIP_INDEX_URL"
@@ -40,6 +34,13 @@ $envy_nix_config"
         export CARGO_REGISTRIES_CRATES_IO_INDEX="sparse+https://rsproxy.cn/index/"
         export CARGO_REGISTRIES_CRATES_IO_PROTOCOL="sparse"
     fi
+    if [ -n "${NIX_CONFIG:-}" ]; then
+        NIX_CONFIG="$NIX_CONFIG
+$envy_nix_config"
+    else
+        NIX_CONFIG="$envy_nix_config"
+    fi
+    export NIX_CONFIG
     export ENVY_MIRROR_ENV_APPLIED="$envy_mirror_mode"
 fi
 

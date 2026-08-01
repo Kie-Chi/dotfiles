@@ -2,7 +2,10 @@
   upstream = {
     nix = {
       substituters = [ "https://cache.nixos.org/" ];
-      extraSubstituters = [ ];
+      extraSubstituters = [ "https://cache.thalheim.io" ];
+      extraTrustedPublicKeys = [
+        "cache.thalheim.io-1:R7msbosLEZKrxk/lKxf9BTjOOH7Ax3H0Qj0/6wiHOgc="
+      ];
     };
     npm.registry = "https://registry.npmjs.org/";
     python.index = "https://pypi.org/simple";
@@ -36,6 +39,7 @@
     probes = {
       common = [
         { name = "Nix cache"; url = "https://cache.nixos.org/nix-cache-info"; }
+        { name = "sops-nix cache"; url = "https://cache.thalheim.io/nix-cache-info"; }
         { name = "npm registry"; url = "https://registry.npmjs.org/-/ping"; }
         { name = "PyPI index"; url = "https://pypi.org/simple/pip/"; }
         { name = "Go proxy"; url = "https://proxy.golang.org/golang.org/x/text/@v/list"; }
@@ -62,7 +66,10 @@
         "https://mirrors.ustc.edu.cn/nix-channels/store"
         "https://cache.nixos.org/"
       ];
-      extraSubstituters = [ ];
+      extraSubstituters = [ "https://cache.thalheim.io" ];
+      extraTrustedPublicKeys = [
+        "cache.thalheim.io-1:R7msbosLEZKrxk/lKxf9BTjOOH7Ax3H0Qj0/6wiHOgc="
+      ];
     };
     npm.registry = "https://registry.npmmirror.com";
     python.index = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple";
@@ -97,6 +104,7 @@
     probes = {
       common = [
         { name = "Nix cache"; url = "https://mirrors.ustc.edu.cn/nix-channels/store/nix-cache-info"; }
+        { name = "sops-nix cache"; url = "https://cache.thalheim.io/nix-cache-info"; }
         { name = "npm registry"; url = "https://registry.npmmirror.com/-/ping"; }
         { name = "PyPI index"; url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/pip/"; }
         { name = "Go proxy"; url = "https://goproxy.cn/golang.org/x/text/@v/list"; }

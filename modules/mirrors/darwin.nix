@@ -15,6 +15,13 @@ let
   };
 in
 {
+  nix.settings = {
+    substituters = profile.nix.substituters ++ profile.nix.extraSubstituters;
+    trusted-substituters = profile.nix.substituters ++ profile.nix.extraSubstituters;
+    extra-trusted-public-keys = profile.nix.extraTrustedPublicKeys;
+    download-attempts = 3;
+  };
+
   environment.variables = homebrewEnv;
   homebrew.onActivation.extraEnv = homebrewEnv;
 }
