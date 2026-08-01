@@ -7,6 +7,7 @@ REQUIRES_SCRIPT="$BASE_DIR/requires.sh"
 MIRROR_ENV_SCRIPT="$BASE_DIR/resources/scripts/mirror-env.sh"
 NIX_PROFILE_SCRIPT='/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
 NIX_BIN_DIR='/nix/var/nix/profiles/default/bin'
+NIX_CUSTOM_CONFIG='/etc/nix/nix.custom.conf'
 NIX_SYSTEM_CONFIG='/etc/nix/nix.conf'
 NIX_MIRROR_MARKER='# BEGIN ENVY MANAGED NIX MIRROR'
 mirror="${ENVY_MIRROR:-china}"
@@ -59,7 +60,12 @@ configure_nix_mirror_trust() {
     # Nix daemon mode rejects client-only substituter settings from ordinary
     # users. Trust the audited USTC endpoint while preserving existing daemon
     # substituters and keys. The block is static and idempotent.
-    if [ -r "$NIX_SYSTEM_CONFIG" ] && grep -Fq "$NIX_MIRROR_MARKER" "$NIX_SYSTEM_CONFIG"; then
+    if [ -r "$NIX_CUSTOM_CONFIG" ] && grep -Fq "$NIX_MIRROR_MARKER" "$NIX_CUSTOM_CONFIG"; then
+        return 0
+    fi
+
+    if [ ! -r "$NIX_SYSTEM_CONFIG" ] || ! grep -Fq '!include nix.custom.conf' "$NIX_SYSTEM_CONFIG"; then
+        echo "[WARN] $NIX_SYSTEM_CONFIG does not include nix.custom.conf; USTC trust was not changed." >&2
         return 0
     fi
 
@@ -74,14 +80,14 @@ EOF
 )
 
     if [ "$(id -u)" -eq 0 ]; then
-        if ! printf '%s\n' "$nix_mirror_block" >> "$NIX_SYSTEM_CONFIG"; then
-            echo "[WARN] Could not update $NIX_SYSTEM_CONFIG; USTC may be ignored by the Nix daemon." >&2
+        if ! printf '%s\n' "$nix_mirror_block" >> "$NIX_CUSTOM_CONFIG"; then
+            echo "[WARN] Could not update $NIX_CUSTOM_CONFIG; USTC may be ignored by the Nix daemon." >&2
         else
             configured=1
         fi
     elif command -v sudo >/dev/null 2>&1; then
-        if ! printf '%s\n' "$nix_mirror_block" | sudo tee -a "$NIX_SYSTEM_CONFIG" >/dev/null; then
-            echo "[WARN] Could not update $NIX_SYSTEM_CONFIG; USTC may be ignored by the Nix daemon." >&2
+        if ! printf '%s\n' "$nix_mirror_block" | sudo tee -a "$NIX_CUSTOM_CONFIG" >/dev/null; then
+            echo "[WARN] Could not update $NIX_CUSTOM_CONFIG; USTC may be ignored by the Nix daemon." >&2
         else
             configured=1
         fi
