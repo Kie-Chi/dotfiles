@@ -42,4 +42,12 @@
   envy.vscode.mode = "remote";
   # END ENVY MANAGED CONFIG
 
+  # BEGIN ENVY MANAGED SOFTWARE
+  # `envy setup` and `envy software` own only these machine-local selections.
+
+  envy.software.pypi.tools.exclude = [
+    "headroom"
+  ];
+  # END ENVY MANAGED SOFTWARE
+
 }
