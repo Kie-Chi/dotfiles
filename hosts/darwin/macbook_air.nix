@@ -45,6 +45,10 @@
   # BEGIN ENVY MANAGED SOFTWARE
   # `envy setup` and `envy software` own only these machine-local selections.
 
+  envy.darwin.software.homebrew.casks.include = [
+    "steam"
+  ];
+
   envy.software.pypi.tools.exclude = [
     "headroom"
   ];
